@@ -93,6 +93,14 @@ function dailyCounts(rows){
   const by={}; rows.forEach(r=>{ const d=(r.created_at||"").slice(0,10); if(d) by[d]=(by[d]||0)+1; });
   return Object.keys(by).sort().map(d=>({label:d.slice(5), value:by[d]}));
 }
+// laatste `hours` uur als aparte bins van 1 u, eindigend op het huidige uur
+function hourlyCounts(rows, hours){
+  const buckets=[]; const now=new Date(); now.setMinutes(0,0,0);
+  const key=d=>d.toISOString().slice(0,13);   // YYYY-MM-DDTHH
+  const idx={}; for(let i=hours-1;i>=0;i--){ const d=new Date(now.getTime()-i*3600000); const k=key(d); idx[k]=buckets.length; buckets.push({label:d.getHours().toString().padStart(2,"0")+"u", value:0, k}); }
+  rows.forEach(r=>{ if(!r.created_at) return; const k=r.created_at.slice(0,13); if(k in idx) buckets[idx[k]].value++; });
+  return buckets;
+}
 function barChartSVG(points, opts){
   opts=opts||{}; const color=opts.color||"#2952cc";
   const W=680,H=180,pL=30,pR=12,pT=12,pB=28,n=points.length;
@@ -222,7 +230,7 @@ function renderHeader(){
   h.hidden=false;
   const nav=document.getElementById("topnav");
   const usersLabel = isEditor() ? `Gebruikers${USER_COUNT!=null?` (${USER_COUNT})`:""}` : null;
-  const links=[["#/","Quizzen"],["#/stats/vragen","Vraagstatistiek"],["#/account","Mijn account"]];
+  const links=[["#/","Quizzen"],["#/stats/vragen","Statistiek"],["#/account","Mijn account"]];
   if(isEditor()) links.push(["#/stats/gebruikers",usersLabel]);
   if(isEditor()) links.push(["#/beheer","Beheer"]);
   nav.innerHTML = links.map(([h,l])=>`<a data-nav="${h}">${l}</a>`).join("");
@@ -768,12 +776,11 @@ function learningBlock(myEvents, title){
    STATISTIEK — algemeen (alle quizzen)
    ============================================================ */
 async function viewStatsVragen(){
-  const [{data:questions},{data:answers},{data:flags},{data:quizzes},{data:myEvents},{data:allEvents},{data:visits}] = await Promise.all([
+  const [{data:questions},{data:answers},{data:flags},{data:quizzes},{data:allEvents},{data:visits}] = await Promise.all([
     sb.from("questions").select("id,qnum,quiz_id,text,correct_indexes,options"),
     sb.from("answers").select("question_id,is_correct"),
     sb.from("flags").select("question_id,type,user_id,preferred_indexes,created_at"),
     sb.from("quizzes").select("id,title,status"),
-    sb.from("answer_events").select("is_correct,created_at").eq("user_id",ME.id),
     sb.from("answer_events").select("is_correct,quiz_id,user_id,created_at"),
     sb.from("visits").select("user_id,created_at"),
   ]);
@@ -786,8 +793,6 @@ async function viewStatsVragen(){
   (flags||[]).forEach(f=>{ const qq=(questions||[]).find(q=>q.id===f.question_id); if(qq&&perQuiz[qq.quiz_id])perQuiz[qq.quiz_id].flags++; });
   const totAntw=(allEvents||[]).length;
   const totSpelers=new Set((allEvents||[]).map(e=>e.user_id)).size;
-  const myScored=scored(myEvents).length;
-  const myCorrect=(myEvents||[]).filter(e=>e.is_correct===true).length;
 
   app.innerHTML=`
     <h1>Statistiek — algemeen</h1>
@@ -798,9 +803,9 @@ async function viewStatsVragen(){
       ${kpi("Antwoorden gegeven",totAntw)}
       ${kpi("Actieve gebruikers",totSpelers)}
       ${kpi("Bezoeken",(visits||[]).length)}
-      ${kpi("Jouw % juist",myScored?pct(myCorrect,myScored)+"%":"—",myScored+" gevalideerde antwoorden")}
     </div>
-    ${learningBlock(myEvents||[], "Jouw vooruitgang over tijd")}
+    <h2>Laatste 48 uur — beantwoorde vragen per uur</h2>
+    <div class="card">${barChartSVG(hourlyCounts(allEvents||[],48),{color:"#16803d"})}</div>
     <h2>Bezoeken per dag</h2>
     <div class="card">${barChartSVG(dailyCounts(visits||[]),{color:"#1d3a99"})}</div>
     <h2>Antwoorden per dag</h2>
@@ -918,14 +923,27 @@ async function viewStatsGebruikers(){
    MIJN ACCOUNT — reacties, profiel, wachtwoord
    ============================================================ */
 async function viewAccount(){
-  const { data:flags } = await sb.from("flags").select("*").eq("user_id",ME.id).order("created_at",{ascending:false});
+  const [{data:flags},{data:myEvents}] = await Promise.all([
+    sb.from("flags").select("*").eq("user_id",ME.id).order("created_at",{ascending:false}),
+    sb.from("answer_events").select("is_correct,created_at").eq("user_id",ME.id),
+  ]);
   const qids=[...new Set((flags||[]).map(f=>f.question_id))];
   let qmap={};
   if(qids.length){ const {data:qq}=await sb.from("questions").select("id,qnum,quiz_id").in("id",qids); (qq||[]).forEach(q=>qmap[q.id]=q); }
   const qlink=(qid)=>{ const q=qmap[qid]; return q?`<a class="ilink" data-q="${qid}" data-quiz="${q.quiz_id}">Vraag ${q.qnum}</a>`:`<span class="muted">(verwijderde vraag)</span>`; };
+  const myScored=scored(myEvents).length;
+  const myCorrect=(myEvents||[]).filter(e=>e.is_correct===true).length;
   app.innerHTML=`
     <h1>Mijn account</h1>
     <div class="muted">${esc(ME.email||"")} · <span class="role ${ME.role}">${ME.role}</span></div>
+
+    <h2>Mijn statistiek</h2>
+    <div class="kpis">
+      ${kpi("Antwoorden",(myEvents||[]).length)}
+      ${kpi("Gevalideerd",myScored)}
+      ${kpi("% juist",myScored?pct(myCorrect,myScored)+"%":"—")}
+    </div>
+    ${learningBlock(myEvents||[], "Jouw vooruitgang over tijd")}
 
     <h2>Profiel</h2>
     <div class="card">
