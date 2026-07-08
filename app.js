@@ -293,10 +293,12 @@ async function viewHome(){
     </div>`;}).join("");
   app.innerHTML=`
     <div class="spread"><h1>Quizzen</h1>${isEditor()?`<button class="btn btn-primary btn-sm" data-nav="#/beheer">Beheer</button>`:""}</div>
-    <div class="dev-note">${ICON.info} QUIZT.ET wordt nog volop ontwikkeld — nieuwe functies verschijnen vanzelf, je hoeft niets te doen. Zie je toch iets ouds, vernieuw dan de pagina.</div>
+    <div class="dev-note">${ICON.info} QUIZT.ET wordt nog volop ontwikkeld — nieuwe functies verschijnen vanzelf. Zie je toch iets ouds, klik dan hieronder om te vernieuwen (of gebruik ⌘⇧R op Mac / Ctrl+F5 op Windows). <button class="btn btn-ghost btn-sm" id="hardRefresh" style="margin-left:.5rem">Nu vernieuwen</button></div>
     ${quizzes&&quizzes.length?`<div class="grid" style="margin-top:1rem">${cards}</div>`:`<div class="empty">Nog geen quizzen.</div>`}`;
   app.querySelectorAll("[data-open]").forEach(c=>c.onclick=()=>go("#/quiz/"+c.dataset.open));
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
+  const hr=document.getElementById("hardRefresh");
+  if(hr) hr.onclick=()=>{ const base=location.href.split("?")[0].split("#")[0]; location.href=base+"?_="+Date.now()+location.hash; };
 }
 
 /* ============================================================
