@@ -153,6 +153,7 @@ async function viewLogin(){
           <label>E-mail</label><input id="email" type="email" autocomplete="email" required>
           <label>Wachtwoord</label><input id="pw" type="password" autocomplete="current-password" required minlength="6">
           <div class="btnrow"><button class="btn btn-primary" type="submit" id="submitBtn" style="width:100%">Inloggen</button></div>
+          <div id="forgotRow" style="text-align:center;margin-top:.7rem"><a class="ilink" id="forgotLink">Wachtwoord vergeten?</a></div>
         </form>
         ${regOpen?"":`<p class="muted" style="margin-top:.8rem">Registratie is momenteel afgesloten door een beheerder.</p>`}
       </div>
@@ -164,7 +165,15 @@ async function viewLogin(){
     document.getElementById("nameRow").hidden = m!=="reg";
     document.getElementById("cohortRow").hidden = m!=="reg";
     document.getElementById("regNote").hidden = m!=="reg";
+    document.getElementById("forgotRow").hidden = m!=="login";
     document.getElementById("submitBtn").textContent = m==="reg"?"Account aanmaken":"Inloggen";
+  };
+  document.getElementById("forgotLink").onclick=async()=>{
+    const email=document.getElementById("email").value.trim();
+    if(!email) return toast("Vul eerst je e-mailadres in","err");
+    const { error }=await sb.auth.resetPasswordForEmail(email);
+    if(error) return toast(error.message,"err");
+    toast("Als e-mail is ingesteld, is er een reset-link verstuurd.","ok");
   };
   document.getElementById("cohort").onchange=e=>{
     document.getElementById("cohortOther").hidden = e.target.value!=="__ander";
@@ -207,7 +216,7 @@ function renderHeader(){
   if(!ME){ h.hidden=true; return; }
   h.hidden=false;
   const nav=document.getElementById("topnav");
-  const links=[["#/","Quizzen"],["#/stats/vragen","Vraagstatistiek"]];
+  const links=[["#/","Quizzen"],["#/stats/vragen","Vraagstatistiek"],["#/account","Mijn account"]];
   if(isEditor()) links.push(["#/stats/gebruikers","Gebruikers"]);
   if(isEditor()) links.push(["#/beheer","Beheer"]);
   nav.innerHTML = links.map(([h,l])=>`<a data-nav="${h}">${l}</a>`).join("");
@@ -235,6 +244,7 @@ async function route(){
     if(p[0]==="quiz") return viewPlay(p[1]);
     if(p[0]==="stats" && p[1]==="vragen") return viewStatsVragen();
     if(p[0]==="stats" && p[1]==="gebruikers") return viewStatsGebruikers();
+    if(p[0]==="account") return viewAccount();
     if(p[0]==="beheer" && p[1]==="quiz") return viewBeheerQuiz(p[2]);
     if(p[0]==="beheer" && p[1]==="import") return viewImport();
     if(p[0]==="beheer") return viewBeheer();
@@ -267,6 +277,7 @@ async function viewHome(){
     </div>`;}).join("");
   app.innerHTML=`
     <div class="spread"><h1>Quizzen</h1>${isEditor()?`<button class="btn btn-primary btn-sm" data-nav="#/beheer">Beheer</button>`:""}</div>
+    <div class="dev-note">${ICON.info} QUIZT.ET wordt nog volop ontwikkeld — nieuwe functies verschijnen vanzelf, je hoeft niets te doen. Zie je toch iets ouds, vernieuw dan de pagina.</div>
     ${quizzes&&quizzes.length?`<div class="grid" style="margin-top:1rem">${cards}</div>`:`<div class="empty">Nog geen quizzen.</div>`}`;
   app.querySelectorAll("[data-open]").forEach(c=>c.onclick=()=>go("#/quiz/"+c.dataset.open));
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
@@ -276,13 +287,26 @@ async function viewHome(){
    PLAY — vraag per vraag
    ============================================================ */
 const PLAY={ mode:"slim" };
-// Volgorde: 'volgorde' = op vraagnummer; 'slim' = fout > nog niet > juist, met toeval (deels voorrang)
+function qStatus(q,answers){ const c=answers[q.id]; if(c==null) return "onbeantwoord"; const r=isRight(q,c); return r===false?"fout":r===true?"juist":"overleg"; }
+function shuffle(a){ a=a.slice(); for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+// Volgorde-modi: nummer, willekeurig, foutEerst, gemistEerst (onbeantwoord eerst), slim (gewogen toeval)
 function orderQuestions(all, answers, mode){
-  if(mode==="volgorde") return all.slice().sort((a,b)=>a.sort_order-b.sort_order);
-  const weight=q=>{ const c=answers[q.id]; if(c==null) return 2; return setEq(c,q.correct_indexes)?1:3; }; // fout=3
-  return all.map(q=>({q, k: Math.random()/weight(q)}))   // hoger gewicht ⇒ kleinere sleutel ⇒ vroeger
-            .sort((a,b)=>a.k-b.k).map(x=>x.q);
+  const byNum=(a,b)=>a.sort_order-b.sort_order;
+  if(mode==="nummer"||mode==="volgorde") return all.slice().sort(byNum);
+  if(mode==="willekeurig") return shuffle(all);
+  if(mode==="foutEerst"||mode==="gemistEerst"){
+    const rank = mode==="foutEerst"
+      ? {fout:0, onbeantwoord:1, overleg:2, juist:3}
+      : {onbeantwoord:0, fout:1, overleg:2, juist:3};
+    return all.slice().sort((a,b)=>(rank[qStatus(a,answers)]-rank[qStatus(b,answers)])||byNum(a,b));
+  }
+  // slim: gewogen willekeurig — fout zwaarst, dan onbeantwoord, dan juist
+  const weight=q=>{ const s=qStatus(q,answers); return s==="fout"?3:s==="onbeantwoord"?2:1; };
+  return all.map(q=>({q,k:Math.random()/weight(q)})).sort((a,b)=>a.k-b.k).map(x=>x.q);
 }
+// Speelvoorkeuren per gebruiker onthouden (browser)
+function loadPrefs(){ try{ return JSON.parse(localStorage.getItem("quiztet_play")||"{}"); }catch(e){ return {}; } }
+function savePrefs(p){ try{ localStorage.setItem("quiztet_play", JSON.stringify(p)); }catch(e){} }
 async function viewPlay(quizId){
   const { data:quiz } = await sb.from("quizzes").select("*").eq("id",quizId).single();
   if(!quiz){ app.innerHTML=`<div class="empty">Quiz niet gevonden.</div>`; return; }
@@ -304,55 +328,77 @@ function poolFor(focus){
   const A=PLAY.answers;
   if(focus==="foute")       return PLAY.all.filter(q=>A[q.id]!=null && isRight(q,A[q.id])===false);
   if(focus==="onbeantwoord")return PLAY.all.filter(q=>A[q.id]==null);
+  if(focus==="nietjuist")   return PLAY.all.filter(q=>A[q.id]==null || isRight(q,A[q.id])===false);
   return PLAY.all.slice();
 }
 function renderPlaySetup(){
-  const A=PLAY.answers;
   const total=PLAY.all.length;
-  const wrong=PLAY.all.filter(q=>A[q.id]!=null && isRight(q,A[q.id])===false).length;
-  const todo=PLAY.all.filter(q=>A[q.id]==null).length;
+  const wrong=poolFor("foute").length, todo=poolFor("onbeantwoord").length, nietjuist=poolFor("nietjuist").length;
+  const pr=loadPrefs();
+  let size=pr.size||"25", focus=pr.focus||"alle", order=pr.order||"slim";
+  PLAY.mode=order;
+  const sizes=[["10","10"],["25","25"],["50","50"],["100","100"],["alle",`Alle (${total})`]];
+  const focuses=[["alle","Alle vragen"],["foute",`Enkel mijn foute (${wrong})`],["onbeantwoord",`Nog niet beantwoord (${todo})`],["nietjuist",`Nog niet juist (${nietjuist})`]];
+  const orders=[["slim","Slim oefenen"],["nummer","Op nummer"],["willekeurig","Willekeurig"],["foutEerst","Fouten eerst"],["gemistEerst","Gemiste eerst"]];
+  const chips=(grp,list,cur)=>list.map(([v,l])=>`<button class="chip-toggle ${v===cur?"active":""}" data-${grp}="${v}">${l}</button>`).join("");
   app.innerHTML=`
     <a class="muted" data-nav="#/">← Quizzen</a>
     <h1 style="margin:.5rem 0">${esc(PLAY.quiz.title)}</h1>
     <p class="muted">${esc(PLAY.quiz.description||"")}</p>
     <div class="card" style="margin-top:1rem">
       <label>Aantal vragen</label>
-      <div class="btnrow" id="setSize">
-        <button class="chip-toggle active" data-size="25">25</button>
-        <button class="chip-toggle" data-size="50">50</button>
-        <button class="chip-toggle" data-size="alle">Alle (${total})</button>
+      <div class="btnrow" id="gSize">${chips("size",sizes,size)}</div>
+      <div style="margin-top:.45rem;display:flex;align-items:center;gap:.5rem">
+        <span class="muted" style="font-size:.82rem">of typ zelf een aantal:</span>
+        <input id="sizeCustom" type="number" min="1" max="${total}" placeholder="bv. 40" style="width:120px" value="${pr.customSize||""}">
       </div>
       <label style="margin-top:1rem">Welke vragen</label>
-      <div class="btnrow" id="setFocus">
-        <button class="chip-toggle active" data-focus="alle">Alle vragen</button>
-        <button class="chip-toggle" data-focus="foute">Enkel mijn foute (${wrong})</button>
-        <button class="chip-toggle" data-focus="onbeantwoord">Nog niet beantwoord (${todo})</button>
-      </div>
+      <div class="btnrow" id="gFocus">${chips("focus",focuses,focus)}</div>
       <label style="margin-top:1rem">Volgorde</label>
-      <div class="btnrow" id="setMode">
-        <button class="chip-toggle active" data-mode="slim" title="Fout beantwoorde vragen krijgen deels voorrang">Slim oefenen</button>
-        <button class="chip-toggle" data-mode="volgorde">Op nummer</button>
-      </div>
+      <div class="btnrow" id="gOrder">${chips("order",orders,order)}</div>
       <div class="btnrow" style="margin-top:1.2rem">
         <button class="btn btn-primary" id="startBtn">Start</button>
         <a class="btn btn-ghost btn-sm" data-nav="#/quiz/${PLAY.quiz.id}/overzicht">Overzicht</a>
         <a class="btn btn-ghost btn-sm" data-nav="#/quiz/${PLAY.quiz.id}/stats">Statistiek</a>
       </div>
+    </div>
+    <div class="card" style="margin-top:1rem">
+      <div class="spread">
+        <div><strong>Mijn voortgang</strong><div class="muted" style="font-size:.82rem">Beantwoord: ${total-todo}/${total} · juist: ${poolFor("alle").filter(q=>isRight(q,PLAY.answers[q.id])===true).length}</div></div>
+        <button class="btn btn-danger btn-sm" id="wipeBtn">Voortgang wissen</button>
+      </div>
+      <div class="muted" style="font-size:.78rem;margin-top:.4rem">Wist enkel jouw antwoorden voor deze quiz. Je flags en opmerkingen blijven bewaard.</div>
     </div>`;
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
-  let size="25", focus="alle";
-  const pick=(grp,attr,set)=>app.querySelectorAll(`#${grp} [data-${attr}]`).forEach(b=>b.onclick=()=>{
-    app.querySelectorAll(`#${grp} [data-${attr}]`).forEach(x=>x.classList.toggle("active",x===b)); set(b.dataset[attr]); });
-  pick("setSize","size",v=>size=v);
-  pick("setFocus","focus",v=>focus=v);
-  pick("setMode","mode",v=>PLAY.mode=v);
-  document.getElementById("startBtn").onclick=()=>startSession(size, focus);
+  const wire=(id,attr,set)=>app.querySelectorAll(`#${id} [data-${attr}]`).forEach(b=>b.onclick=()=>{
+    app.querySelectorAll(`#${id} [data-${attr}]`).forEach(x=>x.classList.toggle("active",x===b)); set(b.dataset[attr]); });
+  wire("gSize","size",v=>{ size=v; document.getElementById("sizeCustom").value=""; });
+  wire("gFocus","focus",v=>focus=v);
+  wire("gOrder","order",v=>{ order=v; PLAY.mode=v; });
+  document.getElementById("startBtn").onclick=()=>{
+    const custom=parseInt(document.getElementById("sizeCustom").value,10);
+    const finalSize=(custom>0)?custom:size;
+    savePrefs({size, focus, order, customSize:(custom>0?custom:"")});
+    startSession(finalSize, focus, order);
+  };
+  document.getElementById("wipeBtn").onclick=wipeProgress;
 }
-function startSession(size, focus){
-  PLAY.session={ size, focus };
-  let pool=orderQuestions(poolFor(focus), PLAY.answers, PLAY.mode);
+async function wipeProgress(){
+  if(!confirm("Je eigen voortgang voor deze quiz wissen? Je flags en opmerkingen blijven behouden.")) return;
+  const ids=PLAY.all.map(q=>q.id);
+  try{
+    if(ids.length) await sb.from("answers").delete().eq("user_id",ME.id).in("question_id",ids);
+    await sb.from("answer_events").delete().eq("user_id",ME.id).eq("quiz_id",PLAY.quiz.id);
+    PLAY.answers={};
+    toast("Voortgang gewist","ok");
+    renderPlaySetup();
+  }catch(e){ toast("Wissen mislukt: "+e.message,"err"); }
+}
+function startSession(size, focus, order){
+  PLAY.session={ size, focus, order }; PLAY.mode=order;
+  let pool=orderQuestions(poolFor(focus), PLAY.answers, order);
   if(!pool.length){ toast("Geen vragen voor deze keuze.","err"); return; }
-  if(size!=="alle") pool=pool.slice(0, +size);
+  if(size!=="alle"){ const n=parseInt(size,10)||pool.length; pool=pool.slice(0,n); }
   PLAY.questions=pool; PLAY.i=0; renderQuestion();
 }
 
@@ -397,7 +443,7 @@ async function renderQuestion(){
         <span style="margin-left:auto"></span>
         <span class="muted">Volgorde:</span>
         <button class="chip-toggle ${PLAY.mode==="slim"?"active":""}" data-mode="slim" title="Fout beantwoorde vragen krijgen deels voorrang">Slim oefenen</button>
-        <button class="chip-toggle ${PLAY.mode==="volgorde"?"active":""}" data-mode="volgorde">Op nummer</button>
+        <button class="chip-toggle ${PLAY.mode==="nummer"?"active":""}" data-mode="nummer">Op nummer</button>
       </div>
     </div>
     <div class="btnrow" style="margin-bottom:.8rem">
@@ -501,11 +547,12 @@ async function renderAfterAnswer(q){
         <div class="btnrow" id="reactSubmitRow" hidden><button class="btn btn-primary btn-sm" id="rSubmit">Versturen</button></div>
       </div></details>
 
-    <details ${(flags&&flags.length)?"open":""}><summary>${ICON.flag} Geschiedenis: flags (${(flags||[]).length}) &amp; opmerkingen (${(opm||[]).length})</summary>
+    <details ${((flags&&flags.length)||(opm&&opm.length))?"open":""}><summary>${ICON.flag} Reacties (${(flags||[]).length + (opm||[]).filter(o=>!(flags||[]).some(f=>f.user_id===o.user_id)).length})</summary>
       <div class="body">
         ${totV?`<label>Collectief beeld — ${pct(wrongVotes,totV)}% verkiest een ander antwoord dan het huidige</label>${bars}<hr>`:""}
-        ${(flags||[]).map(f=>`<div class="hist ${f.type}"><span class="pill ${f.type}">${f.type}</span> ${f.status==="afgehandeld"?`<span class="pill afgehandeld">afgehandeld</span>`:""} <span class="who">${esc(names[f.user_id]||"?")}</span> <span class="when">${fmtDate(f.created_at)}</span>${f.toelichting?`<div>${esc(f.toelichting)}</div>`:""}</div>`).join("")||`<p class="muted">Nog geen flags.</p>`}
-        ${(opm||[]).map(o=>`<div class="hist"><span class="who">${esc(names[o.user_id]||"?")}</span> verkiest <strong>${lettersOf(o.preferred_indexes)}</strong> <span class="when">${fmtDate(o.created_at)}</span>${o.motivatie?`<div>${esc(o.motivatie)}</div>`:""}</div>`).join("")}
+        ${(flags||[]).map(f=>{ const o=(opm||[]).find(o=>o.user_id===f.user_id); return `<div class="hist ${f.type}"><span class="pill ${f.type}">${f.type}</span> ${f.status==="afgehandeld"?`<span class="pill afgehandeld">afgehandeld</span>`:""} <span class="who">${esc(names[f.user_id]||"?")}</span>${o?` <span class="muted">· verkiest <strong>${lettersOf(o.preferred_indexes)}</strong></span>`:""} <span class="when">${fmtDate(f.created_at)}</span>${f.toelichting?`<div>${esc(f.toelichting)}</div>`:""}</div>`; }).join("")}
+        ${(opm||[]).filter(o=>!(flags||[]).some(f=>f.user_id===o.user_id)).map(o=>`<div class="hist"><span class="who">${esc(names[o.user_id]||"?")}</span> verkiest <strong>${lettersOf(o.preferred_indexes)}</strong> <span class="when">${fmtDate(o.created_at)}</span>${o.motivatie?`<div>${esc(o.motivatie)}</div>`:""}</div>`).join("")}
+        ${(!(flags&&flags.length)&&!(opm&&opm.length))?`<p class="muted">Nog geen reacties.</p>`:""}
       </div></details>
 
     <details><summary>${ICON.clock} Wijzigingshistoriek (${(edits||[]).length})</summary>
@@ -622,11 +669,14 @@ function mountStatsTable(mountId, agg, qtitle){
       <thead><tr><th>#</th><th>Vraag</th><th>% correct</th><th>Flags</th><th>% fout</th></tr></thead>
       <tbody></tbody></table></div>`;
   const draw=()=>{
+    const num=(a,b)=>a.q.qnum-b.q.qnum;
     rows.sort((a,b)=>{
-      if(sortKey==="flags") return b.flags-a.flags || b.wrongVotes-a.wrongVotes;
-      if(sortKey==="fout") return pct(b.wrongVotes,b.votes)-pct(a.wrongVotes,a.votes);
-      if(sortKey==="moeilijk") return pct(a.correct,a.played)-pct(b.correct,b.played);
-      if(sortKey==="nummer") return a.q.qnum-b.q.qnum;
+      if(sortKey==="flags") return b.flags-a.flags || b.wrongVotes-a.wrongVotes || num(a,b);
+      if(sortKey==="fout"){ const A=a.votes>0,B=b.votes>0; if(A!==B) return A?-1:1; if(!A) return num(a,b);
+        return pct(b.wrongVotes,b.votes)-pct(a.wrongVotes,a.votes) || num(a,b); }
+      if(sortKey==="moeilijk"){ const A=a.played>0,B=b.played>0; if(A!==B) return A?-1:1; if(!A) return num(a,b);
+        return pct(a.correct,a.played)-pct(b.correct,b.played) || num(a,b); }
+      if(sortKey==="nummer") return num(a,b);
       return 0;
     });
     el.querySelector("tbody").innerHTML=rows.map(r=>`
@@ -803,6 +853,62 @@ async function viewStatsGebruikers(){
       <tbody id="guBody"></tbody></table></div>`;
   app.querySelectorAll("[data-coh]").forEach(b=>b.onclick=()=>{ filter=b.dataset.coh; draw(); });
   draw();
+}
+
+/* ============================================================
+   MIJN ACCOUNT — reacties, profiel, wachtwoord
+   ============================================================ */
+async function viewAccount(){
+  const [{data:flags},{data:opm}] = await Promise.all([
+    sb.from("flags").select("*").eq("user_id",ME.id).order("created_at",{ascending:false}),
+    sb.from("opmerkingen").select("*").eq("user_id",ME.id).order("created_at",{ascending:false}),
+  ]);
+  const qids=[...new Set([...(flags||[]).map(f=>f.question_id),...(opm||[]).map(o=>o.question_id)])];
+  let qmap={};
+  if(qids.length){ const {data:qq}=await sb.from("questions").select("id,qnum,quiz_id").in("id",qids); (qq||[]).forEach(q=>qmap[q.id]=q); }
+  const qlink=(qid)=>{ const q=qmap[qid]; return q?`<a class="ilink" data-q="${qid}" data-quiz="${q.quiz_id}">Vraag ${q.qnum}</a>`:`<span class="muted">(verwijderde vraag)</span>`; };
+  app.innerHTML=`
+    <h1>Mijn account</h1>
+    <div class="muted">${esc(ME.email||"")} · <span class="role ${ME.role}">${ME.role}</span></div>
+
+    <h2>Profiel</h2>
+    <div class="card">
+      <label>Weergavenaam</label><input id="accName" value="${esc(ME.display_name)}">
+      <label>Oorsprong</label><input id="accCohort" value="${esc(ME.cohort||"")}">
+      <div class="btnrow"><button class="btn btn-primary btn-sm" id="saveProfile">Profiel opslaan</button></div>
+    </div>
+
+    <h2>Wachtwoord wijzigen</h2>
+    <div class="card">
+      <label>Nieuw wachtwoord</label><input id="pw1" type="password" autocomplete="new-password">
+      <label>Herhaal nieuw wachtwoord</label><input id="pw2" type="password" autocomplete="new-password">
+      <div class="btnrow"><button class="btn btn-primary btn-sm" id="savePw">Wachtwoord wijzigen</button></div>
+    </div>
+
+    <h2>Mijn reacties (${(flags||[]).length + (opm||[]).length})</h2>
+    <div class="stack">
+      ${(flags||[]).map(f=>`<div class="card"><div class="spread"><div><span class="pill ${f.type}">${f.type}</span> ${qlink(f.question_id)} <span class="when">${fmtDate(f.created_at)}</span>${f.toelichting?`<div>${esc(f.toelichting)}</div>`:""}</div><button class="btn btn-danger btn-sm" data-delflag="${f.id}">Verwijderen</button></div></div>`).join("")}
+      ${(opm||[]).map(o=>`<div class="card"><div class="spread"><div>verkiest <strong>${lettersOf(o.preferred_indexes)}</strong> — ${qlink(o.question_id)} <span class="when">${fmtDate(o.created_at)}</span>${o.motivatie?`<div>${esc(o.motivatie)}</div>`:""}</div><button class="btn btn-danger btn-sm" data-delopm="${o.id}">Verwijderen</button></div></div>`).join("")}
+      ${(!(flags&&flags.length)&&!(opm&&opm.length))?`<p class="muted">Je hebt nog geen reacties geplaatst.</p>`:""}
+    </div>`;
+  document.getElementById("saveProfile").onclick=async()=>{
+    const name=document.getElementById("accName").value.trim()||ME.display_name;
+    const cohort=document.getElementById("accCohort").value.trim();
+    const { error }=await sb.from("profiles").update({ display_name:name, cohort }).eq("id",ME.id);
+    if(error) return toast(error.message,"err");
+    ME.display_name=name; ME.cohort=cohort; toast("Profiel opgeslagen","ok"); renderHeader();
+  };
+  document.getElementById("savePw").onclick=async()=>{
+    const a=document.getElementById("pw1").value, b=document.getElementById("pw2").value;
+    if(a.length<6) return toast("Minstens 6 tekens","err");
+    if(a!==b) return toast("Wachtwoorden komen niet overeen","err");
+    const { error }=await sb.auth.updateUser({ password:a });
+    if(error) return toast(error.message,"err");
+    toast("Wachtwoord gewijzigd","ok"); document.getElementById("pw1").value=""; document.getElementById("pw2").value="";
+  };
+  app.querySelectorAll("[data-q]").forEach(a=>a.onclick=()=>PLAY_goto(a.dataset.quiz, a.dataset.q));
+  app.querySelectorAll("[data-delflag]").forEach(b=>b.onclick=async()=>{ if(!confirm("Deze flag verwijderen?"))return; const {error}=await sb.from("flags").delete().eq("id",b.dataset.delflag); if(error)return toast(error.message,"err"); toast("Verwijderd","ok"); viewAccount(); });
+  app.querySelectorAll("[data-delopm]").forEach(b=>b.onclick=async()=>{ if(!confirm("Deze opmerking verwijderen?"))return; const {error}=await sb.from("opmerkingen").delete().eq("id",b.dataset.delopm); if(error)return toast(error.message,"err"); toast("Verwijderd","ok"); viewAccount(); });
 }
 
 /* ============================================================

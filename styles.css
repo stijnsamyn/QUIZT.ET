@@ -161,6 +161,10 @@ tr:hover td{background:var(--surface2)}
 .mini:last-child{border-bottom:none}
 hr{border:none;border-top:1px solid var(--border);margin:1rem 0}
 .spread{display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap}
+.ilink{color:var(--accent);cursor:pointer;text-decoration:underline}
+.ilink:hover{color:var(--accent-dark)}
+.dev-note{display:flex;align-items:center;gap:.45rem;background:var(--accent-soft);color:var(--accent-dark);
+  border:1px solid var(--accent-soft-2);border-radius:var(--radius);padding:.6rem .8rem;font-size:.82rem;margin-top:.9rem}
 
 /* line-icons */
 .ico{width:15px;height:15px;vertical-align:-2px}
