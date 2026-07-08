@@ -943,11 +943,12 @@ async function viewBeheer(){
     </div>
 
     <h2>Open flags (${(openFlags||[]).length})</h2>
+    <p class="muted" style="font-size:.82rem">Klik op een flag om naar de vraag te gaan en te onderzoeken. Handel pas af als het opgelost is.</p>
     <div class="stack">${(openFlags||[]).map(f=>{ const qq=qmap[f.question_id]; return `
       <div class="card"><div class="spread">
-        <div><span class="pill ${f.type}">${f.type}</span> ${qq?`<a class="muted" data-nav="#/quiz/${qq.quiz_id}/overzicht">Vraag ${qq.qnum}</a>`:""} — <span class="who">${esc(names[f.user_id]||"?")}</span>
-          <div>${esc(f.toelichting)}</div></div>
-        <button class="btn btn-ghost btn-sm" data-resolve="${f.id}">${ICON.check} Afhandelen</button>
+        <div>${qq?`<a class="ilink" data-q="${qq.id}" data-quiz="${qq.quiz_id}"><span class="pill ${f.type}">${f.type}</span> Vraag ${qq.qnum} — onderzoeken →</a>`:`<span class="pill ${f.type}">${f.type}</span>`} <span class="who">${esc(names[f.user_id]||"?")}</span>
+          ${f.toelichting?`<div>${esc(f.toelichting)}</div>`:""}</div>
+        <button class="btn btn-ghost btn-sm" data-resolve="${f.id}">${ICON.check} Markeer afgehandeld</button>
       </div></div>`; }).join("")||`<p class="muted">Geen open flags.</p>`}
     </div>
 
@@ -965,7 +966,9 @@ async function viewBeheer(){
     if(!confirm("Deze quiz en al zijn vragen verwijderen?")) return;
     await sb.from("quizzes").delete().eq("id",b.dataset.del); toast("Verwijderd","ok"); viewBeheer();
   });
+  app.querySelectorAll("[data-q]").forEach(a=>a.onclick=()=>PLAY_goto(a.dataset.quiz, a.dataset.q));
   app.querySelectorAll("[data-resolve]").forEach(b=>b.onclick=async()=>{
+    if(!confirm("Deze flag als afgehandeld markeren?")) return;
     await sb.from("flags").update({status:"afgehandeld"}).eq("id",b.dataset.resolve); toast("Afgehandeld","ok"); viewBeheer();
   });
   if(isAdmin()){ renderUsers(); renderSettings(); }
