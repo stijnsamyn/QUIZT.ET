@@ -634,10 +634,136 @@ function renderPlayDone(){
         <button class="btn btn-ghost" id="againNew">Nieuwe sessie</button>
         <a class="btn btn-ghost" data-nav="#/">Naar quizzen</a>
       </div>
+      <div class="brain-break">
+        <div class="muted" style="font-size:.82rem;margin-bottom:.4rem">Even je gedachten verzetten?</div>
+        <button class="btn btn-ghost btn-sm" id="openTetris">🧱 Speel Tetris</button>
+      </div>
     </div>`;
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
   const aw=document.getElementById("againWrong"); if(aw) aw.onclick=()=>startSession("alle","foute",PLAY.mode||"slim");
   document.getElementById("againNew").onclick=()=>renderPlaySetup();
+  document.getElementById("openTetris").onclick=openTetris;
+}
+
+/* ============================================================
+   BRAIN BREAK — Tetris (canvas, keyboard + touch)
+   ============================================================ */
+function openTetris(){
+  const HS_KEY="quiztet_tetris_hs";
+  const COLS=10, ROWS=20, CELL=24;
+  const COLORS=["#0f172a","#22d3ee","#facc15","#a855f7","#22c55e","#ef4444","#3b82f6","#f97316"];
+  const PIECES={
+    I:{c:1,m:[[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]]},
+    O:{c:2,m:[[2,2],[2,2]]},
+    T:{c:3,m:[[0,3,0],[3,3,3],[0,0,0]]},
+    S:{c:4,m:[[0,4,4],[4,4,0],[0,0,0]]},
+    Z:{c:5,m:[[5,5,0],[0,5,5],[0,0,0]]},
+    J:{c:6,m:[[6,0,0],[6,6,6],[0,0,0]]},
+    L:{c:7,m:[[0,0,7],[7,7,7],[0,0,0]]},
+  };
+  const NAMES=Object.keys(PIECES);
+  const overlay=document.createElement("div");
+  overlay.className="tetris-overlay";
+  overlay.innerHTML=`
+    <div class="tetris-modal" role="dialog" aria-label="Tetris">
+      <div class="tetris-hd">
+        <div class="tetris-title">🧱 Even pauze — Tetris</div>
+        <button class="tetris-close" id="txClose" aria-label="Sluiten">×</button>
+      </div>
+      <div class="tetris-body">
+        <canvas id="txCanvas" width="${COLS*CELL}" height="${ROWS*CELL}"></canvas>
+        <div class="tetris-side">
+          <div class="tetris-stats">
+            <div class="tetris-stat"><label>Score</label><div id="txScore">0</div></div>
+            <div class="tetris-stat"><label>Lijnen</label><div id="txLines">0</div></div>
+            <div class="tetris-stat"><label>Level</label><div id="txLevel">1</div></div>
+            <div class="tetris-stat"><label>Highscore</label><div id="txHi">0</div></div>
+          </div>
+          <div class="tetris-next"><label>Volgende</label><canvas id="txNext" width="80" height="80"></canvas></div>
+          <div class="tetris-help muted">
+            <div>← → links/rechts</div>
+            <div>↑ draaien · ↓ sneller</div>
+            <div>spatie plonsen · P pauze</div>
+          </div>
+        </div>
+      </div>
+      <div class="tetris-touch">
+        <button data-act="L" aria-label="Links">←</button>
+        <button data-act="rot" aria-label="Draaien">↻</button>
+        <button data-act="D" aria-label="Sneller">↓</button>
+        <button data-act="drop" aria-label="Plonsen">⤓</button>
+        <button data-act="R" aria-label="Rechts">→</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const ctx=overlay.querySelector("#txCanvas").getContext("2d");
+  const nctx=overlay.querySelector("#txNext").getContext("2d");
+  const board=Array.from({length:ROWS},()=>Array(COLS).fill(0));
+  let piece=null, next=null, score=0, lines=0, level=1;
+  let dropInterval=800, dropTimer=0, lastTime=0, paused=false, over=false;
+  let hi=parseInt(localStorage.getItem(HS_KEY)||"0",10);
+  const rand=()=>{ const k=NAMES[Math.floor(Math.random()*NAMES.length)]; const p=PIECES[k]; return {c:p.c, m:p.m.map(r=>r.slice()), x:Math.floor((COLS-p.m[0].length)/2), y:0}; };
+  const collide=(p,dx=0,dy=0,m=p.m)=>{ for(let r=0;r<m.length;r++) for(let c=0;c<m[r].length;c++){ if(!m[r][c]) continue; const x=p.x+c+dx, y=p.y+r+dy; if(x<0||x>=COLS||y>=ROWS) return true; if(y>=0 && board[y][x]) return true; } return false; };
+  const rotate=m=>{ const N=m.length, M=m[0].length; const nm=Array.from({length:M},()=>Array(N).fill(0)); for(let r=0;r<N;r++) for(let c=0;c<M;c++) nm[c][N-1-r]=m[r][c]; return nm; };
+  const merge=()=>{ for(let r=0;r<piece.m.length;r++) for(let c=0;c<piece.m[r].length;c++){ if(piece.m[r][c] && piece.y+r>=0) board[piece.y+r][piece.x+c]=piece.m[r][c]; } };
+  const clearLines=()=>{ let n=0; for(let r=ROWS-1;r>=0;r--){ if(board[r].every(v=>v)){ board.splice(r,1); board.unshift(Array(COLS).fill(0)); n++; r++; } } if(n){ const pts=[0,100,300,500,800][n]||0; score+=pts*level; lines+=n; level=1+Math.floor(lines/10); dropInterval=Math.max(80, 800-(level-1)*70); } };
+  const spawn=()=>{ piece=next||rand(); next=rand(); if(collide(piece)){ over=true; if(score>hi){ hi=score; try{ localStorage.setItem(HS_KEY,String(hi)); }catch(e){} } } };
+  const softDrop=()=>{ if(collide(piece,0,1)){ merge(); clearLines(); spawn(); } else piece.y++; };
+  const hardDrop=()=>{ let d=0; while(!collide(piece,0,1)){ piece.y++; d++; } score+=2*d; merge(); clearLines(); spawn(); };
+  const move=dx=>{ if(!collide(piece,dx,0)) piece.x+=dx; };
+  const tryRotate=()=>{ const rm=rotate(piece.m); if(!collide(piece,0,0,rm)){ piece.m=rm; return; } for(const dx of [-1,1,-2,2]) if(!collide(piece,dx,0,rm)){ piece.x+=dx; piece.m=rm; return; } };
+  const drawCell=(cx,x,y,c)=>{ cx.fillStyle=COLORS[c]; cx.fillRect(x,y,CELL-1,CELL-1); cx.strokeStyle="rgba(0,0,0,.25)"; cx.strokeRect(x+.5,y+.5,CELL-2,CELL-2); };
+  const draw=()=>{
+    ctx.fillStyle=COLORS[0]; ctx.fillRect(0,0,COLS*CELL,ROWS*CELL);
+    for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++) if(board[r][c]) drawCell(ctx,c*CELL,r*CELL,board[r][c]);
+    if(piece && !over){
+      let g=0; while(!collide(piece,0,g+1)) g++;
+      for(let r=0;r<piece.m.length;r++) for(let c=0;c<piece.m[r].length;c++) if(piece.m[r][c]){
+        const x=(piece.x+c)*CELL, y=(piece.y+r+g)*CELL;
+        ctx.strokeStyle=COLORS[piece.m[r][c]]; ctx.globalAlpha=.5; ctx.strokeRect(x+1.5,y+1.5,CELL-3,CELL-3); ctx.globalAlpha=1;
+      }
+      for(let r=0;r<piece.m.length;r++) for(let c=0;c<piece.m[r].length;c++) if(piece.m[r][c]) drawCell(ctx,(piece.x+c)*CELL,(piece.y+r)*CELL,piece.m[r][c]);
+    }
+    nctx.fillStyle=COLORS[0]; nctx.fillRect(0,0,80,80);
+    if(next){ const cell=16; const m=next.m; const ox=(80-m[0].length*cell)/2, oy=(80-m.length*cell)/2;
+      for(let r=0;r<m.length;r++) for(let c=0;c<m[r].length;c++) if(m[r][c]){ nctx.fillStyle=COLORS[m[r][c]]; nctx.fillRect(ox+c*cell,oy+r*cell,cell-1,cell-1); } }
+    overlay.querySelector("#txScore").textContent=score;
+    overlay.querySelector("#txLines").textContent=lines;
+    overlay.querySelector("#txLevel").textContent=level;
+    overlay.querySelector("#txHi").textContent=hi;
+    if(over){ ctx.fillStyle="rgba(0,0,0,.72)"; ctx.fillRect(0,0,COLS*CELL,ROWS*CELL); ctx.fillStyle="#fff"; ctx.textAlign="center"; ctx.font="bold 22px Inter,sans-serif"; ctx.fillText("Game over", COLS*CELL/2, ROWS*CELL/2-10); ctx.font="12px Inter,sans-serif"; ctx.fillText("Enter = opnieuw · Esc = sluiten", COLS*CELL/2, ROWS*CELL/2+15); }
+    else if(paused){ ctx.fillStyle="rgba(0,0,0,.6)"; ctx.fillRect(0,0,COLS*CELL,ROWS*CELL); ctx.fillStyle="#fff"; ctx.textAlign="center"; ctx.font="bold 20px Inter,sans-serif"; ctx.fillText("PAUZE (P)", COLS*CELL/2, ROWS*CELL/2); }
+  };
+  const reset=()=>{ board.forEach(r=>r.fill(0)); score=0; lines=0; level=1; dropInterval=800; dropTimer=0; over=false; paused=false; next=rand(); spawn(); };
+  reset();
+  let rafId=requestAnimationFrame(function loop(t){
+    if(!lastTime) lastTime=t; const dt=t-lastTime; lastTime=t;
+    if(!paused && !over){ dropTimer+=dt; if(dropTimer>=dropInterval){ dropTimer=0; softDrop(); } }
+    draw(); rafId=requestAnimationFrame(loop);
+  });
+  const keyHandler=e=>{
+    if(e.key==="Escape"){ close(); return; }
+    if(over){ if(e.key==="Enter"){ lastTime=0; reset(); } return; }
+    if(e.key==="p"||e.key==="P"){ paused=!paused; return; }
+    if(paused) return;
+    if(e.key==="ArrowLeft"){ e.preventDefault(); move(-1); }
+    else if(e.key==="ArrowRight"){ e.preventDefault(); move(1); }
+    else if(e.key==="ArrowDown"){ e.preventDefault(); softDrop(); score+=1; }
+    else if(e.key==="ArrowUp"){ e.preventDefault(); tryRotate(); }
+    else if(e.key===" "){ e.preventDefault(); hardDrop(); }
+  };
+  window.addEventListener("keydown", keyHandler);
+  overlay.querySelectorAll("[data-act]").forEach(b=>b.onclick=()=>{
+    if(over){ lastTime=0; reset(); return; }
+    const a=b.dataset.act;
+    if(a==="L") move(-1); else if(a==="R") move(1);
+    else if(a==="rot") tryRotate();
+    else if(a==="D"){ softDrop(); score+=1; }
+    else if(a==="drop") hardDrop();
+  });
+  const close=()=>{ cancelAnimationFrame(rafId); window.removeEventListener("keydown", keyHandler); overlay.remove(); };
+  overlay.querySelector("#txClose").onclick=close;
+  overlay.addEventListener("click", e=>{ if(e.target===overlay) close(); });
 }
 
 async function renderAfterAnswer(q){
