@@ -284,12 +284,22 @@ async function viewHome(){
     (mine||[]).forEach(a=>{ const qz=q2quiz[a.question_id]; if(qz) myAns[qz]=(myAns[qz]||0)+1; }); }
   const cards=(quizzes||[]).map(q=>{
     const tot=counts[q.id]||0, done=myAns[q.id]||0;
+    const p=pct(done,tot);
     return `
     <div class="card quiz-card" data-open="${q.id}">
-      <div class="spread"><h3>${esc(q.title)}</h3>
-        <span class="badge ${q.status==="gepubliceerd"?"pub":"concept"}">${q.status}</span></div>
-      <p class="muted">${esc(q.description||"")}</p>
-      <div class="bar" style="margin-top:.7rem"><span style="width:${pct(done,tot)}%"></span><div class="lab">${done}/${tot} beantwoord</div></div>
+      <div class="quiz-card-top">
+        <span class="badge ${q.status==="gepubliceerd"?"pub":"concept"}">${q.status}</span>
+        <span class="muted quiz-card-q">${tot} vragen</span>
+      </div>
+      <h3>${esc(q.title)}</h3>
+      <p class="quiz-card-desc muted">${esc(q.description||"—")}</p>
+      <div class="quiz-card-progress">
+        <div class="quiz-card-progress-lab">
+          <span>Jouw voortgang</span>
+          <span><strong>${done}</strong>/${tot} · ${p}%</span>
+        </div>
+        <div class="progress-thin"><span style="width:${p}%"></span></div>
+      </div>
     </div>`;}).join("");
   app.innerHTML=`
     <div class="spread"><h1>Quizzen</h1>${isEditor()?`<button class="btn btn-primary btn-sm" data-nav="#/beheer">Beheer</button>`:""}</div>
@@ -359,30 +369,69 @@ function renderPlaySetup(){
   const pr=loadPrefs();
   let size=pr.size||"25", focus=pr.focus||"alle", order=pr.order||"slim";
   PLAY.mode=order;
-  const sizes=[["10","10"],["25","25"],["50","50"],["100","100"],["alle",`Alle (${total})`]];
-  const focuses=[["alle","Alle vragen"],["foute",`Enkel mijn foute (${wrong})`],["onbeantwoord",`Nog niet beantwoord (${todo})`],["nietjuist",`Nog niet juist (${nietjuist})`]];
-  const orders=[["slim","Slim oefenen"],["nummer","Op nummer"],["willekeurig","Willekeurig"],["foutEerst","Fouten eerst"],["gemistEerst","Gemiste eerst"]];
-  const chips=(grp,list,cur)=>list.map(([v,l])=>`<button class="chip-toggle ${v===cur?"active":""}" data-${grp}="${v}">${l}</button>`).join("");
+  const sizes=[
+    ["10","10","Korte oefensessie van 10 vragen"],
+    ["25","25","25 vragen — een halfuurtje oefenen"],
+    ["50","50","50 vragen — flinke oefensessie"],
+    ["100","100","100 vragen — grondig doorwerken"],
+    ["alle",`Alle (${total})`,`Alle ${total} vragen uit deze quiz in één sessie`],
+  ];
+  const focuses=[
+    ["alle","Alle vragen","Elke vraag komt in aanmerking, ongeacht of je hem al beantwoord hebt."],
+    ["foute",`Enkel mijn foute (${wrong})`,`Alleen vragen die je ooit fout beantwoord hebt (${wrong} stuks).`],
+    ["onbeantwoord",`Nog niet beantwoord (${todo})`,`Alleen vragen die je in geen enkele sessie al hebt beantwoord (${todo} stuks).`],
+    ["nietjuist",`Nog niet juist (${nietjuist})`,`Vragen die je fout had OF nog nooit beantwoordde (${nietjuist} stuks) — combinatie van 'foute' en 'nog niet beantwoord'.`],
+  ];
+  const orders=[
+    ["slim","Slim oefenen","Nooit-beantwoorde vragen krijgen voorrang, dan fout beantwoorde, dan overleg, dan juist. Gewogen willekeurig."],
+    ["nummer","Op nummer","Vragen op vraagnummer, van laag naar hoog."],
+    ["willekeurig","Willekeurig","Volledig willekeurig geschud — geen voorkeur."],
+    ["foutEerst","Fouten eerst","Eerst de vragen die je fout had, dan de rest."],
+    ["gemistEerst","Gemiste eerst","Eerst de vragen die je nog nooit beantwoordde, dan de rest."],
+  ];
+  const chips=(grp,list,cur)=>list.map(([v,l,tip])=>`<button class="chip-toggle ${v===cur?"active":""}" data-${grp}="${v}" title="${esc(tip||"")}">${l}</button>`).join("");
+  const focusLabel=f=>({alle:"alle vragen",foute:"je foute vragen",onbeantwoord:"nog niet beantwoorde vragen",nietjuist:"nog niet juiste vragen"})[f];
+  const orderLabel=o=>({slim:"slim geoefend",nummer:"op vraagnummer",willekeurig:"willekeurig",foutEerst:"fouten eerst",gemistEerst:"gemiste eerst"})[o];
+  const summaryStr=()=>{
+    const custom=parseInt((document.getElementById("sizeCustom")||{}).value,10);
+    const n=custom>0?custom:(size==="alle"?total:parseInt(size,10));
+    return `Je start met <strong>${n}</strong> ${focusLabel(focus)}, ${orderLabel(order)}.`;
+  };
   app.innerHTML=`
     <a class="muted" data-nav="#/">← Quizzen</a>
     <h1 style="margin:.5rem 0">${esc(PLAY.quiz.title)}</h1>
     <p class="muted">${esc(PLAY.quiz.description||"")}</p>
-    <div class="card" style="margin-top:1rem">
-      <label>Aantal vragen</label>
-      <div class="btnrow" id="gSize">${chips("size",sizes,size)}</div>
-      <div style="margin-top:.45rem;display:flex;align-items:center;gap:.5rem">
-        <span class="muted" style="font-size:.82rem">of typ zelf een aantal:</span>
-        <input id="sizeCustom" type="number" min="1" max="${total}" placeholder="bv. 40" style="width:120px" value="${pr.customSize||""}">
+    <div class="muted" style="font-size:.82rem;margin:.4rem 0 1.2rem">
+      Meer over deze quiz: <a class="ilink" data-nav="#/quiz/${PLAY.quiz.id}/overzicht">Overzicht van alle vragen</a> · <a class="ilink" data-nav="#/quiz/${PLAY.quiz.id}/stats">Statistiek</a>
+    </div>
+
+    <div class="setup-panel">
+      <div class="setup-panel-hd">
+        <div class="setup-panel-title">Nieuwe oefensessie</div>
+        <div class="muted" style="font-size:.8rem">Kies hoeveel vragen, welke selectie en in welke volgorde.</div>
       </div>
-      <label style="margin-top:1rem">Welke vragen</label>
-      <div class="btnrow" id="gFocus">${chips("focus",focuses,focus)}</div>
-      <label style="margin-top:1rem">Volgorde</label>
-      <div class="btnrow" id="gOrder">${chips("order",orders,order)}</div>
-      <div class="btnrow" style="margin-top:1.2rem">
-        <button class="btn btn-primary" id="startBtn">Start</button>
-        <a class="btn btn-ghost btn-sm" data-nav="#/quiz/${PLAY.quiz.id}/overzicht">Overzicht</a>
-        <a class="btn btn-ghost btn-sm" data-nav="#/quiz/${PLAY.quiz.id}/stats">Statistiek</a>
+
+      <div class="card setup-step">
+        <div class="setup-hd"><span class="setup-num">1</span> Hoeveel vragen? ${infoTip("Bepaalt hoe lang je sessie is. Kies een chip of typ zelf een aantal.")}</div>
+        <div class="btnrow" id="gSize">${chips("size",sizes,size)}</div>
+        <div style="margin-top:.6rem;display:flex;align-items:center;gap:.5rem">
+          <span class="muted" style="font-size:.82rem">of typ zelf:</span>
+          <input id="sizeCustom" type="number" min="1" max="${total}" placeholder="bv. 40" style="width:120px" value="${pr.customSize||""}">
+        </div>
       </div>
+
+      <div class="card setup-step">
+        <div class="setup-hd"><span class="setup-num">2</span> Welke vragen? ${infoTip("Filter uit de hele quiz. 'Foute'/'Onbeantwoord'/'Niet juist' zijn gebaseerd op je antwoordhistoriek — over alle sessies heen.")}</div>
+        <div class="btnrow" id="gFocus">${chips("focus",focuses,focus)}</div>
+      </div>
+
+      <div class="card setup-step">
+        <div class="setup-hd"><span class="setup-num">3</span> In welke volgorde? ${infoTip("Bepaalt in welke volgorde je de geselecteerde vragen te zien krijgt. 'Slim oefenen' is aangeraden.")}</div>
+        <div class="btnrow" id="gOrder">${chips("order",orders,order)}</div>
+      </div>
+
+      <div class="setup-summary" id="setupSummary"></div>
+      <button class="btn btn-primary btn-start" id="startBtn">Start oefensessie →</button>
     </div>
     <div class="card" style="margin-top:1rem">
       <div class="spread">
@@ -399,9 +448,12 @@ function renderPlaySetup(){
   app.querySelectorAll("[data-q]").forEach(a=>a.onclick=()=>PLAY_goto(a.dataset.quiz, a.dataset.q));
   const wire=(id,attr,set)=>app.querySelectorAll(`#${id} [data-${attr}]`).forEach(b=>b.onclick=()=>{
     app.querySelectorAll(`#${id} [data-${attr}]`).forEach(x=>x.classList.toggle("active",x===b)); set(b.dataset[attr]); });
-  wire("gSize","size",v=>{ size=v; document.getElementById("sizeCustom").value=""; savePrefs({size, focus, order, customSize:""}); });
-  wire("gFocus","focus",v=>focus=v);
-  wire("gOrder","order",v=>{ order=v; PLAY.mode=v; });
+  const paintSummary=()=>{ const el=document.getElementById("setupSummary"); if(el) el.innerHTML=summaryStr(); };
+  wire("gSize","size",v=>{ size=v; document.getElementById("sizeCustom").value=""; savePrefs({size, focus, order, customSize:""}); paintSummary(); });
+  wire("gFocus","focus",v=>{ focus=v; paintSummary(); });
+  wire("gOrder","order",v=>{ order=v; PLAY.mode=v; paintSummary(); });
+  document.getElementById("sizeCustom").oninput=paintSummary;
+  paintSummary();
   document.getElementById("startBtn").onclick=()=>{
     const custom=parseInt(document.getElementById("sizeCustom").value,10);
     const finalSize=(custom>0)?custom:size;
