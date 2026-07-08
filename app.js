@@ -212,7 +212,7 @@ async function viewLogin(){
   };
 }
 
-async function doLogout(){ await sb.auth.signOut(); ME=null; go("#/login"); location.reload(); }
+async function doLogout(){ await sb.auth.signOut(); ME=null; location.hash=""; location.reload(); }
 
 /* ============================================================
    HEADER / ROUTER
@@ -337,8 +337,8 @@ async function viewPlay(quizId){
     PLAY.openFlags=of||[]; PLAY.flagNames=await namesFor(PLAY.openFlags.map(f=>f.user_id)); }
   if(PLAY.pendingJump){
     const jid=PLAY.pendingJump; PLAY.pendingJump=null;
-    PLAY.session={size:"alle",focus:"alle"};
-    PLAY.questions=orderQuestions(PLAY.all, PLAY.answers, PLAY.mode);
+    PLAY.session={size:"alle",focus:"alle",order:"nummer"}; PLAY.mode="nummer";
+    PLAY.questions=orderQuestions(PLAY.all, PLAY.answers, "nummer");
     const idx=PLAY.questions.findIndex(x=>x.id===jid);
     PLAY.i=idx>=0?idx:0; renderQuestion();
   } else renderPlaySetup();
@@ -384,7 +384,7 @@ function renderPlaySetup(){
     </div>
     <div class="card" style="margin-top:1rem">
       <div class="spread">
-        <div><strong>Mijn voortgang</strong><div class="muted" style="font-size:.82rem">Beantwoord: ${total-todo}/${total} · juist: ${poolFor("alle").filter(q=>isRight(q,PLAY.answers[q.id])===true).length}</div></div>
+        <div><strong>Mijn voortgang</strong><div class="muted" style="font-size:.82rem">Beantwoord: ${total-todo}/${total} · juist: ${PLAY.all.filter(q=>isRight(q,PLAY.answers[q.id])===true).length}</div></div>
         <button class="btn btn-danger btn-sm" id="wipeBtn">Voortgang wissen</button>
       </div>
       <div class="muted" style="font-size:.78rem;margin-top:.4rem">Wist enkel jouw antwoorden voor deze quiz. Je flags en opmerkingen blijven bewaard.</div>
@@ -397,7 +397,7 @@ function renderPlaySetup(){
   app.querySelectorAll("[data-q]").forEach(a=>a.onclick=()=>PLAY_goto(a.dataset.quiz, a.dataset.q));
   const wire=(id,attr,set)=>app.querySelectorAll(`#${id} [data-${attr}]`).forEach(b=>b.onclick=()=>{
     app.querySelectorAll(`#${id} [data-${attr}]`).forEach(x=>x.classList.toggle("active",x===b)); set(b.dataset[attr]); });
-  wire("gSize","size",v=>{ size=v; document.getElementById("sizeCustom").value=""; });
+  wire("gSize","size",v=>{ size=v; document.getElementById("sizeCustom").value=""; savePrefs({size, focus, order, customSize:""}); });
   wire("gFocus","focus",v=>focus=v);
   wire("gOrder","order",v=>{ order=v; PLAY.mode=v; });
   document.getElementById("startBtn").onclick=()=>{
@@ -414,9 +414,8 @@ async function wipeProgress(){
   try{
     if(ids.length) await sb.from("answers").delete().eq("user_id",ME.id).in("question_id",ids);
     await sb.from("answer_events").delete().eq("user_id",ME.id).eq("quiz_id",PLAY.quiz.id);
-    PLAY.answers={};
     toast("Voortgang gewist","ok");
-    renderPlaySetup();
+    viewPlay(PLAY.quiz.id);
   }catch(e){ toast("Wissen mislukt: "+e.message,"err"); }
 }
 function startSession(size, focus, order){
@@ -521,17 +520,17 @@ async function renderQuestion(){
 }
 
 async function answerQuestion(q, idxArray){
-  const wasNew = PLAY.answers[q.id]==null;
   const chosen=arr(idxArray).slice().sort((a,b)=>a-b);
   const is_correct = isRight(q, chosen);   // null bij niet-gevalideerde vraag
-  PLAY.answers[q.id]=chosen;
   try{
-    await sb.from("answers").upsert({ question_id:q.id, user_id:ME.id, chosen_indexes:chosen, is_correct, updated_at:new Date().toISOString() },{ onConflict:"question_id,user_id" });
+    const { error:e1 } = await sb.from("answers").upsert({ question_id:q.id, user_id:ME.id, chosen_indexes:chosen, is_correct, updated_at:new Date().toISOString() },{ onConflict:"question_id,user_id" });
+    if(e1) throw e1;
     await sb.from("answer_events").insert({ question_id:q.id, quiz_id:PLAY.quiz.id, user_id:ME.id, is_correct });
   }
-  catch(e){ toast("Antwoord niet opgeslagen: "+e.message,"err"); }
+  catch(e){ toast("Antwoord niet opgeslagen: "+e.message,"err"); return; }
+  PLAY.answers[q.id]=chosen;
   const allAnswered = PLAY.questions.every(x=>PLAY.answers[x.id]!=null);
-  if(wasNew && allAnswered) renderPlayDone(); else renderQuestion();
+  if(allAnswered) renderPlayDone(); else renderQuestion();
 }
 
 function renderPlayDone(){
@@ -894,29 +893,45 @@ async function viewStatsGebruikers(){
   const all=Object.values(agg);
   // cohort-overzicht
   const byCohort={}; all.forEach(r=>{ const c=r.p.cohort||"—"; (byCohort[c]=byCohort[c]||{n:0,ans:0,correct:0,visits:0}); byCohort[c].n++; byCohort[c].ans+=r.ans; byCohort[c].correct+=r.correct; byCohort[c].visits+=r.visits; });
+  const cohortRows=Object.entries(byCohort).map(([name,v])=>({name, n:v.n, ans:v.ans, correct:v.correct, visits:v.visits, pctc:v.ans?v.correct/v.ans*100:-1}));
   let filter="__alle";
-  const draw=()=>{
-    const rows=all.filter(r=>filter==="__alle"||(r.p.cohort||"—")===filter).sort((a,b)=>b.ans-a.ans);
+  let uSort={key:"ans", dir:"desc"};
+  let cSort={key:"name", dir:"asc"};
+  const uKeyOf=(r,k)=>({name:(r.p.display_name||"").toLowerCase(), cohort:(r.p.cohort||"").toLowerCase(), role:r.p.role, ans:r.ans, pctc:r.ans?r.correct/r.ans*100:-1, visits:r.visits, flags:r.flags})[k];
+  const cKeyOf=(r,k)=>({name:(r.name||"").toLowerCase(), n:r.n, ans:r.ans, pctc:r.pctc, visits:r.visits})[k];
+  const cmp=(a,b,dir)=>{ if(a<b)return dir==="asc"?-1:1; if(a>b)return dir==="asc"?1:-1; return 0; };
+  const arrow=(col,st)=>st.key===col?` <span class="muted" style="font-size:.72rem">${st.dir==="asc"?"▲":"▼"}</span>`:"";
+  const drawU=()=>{
+    const rows=all.filter(r=>filter==="__alle"||(r.p.cohort||"—")===filter).slice().sort((a,b)=>cmp(uKeyOf(a,uSort.key),uKeyOf(b,uSort.key),uSort.dir));
     document.getElementById("guBody").innerHTML=rows.map(r=>`<tr><td>${esc(r.p.display_name)}</td><td>${esc(r.p.cohort||"—")}</td><td><span class="role ${r.p.role}">${r.p.role}</span></td>
       <td>${r.ans}</td><td>${r.ans?pct(r.correct,r.ans)+"%":"—"}</td><td>${r.visits}</td><td>${r.flags}</td></tr>`).join("");
     document.querySelectorAll("[data-coh]").forEach(b=>b.classList.toggle("active",b.dataset.coh===filter));
+    document.querySelectorAll("[data-usort]").forEach(t=>t.innerHTML=t.dataset.label+arrow(t.dataset.usort,uSort));
+  };
+  const drawC=()=>{
+    const rows=cohortRows.slice().sort((a,b)=>cmp(cKeyOf(a,cSort.key),cKeyOf(b,cSort.key),cSort.dir));
+    document.getElementById("gcBody").innerHTML=rows.map(c=>`<tr><td>${esc(c.name)}</td><td>${c.n}</td><td>${c.ans}</td><td>${c.ans?pct(c.correct,c.ans)+"%":"—"}</td><td>${c.visits}</td></tr>`).join("");
+    document.querySelectorAll("[data-csort]").forEach(t=>t.innerHTML=t.dataset.label+arrow(t.dataset.csort,cSort));
   };
   const cohorts=["__alle",...Object.keys(byCohort).sort()];
+  const thU=(k,l)=>`<th data-usort="${k}" data-label="${l}" style="cursor:pointer;user-select:none">${l}</th>`;
+  const thC=(k,l)=>`<th data-csort="${k}" data-label="${l}" style="cursor:pointer;user-select:none">${l}</th>`;
   app.innerHTML=`
     <h1>Gebruikersstatistiek</h1>
-    <p class="muted">Publiek zichtbaar.</p>
+    <p class="muted">Publiek zichtbaar. Klik op een kolomkop om te sorteren.</p>
     <h2>Per oorsprong</h2>
     <div class="card" style="padding:.3rem"><table>
-      <thead><tr><th>Oorsprong</th><th>Gebruikers</th><th>Antwoorden</th><th>Gem. % correct</th><th>Bezoeken</th></tr></thead>
-      <tbody>${Object.keys(byCohort).sort().map(c=>`<tr><td>${esc(c)}</td><td>${byCohort[c].n}</td><td>${byCohort[c].ans}</td><td>${byCohort[c].ans?pct(byCohort[c].correct,byCohort[c].ans)+"%":"—"}</td><td>${byCohort[c].visits}</td></tr>`).join("")}</tbody>
-    </table></div>
+      <thead><tr>${thC("name","Oorsprong")}${thC("n","Gebruikers")}${thC("ans","Antwoorden")}${thC("pctc","Gem. % correct")}${thC("visits","Bezoeken")}</tr></thead>
+      <tbody id="gcBody"></tbody></table></div>
     <h2>Gebruikers</h2>
     <div class="filterbar"><span class="muted">Oorsprong:</span>${cohorts.map(c=>`<button class="chip-toggle" data-coh="${esc(c)}">${c==="__alle"?"alle":esc(c)}</button>`).join("")}</div>
     <div class="card" style="padding:.3rem"><table>
-      <thead><tr><th>Naam</th><th>Oorsprong</th><th>Rol</th><th>Beantwoord</th><th>% correct</th><th>Bezoeken</th><th>Reacties</th></tr></thead>
+      <thead><tr>${thU("name","Naam")}${thU("cohort","Oorsprong")}${thU("role","Rol")}${thU("ans","Beantwoord")}${thU("pctc","% correct")}${thU("visits","Bezoeken")}${thU("flags","Reacties")}</tr></thead>
       <tbody id="guBody"></tbody></table></div>`;
-  app.querySelectorAll("[data-coh]").forEach(b=>b.onclick=()=>{ filter=b.dataset.coh; draw(); });
-  draw();
+  app.querySelectorAll("[data-coh]").forEach(b=>b.onclick=()=>{ filter=b.dataset.coh; drawU(); });
+  app.querySelectorAll("[data-usort]").forEach(t=>t.onclick=()=>{ const k=t.dataset.usort; uSort.dir=(uSort.key===k&&uSort.dir==="desc")?"asc":"desc"; uSort.key=k; drawU(); });
+  app.querySelectorAll("[data-csort]").forEach(t=>t.onclick=()=>{ const k=t.dataset.csort; cSort.dir=(cSort.key===k&&cSort.dir==="asc")?"desc":"asc"; cSort.key=k; drawC(); });
+  drawC(); drawU();
 }
 
 /* ============================================================
@@ -933,6 +948,37 @@ async function viewAccount(){
   const qlink=(qid)=>{ const q=qmap[qid]; return q?`<a class="ilink" data-q="${qid}" data-quiz="${q.quiz_id}">Vraag ${q.qnum}</a>`:`<span class="muted">(verwijderde vraag)</span>`; };
   const myScored=scored(myEvents).length;
   const myCorrect=(myEvents||[]).filter(e=>e.is_correct===true).length;
+  const myPct=myScored?pct(myCorrect,myScored):null;
+
+  // cohort-vergelijking
+  let cohortBlock="";
+  if(ME.cohort){
+    const { data:peers } = await sb.from("profiles").select("id").eq("cohort",ME.cohort);
+    const peerIds=(peers||[]).map(p=>p.id);
+    if(peerIds.length>=2){
+      const { data:peerEvents } = await sb.from("answer_events").select("user_id,is_correct").in("user_id",peerIds);
+      // per user % juist (enkel gevalideerd)
+      const byUser={};
+      (peerEvents||[]).forEach(e=>{ if(e.is_correct==null) return; const x=byUser[e.user_id]=byUser[e.user_id]||{c:0,t:0}; x.t++; if(e.is_correct)x.c++; });
+      const scores=Object.entries(byUser).filter(([,v])=>v.t>=5).map(([uid,v])=>({uid, p:v.c/v.t*100}));
+      if(scores.length>=2){
+        const avg=Math.round(scores.reduce((a,b)=>a+b.p,0)/scores.length);
+        scores.sort((a,b)=>b.p-a.p);
+        const myRank=scores.findIndex(s=>s.uid===ME.id)+1;
+        const rankStr = myRank>0 ? `${myRank}<span class="muted" style="font-size:.7em">e</span> / ${scores.length}` : "—";
+        const diff = myPct!=null ? myPct-avg : null;
+        const diffBadge = diff!=null ? `<span class="pill" style="background:${diff>=0?"var(--correct-soft)":"var(--wrong-soft)"};color:${diff>=0?"var(--correct)":"var(--wrong)"}">${diff>=0?"▲":"▼"} ${Math.abs(diff)}%</span>` : "";
+        cohortBlock=`<h2>Vergelijk met ${esc(ME.cohort)} ${diffBadge}</h2>
+          <div class="kpis">
+            ${kpi(`Gemiddelde ${esc(ME.cohort)}`, avg+"%", scores.length+" leden ≥5 gevalideerde antwoorden")}
+            ${kpi("Jouw rang", rankStr)}
+          </div>`;
+      } else {
+        cohortBlock=`<h2>Vergelijk met ${esc(ME.cohort)}</h2><p class="muted">Nog te weinig medegebruikers met voldoende gevalideerde antwoorden (minstens 5 per persoon).</p>`;
+      }
+    }
+  }
+
   app.innerHTML=`
     <h1>Mijn account</h1>
     <div class="muted">${esc(ME.email||"")} · <span class="role ${ME.role}">${ME.role}</span></div>
@@ -941,9 +987,10 @@ async function viewAccount(){
     <div class="kpis">
       ${kpi("Antwoorden",(myEvents||[]).length)}
       ${kpi("Gevalideerd",myScored)}
-      ${kpi("% juist",myScored?pct(myCorrect,myScored)+"%":"—")}
+      ${kpi("% juist",myPct!=null?myPct+"%":"—")}
     </div>
     ${learningBlock(myEvents||[], "Jouw vooruitgang over tijd")}
+    ${cohortBlock}
 
     <h2>Profiel</h2>
     <div class="card">
@@ -1259,12 +1306,18 @@ function parseQuizMarkdown(text){
     if(/^\*\*Uitleg:\*\*/i.test(line)){ cur.explanation=line.replace(/^\*\*Uitleg:\*\*/i,"").trim(); field="uitleg"; continue; }
     if(/^\*\*Bron:\*\*/i.test(line)){ cur.source=/ai|robot/i.test(line)?"ai":"mens"; field=null; continue; }
     if(/^\*\*Gevalideerd:\*\*/i.test(line)){ cur.validated=!/nee|neen|geen|no|uit|false/i.test(line); field=null; continue; }
-    if(line===""){ continue; }
+    if(line===""){
+      // lege regel = paragraafgrens in multi-line velden
+      if(field==="legal") cur.legal_basis+="\n\n";
+      else if(field==="wettekst") cur.wettekst+="\n\n";
+      else if(field==="uitleg") cur.explanation+="\n\n";
+      continue;
+    }
     // vervolgtekst bij het lopende veld
     if(field==="text") cur.text=(cur.text?cur.text+" ":"")+line;
-    else if(field==="legal") cur.legal_basis+=" "+line;
-    else if(field==="wettekst") cur.wettekst+=" "+line;
-    else if(field==="uitleg") cur.explanation+=" "+line;
+    else if(field==="legal") cur.legal_basis+=(cur.legal_basis.endsWith("\n\n")?"":" ")+line;
+    else if(field==="wettekst") cur.wettekst+=(cur.wettekst.endsWith("\n\n")?"":" ")+line;
+    else if(field==="uitleg") cur.explanation+=(cur.explanation.endsWith("\n\n")?"":" ")+line;
   }
   push();
   questions.forEach((q,i)=>{
