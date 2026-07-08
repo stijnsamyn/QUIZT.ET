@@ -686,9 +686,9 @@ function renderPlayDone(){
         <button class="btn btn-ghost" id="againNew">Nieuwe sessie</button>
         <a class="btn btn-ghost" data-nav="#/">Naar quizzen</a>
       </div>
-      ${(()=>{ const earned=qs.length>=25 && scored>0 && p>=80; const eligible=earned||isAdmin();
+      ${(()=>{ const eligible=qs.length>=25 && scored>0 && p>=80;
         return `<div class="brain-break">
-          <div class="muted" style="font-size:.82rem;margin-bottom:.4rem">${earned?"Je hebt een pauze verdiend 🎉":(isAdmin()?"Admin-toegang (normaal ≥25 vragen én ≥80% juist)":"Speel Tetris na een sessie van minstens 25 vragen met ≥80% juist.")}</div>
+          <div class="muted" style="font-size:.82rem;margin-bottom:.4rem">${eligible?"Je hebt een pauze verdiend 🎉":"Speel Tetris na een sessie van minstens 25 vragen met ≥80% juist."}</div>
           <button class="btn btn-ghost btn-sm" id="openTetris" ${eligible?"":"disabled"} title="${eligible?"Speel een rondje Tetris":"Vergrendeld — je moet minstens 25 vragen doen én 80% juist scoren"}">🧱 Speel Tetris ${eligible?"":"🔒"}</button>
         </div>`; })()}
     </div>`;
