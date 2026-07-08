@@ -510,6 +510,13 @@ async function renderQuestion(){
   });
   if(answered){ renderAfterAnswer(q); }
   else if(multi){
+    const syncChosen=()=>app.querySelectorAll("[data-opt]").forEach(el=>{
+      const cb=el.querySelector(".mopt"); el.classList.toggle("chosen", !!(cb&&cb.checked));
+    });
+    app.querySelectorAll("[data-opt]").forEach(el=>el.onclick=e=>{
+      if(e.target.tagName!=="INPUT"){ const cb=el.querySelector(".mopt"); if(cb) cb.checked=!cb.checked; }
+      syncChosen();
+    });
     document.getElementById("checkMulti").onclick=()=>{
       const sel=[...app.querySelectorAll(".mopt:checked")].map(c=>+c.value);
       if(!sel.length) return toast("Kruis minstens één antwoord aan","err");
@@ -520,6 +527,9 @@ async function renderQuestion(){
 }
 
 async function answerQuestion(q, idxArray){
+  if(PLAY.answering) return;
+  PLAY.answering=true;
+  app.querySelectorAll("[data-opt],#checkMulti").forEach(el=>el.style.pointerEvents="none");
   const chosen=arr(idxArray).slice().sort((a,b)=>a-b);
   const is_correct = isRight(q, chosen);   // null bij niet-gevalideerde vraag
   try{
@@ -527,8 +537,9 @@ async function answerQuestion(q, idxArray){
     if(e1) throw e1;
     await sb.from("answer_events").insert({ question_id:q.id, quiz_id:PLAY.quiz.id, user_id:ME.id, is_correct });
   }
-  catch(e){ toast("Antwoord niet opgeslagen: "+e.message,"err"); return; }
+  catch(e){ toast("Antwoord niet opgeslagen: "+e.message,"err"); PLAY.answering=false; renderQuestion(); return; }
   PLAY.answers[q.id]=chosen;
+  PLAY.answering=false;
   const allAnswered = PLAY.questions.every(x=>PLAY.answers[x.id]!=null);
   if(allAnswered) renderPlayDone(); else renderQuestion();
 }
@@ -964,15 +975,17 @@ async function viewAccount(){
       if(scores.length>=2){
         const avg=Math.round(scores.reduce((a,b)=>a+b.p,0)/scores.length);
         scores.sort((a,b)=>b.p-a.p);
-        const myRank=scores.findIndex(s=>s.uid===ME.id)+1;
-        const rankStr = myRank>0 ? `${myRank}<span class="muted" style="font-size:.7em">e</span> / ${scores.length}` : "—";
-        const diff = myPct!=null ? myPct-avg : null;
+        const myInScores=scores.findIndex(s=>s.uid===ME.id);
+        const inRanking = myInScores>=0;
+        const rankStr = inRanking ? `${myInScores+1}<span class="muted" style="font-size:.7em">e</span> / ${scores.length}` : "—";
+        const diff = (inRanking && myPct!=null) ? myPct-avg : null;
         const diffBadge = diff!=null ? `<span class="pill" style="background:${diff>=0?"var(--correct-soft)":"var(--wrong-soft)"};color:${diff>=0?"var(--correct)":"var(--wrong)"}">${diff>=0?"▲":"▼"} ${Math.abs(diff)}%</span>` : "";
+        const notInNote = inRanking ? "" : `<p class="muted">Je hebt zelf nog geen 5 gevalideerde antwoorden — je staat nog niet in de rangschikking.</p>`;
         cohortBlock=`<h2>Vergelijk met ${esc(ME.cohort)} ${diffBadge}</h2>
           <div class="kpis">
             ${kpi(`Gemiddelde ${esc(ME.cohort)}`, avg+"%", scores.length+" leden ≥5 gevalideerde antwoorden")}
             ${kpi("Jouw rang", rankStr)}
-          </div>`;
+          </div>${notInNote}`;
       } else {
         cohortBlock=`<h2>Vergelijk met ${esc(ME.cohort)}</h2><p class="muted">Nog te weinig medegebruikers met voldoende gevalideerde antwoorden (minstens 5 per persoon).</p>`;
       }
@@ -1401,8 +1414,15 @@ async function viewImport(){
 /* ============================================================
    BOOT
    ============================================================ */
+function renderLastUpdate(){
+  const el=document.getElementById("lastUpdate"); if(!el) return;
+  const d=new Date(document.lastModified);
+  if(isNaN(d)) return;
+  el.textContent="laatste update "+d.toLocaleDateString("nl-BE",{day:"2-digit",month:"short",year:"numeric"})+" "+d.toLocaleTimeString("nl-BE",{hour:"2-digit",minute:"2-digit"});
+}
 let visitLogged=false;
 async function boot(){
+  renderLastUpdate();
   if(!sb){ document.getElementById("appHeader").hidden=true; route(); return; }
   await loadProfile();
   if(ME && !visitLogged){ visitLogged=true; sb.from("visits").insert({ user_id:ME.id }).then(()=>{},()=>{}); }
