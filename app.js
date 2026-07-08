@@ -738,16 +738,17 @@ async function viewImport(){
       <textarea id="mdText" style="min-height:220px" placeholder="…of plak hier de inhoud van je sjabloon"></textarea>
       <label style="display:flex;align-items:center;gap:.5rem;margin-top:.6rem"><input type="checkbox" id="aiAll" style="width:auto"> Deze hele import is door AI gegenereerd (herkomst = AI, tenzij een vraag zelf <code>**Bron:** mens</code> vermeldt)</label>
       <div class="btnrow"><button class="btn btn-ghost btn-sm" id="previewBtn">Voorbeeld</button>
-        <button class="btn btn-primary btn-sm" id="importBtn" disabled>Importeren als concept</button></div>
+        <button class="btn btn-primary btn-sm" id="importBtn">Importeren als concept</button></div>
     </div>
+    <div id="importStatus" class="muted" style="margin-top:.6rem"></div>
     <div id="importPreview"></div>`;
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
+  const status=m=>{ document.getElementById("importStatus").textContent=m||""; };
   document.getElementById("mdFile").onchange=async e=>{
-    const f=e.target.files[0]; if(f) document.getElementById("mdText").value=await f.text();
+    const f=e.target.files[0]; if(f){ document.getElementById("mdText").value=await f.text(); showPreview(); }
   };
-  let parsed=null;
-  document.getElementById("previewBtn").onclick=()=>{
-    parsed=parseQuizMarkdown(document.getElementById("mdText").value);
+  const showPreview=()=>{
+    const parsed=parseQuizMarkdown(document.getElementById("mdText").value);
     const box=document.getElementById("importPreview");
     box.innerHTML=`<div class="card">
       ${parsed.errors.length?`<div style="color:var(--wrong)"><strong>Aandachtspunten:</strong><ul>${parsed.errors.map(e=>`<li>${esc(e)}</li>`).join("")}</ul></div>`:`<p style="color:var(--correct)">${ICON.check} Geen fouten gevonden.</p>`}
@@ -755,21 +756,40 @@ async function viewImport(){
       <ol>${parsed.questions.slice(0,8).map(q=>`<li>${esc(q.text).slice(0,80)}… <span class="muted">(juist: ${lettersOf(q.correct_indexes)}${q.multi?" · meerkeuze":""})</span></li>`).join("")}</ol>
       ${parsed.questions.length>8?`<p class="muted">…en ${parsed.questions.length-8} meer.</p>`:""}
     </div>`;
-    document.getElementById("importBtn").disabled = !(parsed.title && parsed.questions.length && !parsed.errors.length);
+    return parsed;
   };
+  document.getElementById("previewBtn").onclick=showPreview;
   document.getElementById("importBtn").onclick=async()=>{
-    if(!parsed) return;
-    const aiAll=document.getElementById("aiAll").checked;
-    const { data:quiz, error }=await sb.from("quizzes").insert({ title:parsed.title, description:parsed.desc, status:"concept", created_by:ME.id }).select().single();
-    if(error) return toast(error.message,"err");
-    const rows=parsed.questions.map((q,i)=>{
-      const src = q.source==="ai" ? "ai" : (aiAll ? "ai" : "mens");
-      return { quiz_id:quiz.id, sort_order:i+1, text:q.text, options:q.options, correct_indexes:q.correct_indexes, multi:!!q.multi,
-        legal_basis:q.legal_basis, explanation:q.explanation, answer_source:src, explanation_source:src };
-    });
-    const { error:e2 }=await sb.from("questions").insert(rows);
-    if(e2) return toast(e2.message,"err");
-    toast("Geïmporteerd als concept","ok"); go("#/beheer/quiz/"+quiz.id);
+    const btn=document.getElementById("importBtn");
+    const parsed=parseQuizMarkdown(document.getElementById("mdText").value);
+    showPreview();
+    if(!parsed.title || !parsed.questions.length){ toast("Niets te importeren — controleer het bestand.","err"); return; }
+    if(parsed.errors.length){ toast("Los eerst de aandachtspunten op.","err"); return; }
+    btn.disabled=true;
+    try{
+      const aiAll=document.getElementById("aiAll").checked;
+      status("Quiz aanmaken…");
+      const { data:quiz, error }=await sb.from("quizzes").insert({ title:parsed.title, description:parsed.desc, status:"concept", created_by:ME.id }).select().single();
+      if(error) throw error;
+      const rows=parsed.questions.map((q,i)=>{
+        const src = q.source==="ai" ? "ai" : (aiAll ? "ai" : "mens");
+        return { quiz_id:quiz.id, sort_order:i+1, text:q.text, options:q.options, correct_indexes:q.correct_indexes, multi:!!q.multi,
+          legal_basis:q.legal_basis, explanation:q.explanation, answer_source:src, explanation_source:src };
+      });
+      const CHUNK=40;
+      for(let i=0;i<rows.length;i+=CHUNK){
+        status(`Vragen wegschrijven… ${Math.min(i+CHUNK,rows.length)}/${rows.length}`);
+        const { error:e2 }=await sb.from("questions").insert(rows.slice(i,i+CHUNK));
+        if(e2) throw e2;
+      }
+      status("");
+      toast(`Geïmporteerd: ${rows.length} vragen (concept)`,"ok");
+      go("#/beheer/quiz/"+quiz.id);
+    }catch(err){
+      status("");
+      toast("Import mislukt: "+(err.message||err),"err");
+      btn.disabled=false;
+    }
   };
 }
 
