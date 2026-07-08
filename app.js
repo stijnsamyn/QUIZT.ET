@@ -318,8 +318,8 @@ function orderQuestions(all, answers, mode){
       : {onbeantwoord:0, fout:1, overleg:2, juist:3};
     return all.slice().sort((a,b)=>(rank[qStatus(a,answers)]-rank[qStatus(b,answers)])||byNum(a,b));
   }
-  // slim: gewogen willekeurig — fout zwaarst, dan onbeantwoord, dan juist
-  const weight=q=>{ const s=qStatus(q,answers); return s==="fout"?3:s==="onbeantwoord"?2:1; };
+  // slim: gewogen willekeurig — nooit-beantwoord krijgt voorrang, dan fout, dan overleg, dan juist
+  const weight=q=>{ const s=qStatus(q,answers); return s==="onbeantwoord"?4:s==="fout"?3:s==="overleg"?2:1; };
   return all.map(q=>({q,k:Math.random()/weight(q)})).sort((a,b)=>a.k-b.k).map(x=>x.q);
 }
 // Speelvoorkeuren per gebruiker onthouden (browser)
@@ -467,27 +467,28 @@ async function renderQuestion(){
     </div>
     <h1 style="font-size:1.2rem;margin:.6rem 0 .4rem">${esc(PLAY.quiz.title)}</h1>
     <div class="progress">
+      <div class="muted" style="font-size:.75rem;margin-bottom:.15rem">Voortgang in deze sessie</div>
       <div class="bar"><span style="width:${pct(answeredN,total)}%"></span><div class="lab">Beantwoord ${answeredN}/${total}</div></div>
       <div class="progress-legend">
         <span class="dot ok"></span> Juist: ${correctN}
         <span class="dot bad"></span> Fout: ${wrongN}
         ${overlegN?`<span class="dot warn"></span> In overleg: ${overlegN}`:""}
-        <span class="dot none"></span> Nog niet: ${unanswered}
-        ${allDone?`<span class="pill" style="background:var(--correct-soft);color:var(--correct)">${ICON.check} Alle vragen gezien</span>`:""}
+        <span class="dot none"></span> Nog te doen: ${unanswered}
+        ${allDone?`<span class="pill" style="background:var(--correct-soft);color:var(--correct)">${ICON.check} Sessie voltooid</span>`:""}
         <span style="margin-left:auto"></span>
         <span class="muted">Volgorde:</span>
-        <button class="chip-toggle ${PLAY.mode==="slim"?"active":""}" data-mode="slim" title="Fout beantwoorde vragen krijgen deels voorrang">Slim oefenen</button>
+        <button class="chip-toggle ${PLAY.mode==="slim"?"active":""}" data-mode="slim" title="Nooit-beantwoorde vragen krijgen voorrang, dan fout beantwoorde">Slim oefenen</button>
         <button class="chip-toggle ${PLAY.mode==="nummer"?"active":""}" data-mode="nummer">Op nummer</button>
       </div>
     </div>
     <div class="btnrow" style="margin-bottom:.8rem">
       <button class="btn btn-ghost btn-sm" id="prevBtn" ${PLAY.i===0?"disabled":""}>← Vorige</button>
       <button class="btn btn-ghost btn-sm" id="nextBtn" ${PLAY.i>=total-1?"disabled":""}>Volgende →</button>
-      ${unanswered?`<button class="btn btn-primary btn-sm" id="nextUnans">Volgende onbeantwoorde →</button>`:`<button class="btn btn-primary btn-sm" id="doneBtn">Bekijk resultaat →</button>`}
+      ${unanswered?`<button class="btn btn-primary btn-sm" id="nextUnans">Volgende in deze sessie →</button>`:`<button class="btn btn-primary btn-sm" id="doneBtn">Bekijk resultaat →</button>`}
       ${isEditor()?`<button class="btn btn-ghost btn-sm" id="editQ" style="margin-left:auto">Bewerk deze vraag</button>`:""}
     </div>
     <div class="card">
-      <div class="q-meta"><span class="q-num">Vraag ${q.qnum}</span>${questionTags(q)}${answered?(isRight(q,chosen)===true?`<span class="pill juist">juist beantwoord</span>`:isRight(q,chosen)===false?`<span class="pill fout">fout beantwoord</span>`:`<span class="pill twijfel">antwoord genoteerd — in overleg</span>`):((PLAY.history&&PLAY.history[q.id]!=null)?(isRight(q,PLAY.history[q.id])===true?`<span class="pill" style="background:var(--correct-soft);color:var(--correct);opacity:.75">eerder juist</span>`:isRight(q,PLAY.history[q.id])===false?`<span class="pill" style="background:var(--wrong-soft);color:var(--wrong);opacity:.75">eerder fout</span>`:`<span class="pill" style="background:var(--warn-soft);color:var(--warn);opacity:.75">eerder beantwoord</span>`):`<span class="pill" style="background:var(--surface2);color:var(--text-muted)">nog niet beantwoord</span>`)}</div>
+      <div class="q-meta"><span class="q-num">Vraag ${q.qnum}</span>${questionTags(q)}${answered?(isRight(q,chosen)===true?`<span class="pill juist">juist beantwoord</span>`:isRight(q,chosen)===false?`<span class="pill fout">fout beantwoord</span>`:`<span class="pill twijfel">antwoord genoteerd — in overleg</span>`):((PLAY.history&&PLAY.history[q.id]!=null)?(isRight(q,PLAY.history[q.id])===true?`<span class="pill" style="background:var(--correct-soft);color:var(--correct);opacity:.75">eerder juist</span>`:isRight(q,PLAY.history[q.id])===false?`<span class="pill" style="background:var(--wrong-soft);color:var(--wrong);opacity:.75">eerder fout</span>`:`<span class="pill" style="background:var(--warn-soft);color:var(--warn);opacity:.75">eerder beantwoord</span>`):`<span class="pill" style="background:var(--surface2);color:var(--text-muted)">nieuwe vraag voor jou</span>`)}</div>
       <div class="q-text">${esc(q.text)}</div>
       <div id="opts">${opts}</div>
       ${(multi&&!answered)?`<div class="btnrow"><button class="btn btn-primary btn-sm" id="checkMulti">Nakijken</button></div>`:""}
