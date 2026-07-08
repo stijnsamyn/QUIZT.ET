@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quizplatform Strafprocesrecht</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="app-header" id="appHeader" hidden>
+    <div class="brand" data-nav="#/">⚖️ Strafprocesrecht</div>
+    <nav class="topnav" id="topnav"></nav>
+    <div class="userbox" id="userbox"></div>
+  </header>
+
+  <main id="app" class="app-main">
+    <div class="loading">Laden…</div>
+  </main>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <!-- Supabase client (UMD, globale variabele `supabase`) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
