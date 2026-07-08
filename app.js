@@ -427,6 +427,7 @@ function startSession(size, focus, order){
   if(size!=="alle"){ const n=parseInt(size,10)||pool.length; pool=pool.slice(0,n); }
   // sessie start blanco — vorige antwoorden blijven in DB voor statistiek/focus
   PLAY.answers={};
+  PLAY.optOrder={};
   PLAY.questions=pool; PLAY.i=0; renderQuestion();
 }
 
@@ -438,13 +439,18 @@ async function renderQuestion(){
   const correct = arr(q.correct_indexes);
   const validated = q.validated!==false;
   const multi = q.multi || correct.length>1;
-  const opts=(q.options||[]).map((o,i)=>{
+  // volgorde van de opties eenmalig door elkaar schudden per sessie
+  PLAY.optOrder=PLAY.optOrder||{};
+  if(!PLAY.optOrder[q.id]) PLAY.optOrder[q.id]=shuffle((q.options||[]).map((_,i)=>i));
+  const order=PLAY.optOrder[q.id];
+  const opts=order.map((origIdx,pos)=>{
+    const o=(q.options||[])[origIdx];
     let cls="opt"; let box="";
     if(answered){ cls+=" disabled";
-      if(validated){ if(correct.includes(i)) cls+=" correct"; else if(inSet(chosen,i)) cls+=" wrong"; }
-      else if(inSet(chosen,i)) cls+=" chosen"; }
-    else if(multi){ box=`<input type="checkbox" class="mopt" value="${i}" style="width:auto;margin-top:.15rem">`; }
-    return `<div class="${cls}" data-opt="${i}">${box}<span class="letter">${letter(i)}</span><span>${esc(o)} ${answered&&validated&&correct.includes(i)?srcBadge("Juist antwoord",q.answer_source):""}</span></div>`;
+      if(validated){ if(correct.includes(origIdx)) cls+=" correct"; else if(inSet(chosen,origIdx)) cls+=" wrong"; }
+      else if(inSet(chosen,origIdx)) cls+=" chosen"; }
+    else if(multi){ box=`<input type="checkbox" class="mopt" value="${origIdx}" style="width:auto;margin-top:.15rem">`; }
+    return `<div class="${cls}" data-opt="${origIdx}">${box}<span class="letter">${letter(pos)}</span><span>${esc(o)} ${answered&&validated&&correct.includes(origIdx)?srcBadge("Juist antwoord",q.answer_source):""}</span></div>`;
   }).join("");
   // voortgang
   const total=PLAY.questions.length;
