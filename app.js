@@ -316,7 +316,7 @@ async function viewPlay(quizId){
     (mine||[]).forEach(a=>PLAY.answers[a.question_id]=a.chosen_indexes||[]); }
   // open flags voor deze quiz (voor iedereen zichtbaar op het startscherm)
   PLAY.openFlags=[]; PLAY.flagNames={};
-  if(ids.length){ const {data:of}=await sb.from("flags").select("id,question_id,type,toelichting,created_at,user_id").eq("status","open").in("question_id",ids).order("created_at",{ascending:false});
+  if(ids.length){ const {data:of}=await sb.from("flags").select("id,question_id,type,toelichting,created_at,user_id").eq("status","open").neq("type","juist").in("question_id",ids).order("type").order("created_at",{ascending:false});
     PLAY.openFlags=of||[]; PLAY.flagNames=await namesFor(PLAY.openFlags.map(f=>f.user_id)); }
   if(PLAY.pendingJump){
     const jid=PLAY.pendingJump; PLAY.pendingJump=null;
@@ -920,7 +920,7 @@ async function viewAccount(){
 async function viewBeheer(){
   if(!isEditor()){ app.innerHTML=`<div class="empty">Geen toegang.</div>`; return; }
   const { data:quizzes } = await sb.from("quizzes").select("*").order("created_at");
-  const { data:openFlags } = await sb.from("flags").select("id,question_id,type,toelichting,created_at,user_id").eq("status","open").order("created_at",{ascending:false});
+  const { data:openFlags } = await sb.from("flags").select("id,question_id,type,toelichting,created_at,user_id").eq("status","open").neq("type","juist").order("type").order("created_at",{ascending:false});
   const names=await namesFor((openFlags||[]).map(f=>f.user_id));
   // map question -> quiz voor flaglinks
   let qmap={};
