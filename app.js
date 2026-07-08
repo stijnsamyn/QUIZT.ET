@@ -817,12 +817,13 @@ async function viewQuizStats(quizId){
     <p class="muted">% juist per dag, alle spelers samen — zie of de groep beter wordt.</p>
     <div class="card">${lineChartSVG(commDaily,{color:"#16803d"})}</div>
     <div class="two-col">
-      <div><h2>Moeilijkste vragen</h2><div class="card">${hardest.length?hardest.map(r=>`<div class="spread mini"><span><span class="q-num">${r.q.qnum}</span> ${esc(r.q.text).slice(0,60)}…</span><strong>${pct(r.correct,r.played)}%</strong></div>`).join(""):`<p class="muted">Nog geen antwoorden.</p>`}</div></div>
-      <div><h2>Meest geflagd</h2><div class="card">${flagged.length?flagged.map(r=>`<div class="spread mini"><span><span class="q-num">${r.q.qnum}</span> ${esc(r.q.text).slice(0,60)}…</span><span class="count-chip">${ICON.flag} ${r.flags}</span></div>`).join(""):`<p class="muted">Nog geen flags.</p>`}</div></div>
+      <div><h2>Moeilijkste vragen</h2><div class="card">${hardest.length?hardest.map(r=>`<div class="spread mini row-link" data-quiz="${r.q.quiz_id}" data-qid="${r.q.id}"><span><span class="q-num">${r.q.qnum}</span> ${esc(r.q.text).slice(0,60)}…</span><strong>${pct(r.correct,r.played)}%</strong></div>`).join(""):`<p class="muted">Nog geen antwoorden.</p>`}</div></div>
+      <div><h2>Meest geflagd</h2><div class="card">${flagged.length?flagged.map(r=>`<div class="spread mini row-link" data-quiz="${r.q.quiz_id}" data-qid="${r.q.id}"><span><span class="q-num">${r.q.qnum}</span> ${esc(r.q.text).slice(0,60)}…</span><span class="count-chip">${ICON.flag} ${r.flags}</span></div>`).join(""):`<p class="muted">Nog geen flags.</p>`}</div></div>
     </div>
     <h2>Alle vragen</h2>
     <div id="qsTable"></div>`;
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
+  app.querySelectorAll(".mini.row-link").forEach(el=>el.onclick=()=>PLAY_goto(el.dataset.quiz, el.dataset.qid));
   mountStatsTable("qsTable", agg, null);
 }
 
