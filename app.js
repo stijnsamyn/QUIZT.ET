@@ -389,7 +389,7 @@ function renderPlaySetup(){
         <div><strong>Mijn voortgang</strong><div class="muted" style="font-size:.82rem">Beantwoord: ${total-todo}/${total} · juist: ${PLAY.all.filter(q=>isRight(q,PLAY.answers[q.id])===true).length}</div></div>
         <button class="btn btn-danger btn-sm" id="wipeBtn">Voortgang wissen</button>
       </div>
-      <div class="muted" style="font-size:.78rem;margin-top:.4rem">Wist enkel jouw antwoorden voor deze quiz. Je flags en opmerkingen blijven bewaard.</div>
+      <div class="muted" style="font-size:.78rem;margin-top:.4rem">Wist <strong>al</strong> jouw antwoorden op deze quiz (over alle sessies heen). Daarna telt elke vraag weer als "nog nooit beantwoord" voor "slim oefenen" en de focus-filters. Je flags en opmerkingen blijven bewaard.</div>
     </div>
     ${(PLAY.openFlags&&PLAY.openFlags.length)?`
     <h2>Open flags (${PLAY.openFlags.length})</h2>
@@ -411,7 +411,7 @@ function renderPlaySetup(){
   document.getElementById("wipeBtn").onclick=wipeProgress;
 }
 async function wipeProgress(){
-  if(!confirm("Je eigen voortgang voor deze quiz wissen? Je flags en opmerkingen blijven behouden.")) return;
+  if(!confirm("Weet je zeker dat je AL je antwoorden op deze quiz wil wissen? Dit gaat over alle sessies heen — daarna telt elke vraag weer als 'nog nooit beantwoord'. Je flags en opmerkingen blijven behouden.")) return;
   const ids=PLAY.all.map(q=>q.id);
   try{
     if(ids.length) await sb.from("answers").delete().eq("user_id",ME.id).in("question_id",ids);
