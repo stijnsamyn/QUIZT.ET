@@ -43,6 +43,8 @@ function srcBadge(kind, src){
 const esc = s => (s==null?"":String(s)).replace(/[&<>"']/g, c => (
   {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
 const letter = i => String.fromCharCode(65 + i);
+// Vertrouwde, door beheerders ingevoerde inhoud (uitleg, wettelijke basis, wettekst) mag als HTML.
+const html = s => (s==null?"":String(s));
 function fmtDate(d){ const x=new Date(d); return x.toLocaleDateString("nl-BE",{day:"numeric",month:"short",year:"numeric"})+" "+x.toLocaleTimeString("nl-BE",{hour:"2-digit",minute:"2-digit"}); }
 function toast(msg, kind){ const t=document.getElementById("toast"); t.className="toast "+(kind||""); t.textContent=msg; t.hidden=false; clearTimeout(t._t); t._t=setTimeout(()=>t.hidden=true, 3200); }
 function go(hash){ if(location.hash===hash) route(); else location.hash=hash; }
@@ -473,26 +475,30 @@ async function renderAfterAnswer(q){
 
   box.innerHTML=`
     ${q.validated===false?`<div class="notice">${ICON.info} <strong>Nog geen gevalideerd juist antwoord.</strong> Bekijk hieronder welk antwoord de groep verkiest, kies zelf je voorkeursantwoord en gebruik de flags om in overleg te gaan.</div>`:""}
-    <div class="explain"><span class="lbl">Uitleg ${srcBadge("Uitleg",q.explanation_source)}</span>${esc(q.explanation||"— geen uitleg —")}</div>
-    ${q.legal_basis?`<div class="legal"><strong>Wettelijke basis:</strong> ${esc(q.legal_basis)}</div>`:""}
-    ${q.wettekst?`<details><summary>${ICON.info} Wettekst</summary><div class="body wettekst">${esc(q.wettekst)}</div></details>`:""}
+    <div class="explain">
+      <span class="lbl">Uitleg ${srcBadge("Uitleg",q.explanation_source)}</span>${html(q.explanation||"— geen uitleg —")}
+      ${q.legal_basis?`<div class="legal-inline"><strong>Wettelijke basis:</strong> ${html(q.legal_basis)}</div>`:""}
+      ${q.wettekst?`<details class="wettekst-d"><summary>${ICON.info} Toon wettekst</summary><div class="wettekst">${html(q.wettekst)}</div></details>`:""}
+    </div>
 
-    <details><summary>${ICON.chat} Reageer op deze vraag <span class="muted">— flag &amp; jouw voorkeursantwoord</span></summary>
+    <details><summary>${ICON.chat} Reageer op deze vraag</summary>
       <div class="body">
-        <strong>Flag</strong> <span class="muted">(fout / twijfel / juist)</span>
-        <div class="btnrow" style="margin-top:.3rem">
-          <button class="chip-toggle" data-ftype="fout">Antwoord lijkt fout</button>
-          <button class="chip-toggle" data-ftype="twijfel">Ik twijfel / onduidelijk</button>
-          <button class="chip-toggle" data-ftype="juist">Klopt / is juist</button>
+        <div class="btnrow" id="reactBtns">
+          <button class="chip-toggle" data-ftype="twijfel">Ik twijfel aan het antwoord</button>
+          <button class="chip-toggle" data-ftype="fout">Het antwoord is fout</button>
+          <button class="chip-toggle" data-ftype="juist">Het antwoord is juist</button>
         </div>
-        <textarea id="fToel" placeholder="Leg uit waarom (verplicht bij fout/twijfel, niet nodig bij juist)…"></textarea>
-        <div class="btnrow"><button class="btn btn-primary btn-sm" id="fSubmit">Flag plaatsen</button></div>
-        <hr>
-        <strong>Jouw voorkeursantwoord &amp; opmerking</strong>
-        <label>Welk antwoord (of antwoorden) vind jij juist?</label>
-        ${(q.options||[]).map((o,i)=>`<label style="display:flex;align-items:center;gap:.5rem;font-weight:400;margin:.15rem 0"><input type="checkbox" class="opref" value="${i}" style="width:auto" ${myOpm&&inSet(myOpm.preferred_indexes,i)?"checked":""}> ${letter(i)} — ${esc(o).slice(0,90)}</label>`).join("")}
-        <textarea id="oMot" placeholder="Waarom? (motivatie)">${myOpm?esc(myOpm.motivatie||""):""}</textarea>
-        <div class="btnrow"><button class="btn btn-primary btn-sm" id="oSubmit">${myOpm?"Bijwerken":"Plaatsen"}</button></div>
+        <div id="reactPref" hidden>
+          <label>Welk antwoord vind jij dan juist?</label>
+          <div class="opref-list">
+            ${(q.options||[]).map((o,i)=>`<label class="opref-item"><input type="checkbox" class="opref" value="${i}" ${myOpm&&inSet(myOpm.preferred_indexes,i)?"checked":""}><span><strong>${letter(i)}.</strong> ${esc(o)}</span></label>`).join("")}
+          </div>
+        </div>
+        <div id="reactComment" hidden>
+          <label id="rMotLabel">Commentaar</label>
+          <textarea id="rMot" placeholder="Leg uit waarom…">${myOpm?esc(myOpm.motivatie||""):""}</textarea>
+        </div>
+        <div class="btnrow" id="reactSubmitRow" hidden><button class="btn btn-primary btn-sm" id="rSubmit">Versturen</button></div>
       </div></details>
 
     <details ${(flags&&flags.length)?"open":""}><summary>${ICON.flag} Geschiedenis: flags (${(flags||[]).length}) &amp; opmerkingen (${(opm||[]).length})</summary>
@@ -505,24 +511,32 @@ async function renderAfterAnswer(q){
     <details><summary>${ICON.clock} Wijzigingshistoriek (${(edits||[]).length})</summary>
       <div class="body">${(edits||[]).map(e=>`<div class="hist"><span class="who">${esc(names[e.edited_by]||"?")}</span> <span class="when">${fmtDate(e.created_at)}</span><div>${esc(e.summary)}</div></div>`).join("")||`<p class="muted">Nog geen wijzigingen.</p>`}</div></details>`;
 
-  // flag handlers
+  // reactie: flag + (bij twijfel/fout) voorkeursantwoord — één geheel
   let ftype=null;
-  box.querySelectorAll("[data-ftype]").forEach(b=>b.onclick=()=>{ ftype=b.dataset.ftype; box.querySelectorAll("[data-ftype]").forEach(x=>x.classList.toggle("active",x===b)); });
-  document.getElementById("fSubmit").onclick=async()=>{
-    const toel=document.getElementById("fToel").value.trim();
-    if(!ftype) return toast("Kies fout, twijfel of juist","err");
-    if(ftype!=="juist" && !toel) return toast("Toelichting is verplicht bij fout/twijfel","err");
-    const { error }=await sb.from("flags").insert({ question_id:q.id, user_id:ME.id, type:ftype, toelichting:toel });
-    if(error) return toast(error.message,"err");
-    toast("Flag geplaatst","ok"); renderAfterAnswer(q);
-  };
-  document.getElementById("oSubmit").onclick=async()=>{
+  box.querySelectorAll("#reactBtns [data-ftype]").forEach(b=>b.onclick=()=>{
+    ftype=b.dataset.ftype;
+    box.querySelectorAll("#reactBtns [data-ftype]").forEach(x=>x.classList.toggle("active",x===b));
+    const disagree=(ftype==="twijfel"||ftype==="fout");
+    document.getElementById("reactPref").hidden=!disagree;
+    document.getElementById("reactComment").hidden=false;
+    document.getElementById("reactSubmitRow").hidden=false;
+    document.getElementById("rMotLabel").textContent=disagree?"Waarom denk je dat?":"Commentaar (optioneel)";
+    document.getElementById("rMot").placeholder=disagree?"Leg uit waarom…":"Optionele opmerking…";
+  });
+  const rs=document.getElementById("rSubmit");
+  if(rs) rs.onclick=async()=>{
+    if(!ftype) return toast("Kies eerst één van de drie opties","err");
+    const mot=(document.getElementById("rMot").value||"").trim();
     const pref=[...box.querySelectorAll(".opref:checked")].map(c=>+c.value).sort((a,b)=>a-b);
-    if(!pref.length) return toast("Kies minstens één voorkeursantwoord","err");
-    const mot=document.getElementById("oMot").value.trim();
-    const { error }=await sb.from("opmerkingen").upsert({ question_id:q.id, user_id:ME.id, preferred_indexes:pref, motivatie:mot, updated_at:new Date().toISOString() },{ onConflict:"question_id,user_id" });
-    if(error) return toast(error.message,"err");
-    toast("Opmerking opgeslagen","ok"); renderAfterAnswer(q);
+    const disagree=(ftype==="twijfel"||ftype==="fout");
+    if(disagree && !mot) return toast("Leg kort uit waarom","err");
+    const { error:fe }=await sb.from("flags").insert({ question_id:q.id, user_id:ME.id, type:ftype, toelichting:mot });
+    if(fe) return toast(fe.message,"err");
+    if(pref.length){
+      const { error:oe }=await sb.from("opmerkingen").upsert({ question_id:q.id, user_id:ME.id, preferred_indexes:pref, motivatie:mot, updated_at:new Date().toISOString() },{ onConflict:"question_id,user_id" });
+      if(oe) return toast(oe.message,"err");
+    }
+    toast("Bedankt voor je reactie","ok"); renderAfterAnswer(q);
   };
 }
 
