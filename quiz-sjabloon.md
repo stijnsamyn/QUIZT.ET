@@ -36,6 +36,10 @@ FORMAATREGELS (de importer leest hierop)
   • "**Wettelijke basis:**" — de wetsartikelen/grondslag (optioneel, aangeraden).
   • "**Uitleg:**" — waarom dit antwoord juist is (optioneel, aangeraden).
   • "**Bron:**" — mens of AI (optioneel; standaard mens).
+  • "**Gevalideerd:**" — ja of nee (optioneel; standaard ja). Zet "nee" als er nog
+    geen zeker juist antwoord is: de vraag krijgt dan de tag "Niet gevalideerd" en de
+    gebruikers bepalen het beste antwoord via opmerkingen en flags. Laat je álle [ ]
+    onaangevinkt, dan wordt de vraag sowieso als niet-gevalideerd ingeladen.
   • Scheid vragen met een lege regel. Laat de labels exact zoals hier geschreven.
 
 Verwijder de twee VOORBEELDVRAGEN voor je uploadt (of laat de AI ze vervangen).

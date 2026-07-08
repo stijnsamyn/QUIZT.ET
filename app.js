@@ -1,5 +1,5 @@
 /* ============================================================
-   Quizplatform Strafprocesrecht — frontend (vanilla JS + Supabase)
+   QUIZT.ET — frontend (vanilla JS + Supabase)
    ============================================================ */
 "use strict";
 
@@ -21,7 +21,19 @@ const ICON = {
   chat: `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 15a3 3 0 0 1-3 3H8l-4 3V6a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3z"/></svg>`,
   clock: `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>`,
   check: `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg>`,
+  info: `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><circle cx="12" cy="7.7" r="0.6" fill="currentColor"/></svg>`,
 };
+// info-icoon met hover-tooltip
+function infoTip(text){ return `<span class="infotip" tabindex="0" data-tip="${esc(text)}">${ICON.info}</span>`; }
+// tags/badges voor een vraag
+function questionTags(q){
+  const t=[];
+  if(q.validated===false) t.push(`<span class="tag tag-warn">Niet gevalideerd ${infoTip("Er is nog geen officieel juist antwoord. Kies via de opmerkingen wat volgens jou het juiste antwoord is, en gebruik de flags om erover in overleg te gaan.")}</span>`);
+  else t.push(`<span class="tag tag-ok">Gevalideerd ${infoTip("Het juiste antwoord is nagekeken en bevestigd door een beheerder.")}</span>`);
+  if(q.multi || arr(q.correct_indexes).length>1) t.push(`<span class="tag">Meerkeuze ${infoTip("Er kunnen meerdere antwoorden juist zijn — kruis alle juiste aan.")}</span>`);
+  return t.join(" ");
+}
+function isRight(q, chosen){ return q.validated===false ? null : setEq(chosen, q.correct_indexes); }
 function srcBadge(kind, src){
   const t = src === "ai" ? "Door AI bepaald" : "Door een mens bepaald";
   return `<span class="src ${src}" title="${kind}: ${t}">${src==="ai"?ICON.robot:ICON.person}</span>`;
@@ -42,6 +54,64 @@ const setEq = (a,b)=>{ a=arr(a); b=arr(b); if(a.length!==b.length) return false;
 const inSet = (a,i)=>arr(a).includes(i);
 const lettersOf = idxs => arr(idxs).slice().sort((x,y)=>x-y).map(letter).join(", ")||"—";
 
+/* ---------- Statistiek-hulpjes ---------- */
+function scored(events){ return (events||[]).filter(e=>e.is_correct!=null); }  // enkel gevalideerde antwoorden
+function dailyAccuracy(events){
+  const byDay={};
+  scored(events).forEach(e=>{ const d=(e.created_at||"").slice(0,10); if(!d)return; (byDay[d]=byDay[d]||{c:0,t:0}); byDay[d].t++; if(e.is_correct)byDay[d].c++; });
+  return Object.keys(byDay).sort().map(d=>({label:d.slice(5), value:Math.round(byDay[d].c/byDay[d].t*100), n:byDay[d].t}));
+}
+function cumulativeAccuracy(events){
+  const ev=scored(events).sort((a,b)=>(a.created_at||"")<(b.created_at||"")?-1:1);
+  let c=0; return ev.map((e,i)=>{ if(e.is_correct)c++; return {label:String(i+1), value:Math.round(c/(i+1)*100)}; });
+}
+function improvement(events){ // eerste helft vs tweede helft
+  const ev=scored(events).sort((a,b)=>(a.created_at||"")<(b.created_at||"")?-1:1);
+  if(ev.length<6) return null;
+  const h=Math.floor(ev.length/2);
+  const acc=a=>Math.round(a.filter(e=>e.is_correct).length/a.length*100);
+  return { first:acc(ev.slice(0,h)), last:acc(ev.slice(h)) };
+}
+function lineChartSVG(points, opts){
+  opts=opts||{}; const color=opts.color||"#2952cc";
+  const W=680,H=210,pL=30,pR=12,pT=12,pB=28,n=points.length;
+  if(!n) return `<p class="muted">Nog geen gegevens — speel wat vragen om je curve te zien.</p>`;
+  const X=i=> n===1? pL+(W-pL-pR)/2 : pL+i*(W-pL-pR)/(n-1);
+  const Y=v=> pT+(1-v/100)*(H-pT-pB);
+  const path=points.map((p,i)=>`${i?"L":"M"}${X(i).toFixed(1)},${Y(p.value).toFixed(1)}`).join(" ");
+  const grid=[0,50,100].map(g=>`<line x1="${pL}" y1="${Y(g)}" x2="${W-pR}" y2="${Y(g)}" stroke="#dfe3ea"/><text x="2" y="${Y(g)+3}" font-size="9" fill="#5b6472">${g}</text>`).join("");
+  const dots=points.map((p,i)=>`<circle cx="${X(i).toFixed(1)}" cy="${Y(p.value).toFixed(1)}" r="2.4" fill="${color}"><title>${esc(p.label)}: ${p.value}%${p.n?` (${p.n})`:""}</title></circle>`).join("");
+  const step=Math.max(1,Math.ceil(n/8));
+  const xl=points.map((p,i)=>(i%step===0||i===n-1)?`<text x="${X(i)}" y="${H-8}" font-size="9" fill="#5b6472" text-anchor="middle">${esc(p.label)}</text>`:"").join("");
+  return `<svg viewBox="0 0 ${W} ${H}" class="chart">${grid}<path d="${path}" fill="none" stroke="${color}" stroke-width="2"/>${dots}${xl}</svg>`;
+}
+function kpi(label,val,sub){ return `<div class="kpi"><div class="kpi-val">${val}</div><div class="kpi-lab">${esc(label)}</div>${sub?`<div class="kpi-sub">${esc(sub)}</div>`:""}</div>`; }
+function dailyCounts(rows){
+  const by={}; rows.forEach(r=>{ const d=(r.created_at||"").slice(0,10); if(d) by[d]=(by[d]||0)+1; });
+  return Object.keys(by).sort().map(d=>({label:d.slice(5), value:by[d]}));
+}
+function barChartSVG(points, opts){
+  opts=opts||{}; const color=opts.color||"#2952cc";
+  const W=680,H=180,pL=30,pR=12,pT=12,pB=28,n=points.length;
+  if(!n) return `<p class="muted">Nog geen gegevens.</p>`;
+  const maxV=Math.max(1,...points.map(p=>p.value));
+  const gap=(W-pL-pR)/n, bw=gap*0.68;
+  const Y=v=>pT+(1-v/maxV)*(H-pT-pB), base=H-pB;
+  const grid=[0,maxV].map(g=>`<line x1="${pL}" y1="${Y(g)}" x2="${W-pR}" y2="${Y(g)}" stroke="#dfe3ea"/><text x="2" y="${Y(g)+3}" font-size="9" fill="#5b6472">${g}</text>`).join("");
+  const bars=points.map((p,i)=>{ const x=pL+i*gap+(gap-bw)/2, y=Y(p.value); return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${(base-y).toFixed(1)}" rx="1.5" fill="${color}"><title>${esc(p.label)}: ${p.value}</title></rect>`; }).join("");
+  const step=Math.max(1,Math.ceil(n/10));
+  const xl=points.map((p,i)=>(i%step===0||i===n-1)?`<text x="${pL+i*gap+gap/2}" y="${H-8}" font-size="9" fill="#5b6472" text-anchor="middle">${esc(p.label)}</text>`:"").join("");
+  return `<svg viewBox="0 0 ${W} ${H}" class="chart">${grid}${bars}${xl}</svg>`;
+}
+
+// PROM-cohorten: één per jaar, telkens bijkomend op 1 maart. Groeit dus vanzelf.
+function promList(){
+  const start=2023; const now=new Date();
+  let latest=now.getFullYear(); if(now.getMonth()<2) latest--;   // vóór maart? dan telt vorig jaar
+  const out=[]; for(let y=latest;y>=start;y--) out.push("PROM"+String(y).slice(2));
+  return out;
+}
+
 /* ============================================================
    AUTH
    ============================================================ */
@@ -58,8 +128,8 @@ async function viewLogin(){
   app.innerHTML = `
     <div class="auth-wrap">
       <div class="card">
-        <h1>Quizplatform</h1>
-        <p class="muted" style="margin-bottom:1rem">Strafprocesrecht — oefenvragen</p>
+        <h1>QUIZT.ET</h1>
+        <p class="muted" style="margin-bottom:1rem">Oefenquizzen</p>
         <div class="tabs">
           <button id="tabLogin" class="active">Inloggen</button>
           <button id="tabReg" ${regOpen?"":"disabled title='Registratie is afgesloten'"}>Registreren</button>
@@ -71,6 +141,11 @@ async function viewLogin(){
         </div>
         <form id="authForm">
           <div id="nameRow" hidden><label>Weergavenaam</label><input id="dname" autocomplete="name"></div>
+          <div id="cohortRow" hidden>
+            <label>Oorsprong</label>
+            <select id="cohort">${promList().map(p=>`<option value="${p}">${p}</option>`).join("")}<option value="__ander">Andere…</option></select>
+            <input id="cohortOther" placeholder="Vul je oorsprong in" hidden style="margin-top:.4rem">
+          </div>
           <label>E-mail</label><input id="email" type="email" autocomplete="email" required>
           <label>Wachtwoord</label><input id="pw" type="password" autocomplete="current-password" required minlength="6">
           <div class="btnrow"><button class="btn btn-primary" type="submit" id="submitBtn" style="width:100%">Inloggen</button></div>
@@ -83,8 +158,12 @@ async function viewLogin(){
     document.getElementById("tabLogin").classList.toggle("active",m==="login");
     document.getElementById("tabReg").classList.toggle("active",m==="reg");
     document.getElementById("nameRow").hidden = m!=="reg";
+    document.getElementById("cohortRow").hidden = m!=="reg";
     document.getElementById("regNote").hidden = m!=="reg";
     document.getElementById("submitBtn").textContent = m==="reg"?"Account aanmaken":"Inloggen";
+  };
+  document.getElementById("cohort").onchange=e=>{
+    document.getElementById("cohortOther").hidden = e.target.value!=="__ander";
   };
   document.getElementById("tabLogin").onclick=()=>setMode("login");
   document.getElementById("tabReg").onclick=()=>{ if(regOpen) setMode("reg"); };
@@ -97,7 +176,10 @@ async function viewLogin(){
       if(mode==="reg"){
         if(!email.toLowerCase().endsWith("@police.belgium.eu")){ toast("Registreren kan enkel met een @police.belgium.eu e-mailadres.","err"); btn.disabled=false; return; }
         const dname=document.getElementById("dname").value.trim()||email.split("@")[0];
-        const { error } = await sb.auth.signUp({ email, password:pw, options:{ data:{ display_name:dname } }});
+        let cohort=document.getElementById("cohort").value;
+        if(cohort==="__ander") cohort=document.getElementById("cohortOther").value.trim();
+        if(!cohort){ toast("Geef je oorsprong op.","err"); btn.disabled=false; return; }
+        const { error } = await sb.auth.signUp({ email, password:pw, options:{ data:{ display_name:dname, cohort } }});
         if(error) throw error;
         toast("Account aangemaakt. Je kan nu inloggen.","ok");
         setMode("login");
@@ -144,6 +226,7 @@ async function route(){
   try{
     if(p.length===0) return viewHome();
     if(p[0]==="quiz" && p[2]==="overzicht") return viewOverview(p[1]);
+    if(p[0]==="quiz" && p[2]==="stats") return viewQuizStats(p[1]);
     if(p[0]==="quiz") return viewPlay(p[1]);
     if(p[0]==="stats" && p[1]==="vragen") return viewStatsVragen();
     if(p[0]==="stats" && p[1]==="gebruikers") return viewStatsGebruikers();
@@ -203,8 +286,69 @@ async function viewPlay(quizId){
   const ids=PLAY.all.map(q=>q.id);
   if(ids.length){ const {data:mine}=await sb.from("answers").select("*").eq("user_id",ME.id).in("question_id",ids);
     (mine||[]).forEach(a=>PLAY.answers[a.question_id]=a.chosen_indexes||[]); }
-  PLAY.questions=orderQuestions(PLAY.all, PLAY.answers, PLAY.mode);
-  renderQuestion();
+  if(PLAY.pendingJump){
+    const jid=PLAY.pendingJump; PLAY.pendingJump=null;
+    PLAY.session={size:"alle",focus:"alle"};
+    PLAY.questions=orderQuestions(PLAY.all, PLAY.answers, PLAY.mode);
+    const idx=PLAY.questions.findIndex(x=>x.id===jid);
+    PLAY.i=idx>=0?idx:0; renderQuestion();
+  } else renderPlaySetup();
+}
+
+function poolFor(focus){
+  const A=PLAY.answers;
+  if(focus==="foute")       return PLAY.all.filter(q=>A[q.id]!=null && isRight(q,A[q.id])===false);
+  if(focus==="onbeantwoord")return PLAY.all.filter(q=>A[q.id]==null);
+  return PLAY.all.slice();
+}
+function renderPlaySetup(){
+  const A=PLAY.answers;
+  const total=PLAY.all.length;
+  const wrong=PLAY.all.filter(q=>A[q.id]!=null && isRight(q,A[q.id])===false).length;
+  const todo=PLAY.all.filter(q=>A[q.id]==null).length;
+  app.innerHTML=`
+    <a class="muted" data-nav="#/">← Quizzen</a>
+    <h1 style="margin:.5rem 0">${esc(PLAY.quiz.title)}</h1>
+    <p class="muted">${esc(PLAY.quiz.description||"")}</p>
+    <div class="card" style="margin-top:1rem">
+      <label>Aantal vragen</label>
+      <div class="btnrow" id="setSize">
+        <button class="chip-toggle active" data-size="25">25</button>
+        <button class="chip-toggle" data-size="50">50</button>
+        <button class="chip-toggle" data-size="alle">Alle (${total})</button>
+      </div>
+      <label style="margin-top:1rem">Welke vragen</label>
+      <div class="btnrow" id="setFocus">
+        <button class="chip-toggle active" data-focus="alle">Alle vragen</button>
+        <button class="chip-toggle" data-focus="foute">Enkel mijn foute (${wrong})</button>
+        <button class="chip-toggle" data-focus="onbeantwoord">Nog niet beantwoord (${todo})</button>
+      </div>
+      <label style="margin-top:1rem">Volgorde</label>
+      <div class="btnrow" id="setMode">
+        <button class="chip-toggle active" data-mode="slim" title="Fout beantwoorde vragen krijgen deels voorrang">Slim oefenen</button>
+        <button class="chip-toggle" data-mode="volgorde">Op nummer</button>
+      </div>
+      <div class="btnrow" style="margin-top:1.2rem">
+        <button class="btn btn-primary" id="startBtn">Start</button>
+        <a class="btn btn-ghost btn-sm" data-nav="#/quiz/${PLAY.quiz.id}/overzicht">Overzicht</a>
+        <a class="btn btn-ghost btn-sm" data-nav="#/quiz/${PLAY.quiz.id}/stats">Statistiek</a>
+      </div>
+    </div>`;
+  app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
+  let size="25", focus="alle";
+  const pick=(grp,attr,set)=>app.querySelectorAll(`#${grp} [data-${attr}]`).forEach(b=>b.onclick=()=>{
+    app.querySelectorAll(`#${grp} [data-${attr}]`).forEach(x=>x.classList.toggle("active",x===b)); set(b.dataset[attr]); });
+  pick("setSize","size",v=>size=v);
+  pick("setFocus","focus",v=>focus=v);
+  pick("setMode","mode",v=>PLAY.mode=v);
+  document.getElementById("startBtn").onclick=()=>startSession(size, focus);
+}
+function startSession(size, focus){
+  PLAY.session={ size, focus };
+  let pool=orderQuestions(poolFor(focus), PLAY.answers, PLAY.mode);
+  if(!pool.length){ toast("Geen vragen voor deze keuze.","err"); return; }
+  if(size!=="alle") pool=pool.slice(0, +size);
+  PLAY.questions=pool; PLAY.i=0; renderQuestion();
 }
 
 async function renderQuestion(){
@@ -213,23 +357,27 @@ async function renderQuestion(){
   const chosen = PLAY.answers[q.id];            // array of undefined
   const answered = chosen!=null;
   const correct = arr(q.correct_indexes);
+  const validated = q.validated!==false;
   const multi = q.multi || correct.length>1;
   const opts=(q.options||[]).map((o,i)=>{
     let cls="opt"; let box="";
-    if(answered){ cls+=" disabled"; if(correct.includes(i)) cls+=" correct"; else if(inSet(chosen,i)) cls+=" wrong"; }
+    if(answered){ cls+=" disabled";
+      if(validated){ if(correct.includes(i)) cls+=" correct"; else if(inSet(chosen,i)) cls+=" wrong"; }
+      else if(inSet(chosen,i)) cls+=" chosen"; }
     else if(multi){ box=`<input type="checkbox" class="mopt" value="${i}" style="width:auto;margin-top:.15rem">`; }
-    return `<div class="${cls}" data-opt="${i}">${box}<span class="letter">${letter(i)}</span><span>${esc(o)} ${answered&&correct.includes(i)?srcBadge("Juist antwoord",q.answer_source):""}</span></div>`;
+    return `<div class="${cls}" data-opt="${i}">${box}<span class="letter">${letter(i)}</span><span>${esc(o)} ${answered&&validated&&correct.includes(i)?srcBadge("Juist antwoord",q.answer_source):""}</span></div>`;
   }).join("");
   // voortgang
   const total=PLAY.questions.length;
   const answeredN=PLAY.questions.filter(x=>PLAY.answers[x.id]!=null).length;
-  const correctN=PLAY.questions.filter(x=>PLAY.answers[x.id]!=null && setEq(PLAY.answers[x.id],x.correct_indexes)).length;
-  const wrongN=answeredN-correctN;
+  const correctN=PLAY.questions.filter(x=>PLAY.answers[x.id]!=null && isRight(x,PLAY.answers[x.id])===true).length;
+  const wrongN=PLAY.questions.filter(x=>PLAY.answers[x.id]!=null && isRight(x,PLAY.answers[x.id])===false).length;
+  const overlegN=PLAY.questions.filter(x=>PLAY.answers[x.id]!=null && x.validated===false).length;
   const allDone=answeredN===total;
   const unanswered=PLAY.questions.filter(x=>PLAY.answers[x.id]==null).length;
   app.innerHTML=`
     <div class="spread">
-      <div><a class="muted" data-nav="#/">← Quizzen</a> &nbsp;·&nbsp; <a class="muted" data-nav="#/quiz/${PLAY.quiz.id}/overzicht">Overzicht</a></div>
+      <div><a class="muted" data-nav="#/">← Quizzen</a> &nbsp;·&nbsp; <a class="muted" id="newSession">Nieuwe sessie</a> &nbsp;·&nbsp; <a class="muted" data-nav="#/quiz/${PLAY.quiz.id}/overzicht">Overzicht</a></div>
       <div class="muted">Vraag ${PLAY.i+1} / ${total}</div>
     </div>
     <h1 style="font-size:1.2rem;margin:.6rem 0 .4rem">${esc(PLAY.quiz.title)}</h1>
@@ -238,6 +386,7 @@ async function renderQuestion(){
       <div class="progress-legend">
         <span class="dot ok"></span> Juist: ${correctN}
         <span class="dot bad"></span> Fout: ${wrongN}
+        ${overlegN?`<span class="dot warn"></span> In overleg: ${overlegN}`:""}
         <span class="dot none"></span> Nog niet: ${unanswered}
         ${allDone?`<span class="pill" style="background:var(--correct-soft);color:var(--correct)">${ICON.check} Alle vragen gezien</span>`:""}
         <span style="margin-left:auto"></span>
@@ -247,7 +396,7 @@ async function renderQuestion(){
       </div>
     </div>
     <div class="card">
-      <div class="q-meta"><span class="q-num">Vraag ${q.qnum}</span>${multi?`<span class="pill" style="background:var(--accent-soft);color:var(--accent-dark)">meerkeuze — kruis alle juiste aan</span>`:""}${answered?(setEq(chosen,correct)?`<span class="pill" style="background:var(--correct-soft);color:var(--correct)">juist beantwoord</span>`:`<span class="pill fout">fout beantwoord</span>`):`<span class="pill" style="background:var(--surface2);color:var(--text-muted)">nog niet beantwoord</span>`}</div>
+      <div class="q-meta"><span class="q-num">Vraag ${q.qnum}</span>${questionTags(q)}${answered?(isRight(q,chosen)===true?`<span class="pill juist">juist beantwoord</span>`:isRight(q,chosen)===false?`<span class="pill fout">fout beantwoord</span>`:`<span class="pill twijfel">antwoord genoteerd — in overleg</span>`):`<span class="pill" style="background:var(--surface2);color:var(--text-muted)">nog niet beantwoord</span>`}</div>
       <div class="q-text">${esc(q.text)}</div>
       <div id="opts">${opts}</div>
       ${(multi&&!answered)?`<div class="btnrow"><button class="btn btn-primary btn-sm" id="checkMulti">Nakijken</button></div>`:""}
@@ -267,11 +416,13 @@ async function renderQuestion(){
     for(let k=1;k<=total;k++){ const idx=(PLAY.i+k)%total; if(PLAY.answers[PLAY.questions[idx].id]==null){ j=idx; break; } }
     if(j>=0){ PLAY.i=j; renderQuestion(); } else toast("Alle vragen beantwoord","ok");
   };
+  const nsBtn=document.getElementById("newSession");
+  if(nsBtn) nsBtn.onclick=()=>renderPlaySetup();
   app.querySelectorAll("[data-mode]").forEach(b=>b.onclick=()=>{
     if(PLAY.mode===b.dataset.mode) return;
     PLAY.mode=b.dataset.mode;
     const curId=PLAY.questions[PLAY.i].id;
-    PLAY.questions=orderQuestions(PLAY.all, PLAY.answers, PLAY.mode);
+    PLAY.questions=orderQuestions(PLAY.questions, PLAY.answers, PLAY.mode);
     PLAY.i=Math.max(0, PLAY.questions.findIndex(x=>x.id===curId));
     renderQuestion();
   });
@@ -288,9 +439,12 @@ async function renderQuestion(){
 
 async function answerQuestion(q, idxArray){
   const chosen=arr(idxArray).slice().sort((a,b)=>a-b);
-  const is_correct = setEq(chosen, q.correct_indexes);
+  const is_correct = isRight(q, chosen);   // null bij niet-gevalideerde vraag
   PLAY.answers[q.id]=chosen;
-  try{ await sb.from("answers").upsert({ question_id:q.id, user_id:ME.id, chosen_indexes:chosen, is_correct, updated_at:new Date().toISOString() },{ onConflict:"question_id,user_id" }); }
+  try{
+    await sb.from("answers").upsert({ question_id:q.id, user_id:ME.id, chosen_indexes:chosen, is_correct, updated_at:new Date().toISOString() },{ onConflict:"question_id,user_id" });
+    await sb.from("answer_events").insert({ question_id:q.id, quiz_id:PLAY.quiz.id, user_id:ME.id, is_correct });
+  }
   catch(e){ toast("Antwoord niet opgeslagen: "+e.message,"err"); }
   renderQuestion();
 }
@@ -315,14 +469,16 @@ async function renderAfterAnswer(q){
       <span style="width:${pct(dist[i],totV)}%"></span><div class="lab">${letter(i)} — ${pct(dist[i],totV)}% (${dist[i]})</div></div></div>`).join("");
 
   box.innerHTML=`
+    ${q.validated===false?`<div class="notice">${ICON.info} <strong>Nog geen gevalideerd juist antwoord.</strong> Bekijk hieronder welk antwoord de groep verkiest, kies zelf je voorkeursantwoord en gebruik de flags om in overleg te gaan.</div>`:""}
     <div class="explain"><span class="lbl">Uitleg ${srcBadge("Uitleg",q.explanation_source)}</span>${esc(q.explanation||"— geen uitleg —")}</div>
     ${q.legal_basis?`<div class="legal"><strong>Wettelijke basis:</strong> ${esc(q.legal_basis)}</div>`:""}
 
-    <details><summary>${ICON.flag} Flag deze vraag <span class="muted">(fout / twijfel)</span></summary>
+    <details><summary>${ICON.flag} Flag deze vraag <span class="muted">(fout / twijfel / juist)</span></summary>
       <div class="body">
         <div class="btnrow">
           <button class="chip-toggle" data-ftype="fout">Antwoord lijkt fout</button>
           <button class="chip-toggle" data-ftype="twijfel">Ik twijfel / onduidelijk</button>
+          <button class="chip-toggle" data-ftype="juist">Klopt / is juist</button>
         </div>
         <textarea id="fToel" placeholder="Leg uit waarom (verplicht)…"></textarea>
         <div class="btnrow"><button class="btn btn-primary btn-sm" id="fSubmit">Flag plaatsen</button></div>
@@ -393,27 +549,31 @@ async function viewOverview(quizId){
       if(filter==="geflagd") return fs.length>0;
       if(filter==="fout") return fs.some(f=>f.type==="fout");
       if(filter==="twijfel") return fs.some(f=>f.type==="twijfel");
+      if(filter==="juist") return fs.some(f=>f.type==="juist");
       if(filter==="open") return fs.some(f=>f.status==="open");
+      if(filter==="nietgevalideerd") return q.validated===false;
       return true;
     }).map(q=>{
       const fs=fBy[q.id]||[]; const open=fs.filter(f=>f.status==="open").length;
-      return `<tr class="row-link" data-q="${PLAY_idx(questions,q.id)}" data-quiz="${quizId}">
+      return `<tr class="row-link" data-qid="${q.id}" data-quiz="${quizId}">
         <td><span class="q-num">${q.qnum}</span></td>
         <td>${esc(q.text).slice(0,120)}${q.text.length>120?"…":""}</td>
-        <td><strong>${lettersOf(q.correct_indexes)}</strong> ${srcBadge("Antwoord",q.answer_source)}</td>
+        <td>${q.validated===false?`<span class="tag tag-warn">in overleg</span>`:`<strong>${lettersOf(q.correct_indexes)}</strong> ${srcBadge("Antwoord",q.answer_source)}`}</td>
         <td>${fs.length?`<span class="count-chip">${ICON.flag} ${fs.length}${open?` · ${open} open`:""}</span>`:`<span class="muted">—</span>`}</td>
       </tr>`;
     }).join("");
     document.getElementById("ovBody").innerHTML = rows||`<tr><td colspan="4" class="empty">Geen vragen voor dit filter.</td></tr>`;
-    document.querySelectorAll("#ovBody .row-link").forEach(r=>r.onclick=()=>{ PLAY_goto(quizId, +r.dataset.q); });
+    document.querySelectorAll("#ovBody .row-link").forEach(r=>r.onclick=()=>{ PLAY_goto(quizId, r.dataset.qid); });
     document.querySelectorAll("[data-filter]").forEach(b=>b.classList.toggle("active",b.dataset.filter===filter));
   };
   app.innerHTML=`
     <div class="spread"><h1>Overzicht — ${esc(quiz?quiz.title:"")}</h1>
-      <button class="btn btn-ghost btn-sm" data-nav="#/quiz/${quizId}">Spelen →</button></div>
+      <div class="btnrow" style="margin:0">
+        <button class="btn btn-ghost btn-sm" data-nav="#/quiz/${quizId}/stats">Statistiek</button>
+        <button class="btn btn-ghost btn-sm" data-nav="#/quiz/${quizId}">Spelen →</button></div></div>
     <div class="filterbar" style="margin-top:1rem">
       <span class="muted">Filter:</span>
-      ${["alle","geflagd","fout","twijfel","open"].map(f=>`<button class="chip-toggle" data-filter="${f}">${f}</button>`).join("")}
+      ${[["alle","alle"],["geflagd","geflagd"],["fout","fout"],["twijfel","twijfel"],["juist","juist"],["open","open"],["nietgevalideerd","niet gevalideerd"]].map(([f,l])=>`<button class="chip-toggle" data-filter="${f}">${l}</button>`).join("")}
     </div>
     <div class="card" style="padding:.3rem .3rem">
       <table><thead><tr><th>#</th><th>Vraag</th><th>Juist</th><th>Flags</th></tr></thead><tbody id="ovBody"></tbody></table>
@@ -422,78 +582,209 @@ async function viewOverview(quizId){
   app.querySelectorAll("[data-filter]").forEach(b=>b.onclick=()=>{ filter=b.dataset.filter; draw(); });
   draw();
 }
-function PLAY_idx(questions,id){ return questions.findIndex(q=>q.id===id); }
-function PLAY_goto(quizId, idx){ go("#/quiz/"+quizId); setTimeout(()=>{ if(PLAY.questions&&PLAY.questions.length){ PLAY.i=Math.max(0,idx); renderQuestion(); } }, 300); }
+function PLAY_goto(quizId, qid){ PLAY.pendingJump=qid; go("#/quiz/"+quizId); }
 
 /* ============================================================
-   STATISTIEK — vragen
+   STATISTIEK — gedeelde hulpjes
    ============================================================ */
-async function viewStatsVragen(){
-  const { data:questions } = await sb.from("questions").select("id,qnum,quiz_id,text,correct_indexes,options");
-  const { data:answers } = await sb.from("answers").select("question_id,is_correct");
-  const { data:flags } = await sb.from("flags").select("question_id,type");
-  const { data:opm } = await sb.from("opmerkingen").select("question_id,preferred_indexes");
-  const { data:quizzes } = await sb.from("quizzes").select("id,title");
-  const qtitle={}; (quizzes||[]).forEach(q=>qtitle[q.id]=q.title);
+function aggregateQuestions(questions, answers, flags, opm){
   const agg={};
   (questions||[]).forEach(q=>agg[q.id]={q, played:0, correct:0, flags:0, wrongVotes:0, votes:0});
-  (answers||[]).forEach(a=>{ const x=agg[a.question_id]; if(x){x.played++; if(a.is_correct)x.correct++;} });
+  (answers||[]).forEach(a=>{ const x=agg[a.question_id]; if(x && a.is_correct!=null){x.played++; if(a.is_correct)x.correct++;} });
   (flags||[]).forEach(f=>{ const x=agg[f.question_id]; if(x)x.flags++; });
   (opm||[]).forEach(o=>{ const x=agg[o.question_id]; if(x){x.votes++; if(!setEq(o.preferred_indexes,x.q.correct_indexes))x.wrongVotes++;} });
-  let rows=Object.values(agg);
-  let sortKey="flags";
+  return agg;
+}
+function mountStatsTable(mountId, agg, qtitle){
+  let rows=Object.values(agg), sortKey="flags";
+  const el=document.getElementById(mountId);
+  el.innerHTML=`
+    <div class="filterbar"><span class="muted">Sorteer:</span>
+      ${[["flags","meeste flags"],["fout","hoogste % fout"],["moeilijk","moeilijkst"],["nummer","vraagnummer"]].map(([k,l])=>`<button class="chip-toggle" data-sort="${k}">${l}</button>`).join("")}</div>
+    <div class="card" style="padding:.3rem"><table>
+      <thead><tr><th>#</th><th>Vraag</th><th>% correct</th><th>Flags</th><th>% fout</th></tr></thead>
+      <tbody></tbody></table></div>`;
   const draw=()=>{
     rows.sort((a,b)=>{
       if(sortKey==="flags") return b.flags-a.flags || b.wrongVotes-a.wrongVotes;
       if(sortKey==="fout") return pct(b.wrongVotes,b.votes)-pct(a.wrongVotes,a.votes);
       if(sortKey==="moeilijk") return pct(a.correct,a.played)-pct(b.correct,b.played);
+      if(sortKey==="nummer") return a.q.qnum-b.q.qnum;
       return 0;
     });
-    document.getElementById("svBody").innerHTML = rows.map(r=>`
-      <tr class="row-link" data-quiz="${r.q.quiz_id}" data-id="${r.q.id}">
+    el.querySelector("tbody").innerHTML=rows.map(r=>`
+      <tr class="row-link" data-quiz="${r.q.quiz_id}" data-qid="${r.q.id}">
         <td><span class="q-num">${r.q.qnum}</span></td>
-        <td>${esc(r.q.text).slice(0,90)}…<br><span class="muted" style="font-size:.72rem">${esc(qtitle[r.q.quiz_id]||"")}</span></td>
+        <td>${esc(r.q.text).slice(0,90)}…${qtitle?`<br><span class="muted" style="font-size:.72rem">${esc(qtitle[r.q.quiz_id]||"")}</span>`:""}</td>
         <td>${r.played?pct(r.correct,r.played)+"%":"—"}<br><span class="muted" style="font-size:.72rem">${r.played}×</span></td>
         <td>${r.flags?`<span class="count-chip">${r.flags}</span>`:"—"}</td>
         <td>${r.votes?pct(r.wrongVotes,r.votes)+"%":"—"}</td>
       </tr>`).join("");
-    document.querySelectorAll("#svBody .row-link").forEach(t=>t.onclick=()=>go("#/quiz/"+t.dataset.quiz+"/overzicht"));
+    el.querySelectorAll(".row-link").forEach(t=>t.onclick=()=>PLAY_goto(t.dataset.quiz, t.dataset.qid));
+    el.querySelectorAll("[data-sort]").forEach(b=>b.classList.toggle("active",b.dataset.sort===sortKey));
   };
-  app.innerHTML=`
-    <h1>Vraagstatistiek</h1>
-    <p class="muted">Publiek zichtbaar. % correct = aandeel spelers dat juist antwoordde. % fout = aandeel opmerkingen dat een ander antwoord verkiest.</p>
-    <div class="filterbar" style="margin-top:1rem"><span class="muted">Sorteer:</span>
-      ${[["flags","meeste flags"],["fout","hoogste % fout"],["moeilijk","moeilijkst"]].map(([k,l])=>`<button class="chip-toggle" data-sort="${k}">${l}</button>`).join("")}
-    </div>
-    <div class="card" style="padding:.3rem"><table>
-      <thead><tr><th>#</th><th>Vraag</th><th>% correct</th><th>Flags</th><th>% fout</th></tr></thead>
-      <tbody id="svBody"></tbody></table></div>`;
-  app.querySelectorAll("[data-sort]").forEach(b=>b.onclick=()=>{ sortKey=b.dataset.sort; app.querySelectorAll("[data-sort]").forEach(x=>x.classList.toggle("active",x===b)); draw(); });
-  app.querySelector("[data-sort]").classList.add("active");
+  el.querySelectorAll("[data-sort]").forEach(b=>b.onclick=()=>{ sortKey=b.dataset.sort; draw(); });
   draw();
+}
+function learningBlock(myEvents, title){
+  const daily=dailyAccuracy(myEvents);
+  const imp=improvement(myEvents);
+  const impBadge = imp ? `<span class="pill" style="background:${imp.last>=imp.first?"var(--correct-soft)":"var(--wrong-soft)"};color:${imp.last>=imp.first?"var(--correct)":"var(--wrong)"}">${imp.last>=imp.first?"▲":"▼"} ${imp.first}% → ${imp.last}%</span>` : "";
+  return `<h2>${esc(title)} ${impBadge}</h2>
+    <p class="muted">% juist per dag${imp?` — vergelijking eerste helft (${imp.first}%) versus tweede helft (${imp.last}%) van je antwoorden.`:"."}</p>
+    <div class="card">${lineChartSVG(daily)}</div>`;
+}
+
+/* ============================================================
+   STATISTIEK — algemeen (alle quizzen)
+   ============================================================ */
+async function viewStatsVragen(){
+  const [{data:questions},{data:answers},{data:flags},{data:opm},{data:quizzes},{data:myEvents},{data:allEvents},{data:visits}] = await Promise.all([
+    sb.from("questions").select("id,qnum,quiz_id,text,correct_indexes,options"),
+    sb.from("answers").select("question_id,is_correct"),
+    sb.from("flags").select("question_id,type"),
+    sb.from("opmerkingen").select("question_id,preferred_indexes"),
+    sb.from("quizzes").select("id,title,status"),
+    sb.from("answer_events").select("is_correct,created_at").eq("user_id",ME.id),
+    sb.from("answer_events").select("is_correct,quiz_id,user_id,created_at"),
+    sb.from("visits").select("user_id,created_at"),
+  ]);
+  const qtitle={}; (quizzes||[]).forEach(q=>qtitle[q.id]=q.title);
+  const agg=aggregateQuestions(questions, answers, flags, opm);
+  // per-quiz vergelijking
+  const perQuiz={}; (quizzes||[]).forEach(q=>perQuiz[q.id]={q,vragen:0,antw:0,correct:0,flags:0,spelers:new Set()});
+  (questions||[]).forEach(q=>{ if(perQuiz[q.quiz_id])perQuiz[q.quiz_id].vragen++; });
+  (allEvents||[]).forEach(e=>{ const x=perQuiz[e.quiz_id]; if(x){x.antw++; if(e.is_correct)x.correct++; x.spelers.add(e.user_id);} });
+  (flags||[]).forEach(f=>{ const qq=(questions||[]).find(q=>q.id===f.question_id); if(qq&&perQuiz[qq.quiz_id])perQuiz[qq.quiz_id].flags++; });
+  const totAntw=(allEvents||[]).length;
+  const totSpelers=new Set((allEvents||[]).map(e=>e.user_id)).size;
+  const myScored=scored(myEvents).length;
+  const myCorrect=(myEvents||[]).filter(e=>e.is_correct===true).length;
+
+  app.innerHTML=`
+    <h1>Statistiek — algemeen</h1>
+    <p class="muted">Over alle quizzen heen. Publiek zichtbaar.</p>
+    <div class="kpis">
+      ${kpi("Quizzen",(quizzes||[]).length)}
+      ${kpi("Vragen",(questions||[]).length)}
+      ${kpi("Antwoorden gegeven",totAntw)}
+      ${kpi("Actieve gebruikers",totSpelers)}
+      ${kpi("Bezoeken",(visits||[]).length)}
+      ${kpi("Jouw % juist",myScored?pct(myCorrect,myScored)+"%":"—",myScored+" gevalideerde antwoorden")}
+    </div>
+    ${learningBlock(myEvents||[], "Jouw vooruitgang over tijd")}
+    <h2>Bezoeken per dag</h2>
+    <div class="card">${barChartSVG(dailyCounts(visits||[]),{color:"#1d3a99"})}</div>
+    <h2>Antwoorden per dag</h2>
+    <div class="card">${barChartSVG(dailyCounts(allEvents||[]),{color:"#2952cc"})}</div>
+    <h2>Per quiz</h2>
+    <div class="card" style="padding:.3rem"><table>
+      <thead><tr><th>Quiz</th><th>Vragen</th><th>Antwoorden</th><th>Gem. % juist</th><th>Spelers</th><th>Flags</th><th></th></tr></thead>
+      <tbody>${Object.values(perQuiz).map(x=>`<tr>
+        <td>${esc(x.q.title)} ${x.q.status!=="gepubliceerd"?`<span class="badge concept">concept</span>`:""}</td>
+        <td>${x.vragen}</td><td>${x.antw}</td><td>${x.antw?pct(x.correct,x.antw)+"%":"—"}</td>
+        <td>${x.spelers.size}</td><td>${x.flags||"—"}</td>
+        <td><a class="btn btn-ghost btn-sm" data-nav="#/quiz/${x.q.id}/stats">Details</a></td></tr>`).join("")}</tbody>
+    </table></div>
+    <h2>Alle vragen</h2>
+    <div id="svTable"></div>`;
+  app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
+  mountStatsTable("svTable", agg, qtitle);
+}
+
+/* ============================================================
+   STATISTIEK — per quiz
+   ============================================================ */
+async function viewQuizStats(quizId){
+  const { data:quiz } = await sb.from("quizzes").select("*").eq("id",quizId).single();
+  if(!quiz){ app.innerHTML=`<div class="empty">Quiz niet gevonden.</div>`; return; }
+  const { data:questions } = await sb.from("questions").select("id,qnum,quiz_id,text,correct_indexes,options").eq("quiz_id",quizId).order("sort_order");
+  const ids=(questions||[]).map(q=>q.id);
+  const [{data:answers},{data:flags},{data:opm},{data:myEvents},{data:allEvents}] = await Promise.all([
+    ids.length? sb.from("answers").select("question_id,is_correct,user_id").in("question_id",ids) : Promise.resolve({data:[]}),
+    ids.length? sb.from("flags").select("question_id,type").in("question_id",ids) : Promise.resolve({data:[]}),
+    ids.length? sb.from("opmerkingen").select("question_id,preferred_indexes").in("question_id",ids) : Promise.resolve({data:[]}),
+    sb.from("answer_events").select("is_correct,created_at").eq("quiz_id",quizId).eq("user_id",ME.id),
+    sb.from("answer_events").select("is_correct,created_at,user_id").eq("quiz_id",quizId),
+  ]);
+  const agg=aggregateQuestions(questions, answers, flags, opm);
+  const myAnsSet=new Set((answers||[]).filter(a=>a.user_id===ME.id).map(a=>a.question_id));
+  const myScoredN=(answers||[]).filter(a=>a.user_id===ME.id && a.is_correct!=null).length;
+  const myCorrect=(answers||[]).filter(a=>a.user_id===ME.id && a.is_correct===true).length;
+  const spelers=new Set((allEvents||[]).map(e=>e.user_id)).size;
+  const hardest=Object.values(agg).filter(r=>r.played>0).sort((a,b)=>pct(a.correct,a.played)-pct(b.correct,b.played)).slice(0,8);
+  const flagged=Object.values(agg).filter(r=>r.flags>0).sort((a,b)=>b.flags-a.flags).slice(0,8);
+  // community daily curve
+  const commDaily=dailyAccuracy(allEvents||[]);
+
+  app.innerHTML=`
+    <div class="spread"><h1>Statistiek — ${esc(quiz.title)}</h1>
+      <div class="btnrow" style="margin:0">
+        <button class="btn btn-ghost btn-sm" data-nav="#/quiz/${quizId}">Spelen →</button>
+        <button class="btn btn-ghost btn-sm" data-nav="#/quiz/${quizId}/overzicht">Overzicht</button>
+        <button class="btn btn-ghost btn-sm" data-nav="#/stats/vragen">Alle quizzen</button>
+      </div></div>
+    <div class="kpis">
+      ${kpi("Vragen",(questions||[]).length)}
+      ${kpi("Jij beantwoord",`${myAnsSet.size}/${(questions||[]).length}`, (questions||[]).length?pct(myAnsSet.size,(questions||[]).length)+"% gezien":"")}
+      ${kpi("Jouw % juist",myScoredN?pct(myCorrect,myScoredN)+"%":"—")}
+      ${kpi("Antwoorden (allen)",(allEvents||[]).length)}
+      ${kpi("Spelers",spelers)}
+    </div>
+    ${learningBlock(myEvents||[], "Jouw vooruitgang op deze quiz")}
+    <h2>Vooruitgang van iedereen samen</h2>
+    <p class="muted">% juist per dag, alle spelers samen — zie of de groep beter wordt.</p>
+    <div class="card">${lineChartSVG(commDaily,{color:"#16803d"})}</div>
+    <div class="two-col">
+      <div><h2>Moeilijkste vragen</h2><div class="card">${hardest.length?hardest.map(r=>`<div class="spread mini"><span><span class="q-num">${r.q.qnum}</span> ${esc(r.q.text).slice(0,60)}…</span><strong>${pct(r.correct,r.played)}%</strong></div>`).join(""):`<p class="muted">Nog geen antwoorden.</p>`}</div></div>
+      <div><h2>Meest geflagd</h2><div class="card">${flagged.length?flagged.map(r=>`<div class="spread mini"><span><span class="q-num">${r.q.qnum}</span> ${esc(r.q.text).slice(0,60)}…</span><span class="count-chip">${ICON.flag} ${r.flags}</span></div>`).join(""):`<p class="muted">Nog geen flags.</p>`}</div></div>
+    </div>
+    <h2>Alle vragen</h2>
+    <div id="qsTable"></div>`;
+  app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
+  mountStatsTable("qsTable", agg, null);
 }
 
 /* ============================================================
    STATISTIEK — gebruikers
    ============================================================ */
 async function viewStatsGebruikers(){
-  const { data:profiles } = await sb.from("profiles").select("id,display_name,role");
+  const { data:profiles } = await sb.from("profiles").select("id,display_name,role,cohort");
   const { data:answers } = await sb.from("answers").select("user_id,is_correct");
   const { data:flags } = await sb.from("flags").select("user_id");
   const { data:opm } = await sb.from("opmerkingen").select("user_id");
-  const agg={}; (profiles||[]).forEach(p=>agg[p.id]={p,ans:0,correct:0,flags:0,opm:0});
+  const { data:visits } = await sb.from("visits").select("user_id");
+  const agg={}; (profiles||[]).forEach(p=>agg[p.id]={p,ans:0,correct:0,flags:0,opm:0,visits:0});
   (answers||[]).forEach(a=>{ const x=agg[a.user_id]; if(x){x.ans++; if(a.is_correct)x.correct++;} });
   (flags||[]).forEach(f=>{ const x=agg[f.user_id]; if(x)x.flags++; });
   (opm||[]).forEach(o=>{ const x=agg[o.user_id]; if(x)x.opm++; });
-  const rows=Object.values(agg).sort((a,b)=>b.ans-a.ans);
+  (visits||[]).forEach(v=>{ const x=agg[v.user_id]; if(x)x.visits++; });
+  const all=Object.values(agg);
+  // cohort-overzicht
+  const byCohort={}; all.forEach(r=>{ const c=r.p.cohort||"—"; (byCohort[c]=byCohort[c]||{n:0,ans:0,correct:0,visits:0}); byCohort[c].n++; byCohort[c].ans+=r.ans; byCohort[c].correct+=r.correct; byCohort[c].visits+=r.visits; });
+  let filter="__alle";
+  const draw=()=>{
+    const rows=all.filter(r=>filter==="__alle"||(r.p.cohort||"—")===filter).sort((a,b)=>b.ans-a.ans);
+    document.getElementById("guBody").innerHTML=rows.map(r=>`<tr><td>${esc(r.p.display_name)}</td><td>${esc(r.p.cohort||"—")}</td><td><span class="role ${r.p.role}">${r.p.role}</span></td>
+      <td>${r.ans}</td><td>${r.ans?pct(r.correct,r.ans)+"%":"—"}</td><td>${r.visits}</td><td>${r.flags}</td><td>${r.opm}</td></tr>`).join("");
+    document.querySelectorAll("[data-coh]").forEach(b=>b.classList.toggle("active",b.dataset.coh===filter));
+  };
+  const cohorts=["__alle",...Object.keys(byCohort).sort()];
   app.innerHTML=`
     <h1>Gebruikersstatistiek</h1>
     <p class="muted">Publiek zichtbaar.</p>
-    <div class="card" style="padding:.3rem;margin-top:1rem"><table>
-      <thead><tr><th>Naam</th><th>Rol</th><th>Beantwoord</th><th>% correct</th><th>Flags</th><th>Opmerkingen</th></tr></thead>
-      <tbody>${rows.map(r=>`<tr><td>${esc(r.p.display_name)}</td><td><span class="role ${r.p.role}">${r.p.role}</span></td>
-        <td>${r.ans}</td><td>${r.ans?pct(r.correct,r.ans)+"%":"—"}</td><td>${r.flags}</td><td>${r.opm}</td></tr>`).join("")}</tbody>
-    </table></div>`;
+    <h2>Per oorsprong</h2>
+    <div class="card" style="padding:.3rem"><table>
+      <thead><tr><th>Oorsprong</th><th>Gebruikers</th><th>Antwoorden</th><th>Gem. % correct</th><th>Bezoeken</th></tr></thead>
+      <tbody>${Object.keys(byCohort).sort().map(c=>`<tr><td>${esc(c)}</td><td>${byCohort[c].n}</td><td>${byCohort[c].ans}</td><td>${byCohort[c].ans?pct(byCohort[c].correct,byCohort[c].ans)+"%":"—"}</td><td>${byCohort[c].visits}</td></tr>`).join("")}</tbody>
+    </table></div>
+    <h2>Gebruikers</h2>
+    <div class="filterbar"><span class="muted">Oorsprong:</span>${cohorts.map(c=>`<button class="chip-toggle" data-coh="${esc(c)}">${c==="__alle"?"alle":esc(c)}</button>`).join("")}</div>
+    <div class="card" style="padding:.3rem"><table>
+      <thead><tr><th>Naam</th><th>Oorsprong</th><th>Rol</th><th>Beantwoord</th><th>% correct</th><th>Bezoeken</th><th>Flags</th><th>Opmerkingen</th></tr></thead>
+      <tbody id="guBody"></tbody></table></div>`;
+  app.querySelectorAll("[data-coh]").forEach(b=>b.onclick=()=>{ filter=b.dataset.coh; draw(); });
+  draw();
 }
 
 /* ============================================================
@@ -634,8 +925,9 @@ function questionEditor(q){
     <div class="spread"><span class="q-num">Vraag ${q.qnum}</span>
       <button class="btn btn-danger btn-sm" data-delq="${q.id}">Verwijderen</button></div>
     <label>Vraagtekst</label><textarea data-f="text" data-q="${q.id}">${esc(q.text)}</textarea>
+    <label style="display:flex;align-items:center;gap:.5rem;font-weight:400"><input type="checkbox" data-valid="${q.id}" style="width:auto" ${q.validated!==false?"checked":""}> Gevalideerd juist antwoord ${infoTip("Uit = er is nog geen officieel juist antwoord; de groep bepaalt het via opmerkingen en flags. De vraag krijgt dan de tag 'Niet gevalideerd'.")}</label>
     <label style="display:flex;align-items:center;gap:.5rem;font-weight:400"><input type="checkbox" data-multi="${q.id}" style="width:auto" ${q.multi?"checked":""}> Meerkeuze (meerdere juiste antwoorden)</label>
-    <label>Antwoordopties — vink de juiste aan</label>
+    <label>Antwoordopties — vink de juiste aan (mag leeg blijven als niet gevalideerd)</label>
     <div data-opts="${q.id}">${(q.options||[]).map((o,i)=>`
       <div class="spread optrow" style="gap:.5rem;margin:.2rem 0">
         <input type="checkbox" class="corr" data-q="${q.id}" value="${i}" ${corr.includes(i)?"checked":""} style="width:auto">
@@ -676,9 +968,10 @@ function wireQuestionEditor(q, quizId){
     rows.forEach(r=>{ const v=r.querySelector(`[data-opt="${q.id}"]`).value.trim(); if(!v) return;
       const idx=opts.length; opts.push(v); if(r.querySelector(".corr").checked) correct.push(idx); });
     if(opts.length<2) return toast("Minstens 2 opties","err");
-    if(!correct.length) return toast("Vink minstens één juist antwoord aan","err");
+    const validated=card.querySelector(`[data-valid="${q.id}"]`).checked;
+    if(validated && !correct.length) return toast("Vink een juist antwoord aan, of zet 'Gevalideerd' uit.","err");
     const multi=card.querySelector(`[data-multi="${q.id}"]`).checked || correct.length>1;
-    const payload={ text, options:opts, correct_indexes:correct, multi,
+    const payload={ text, options:opts, correct_indexes:correct, multi, validated,
       legal_basis:card.querySelector(`[data-f="legal_basis"][data-q="${q.id}"]`).value,
       explanation:card.querySelector(`[data-f="explanation"][data-q="${q.id}"]`).value,
       answer_source:srcVals.answer_source, explanation_source:srcVals.explanation_source };
@@ -702,13 +995,14 @@ function parseQuizMarkdown(text){
     if(/^#\s*Titel:/i.test(line)){ title=line.replace(/^#\s*Titel:/i,"").trim(); continue; }
     if(/^#\s+/.test(line)&&!title){ title=line.replace(/^#+\s*/,"").trim(); continue; }
     if(/^Beschrijving:/i.test(line)){ desc=line.replace(/^Beschrijving:/i,"").trim(); continue; }
-    if(/^##\s*/.test(line)){ push(); cur={ text:"", options:[], correct_indexes:[], legal_basis:"", explanation:"", source:"mens" }; field="text"; continue; }
+    if(/^##\s*/.test(line)){ push(); cur={ text:"", options:[], correct_indexes:[], legal_basis:"", explanation:"", source:"mens", validated:true }; field="text"; continue; }
     if(!cur) continue;
     let m;
     if((m=line.match(/^-\s*\[( |x|X)\]\s*(.+)$/))){ if(m[1].toLowerCase()==="x") cur.correct_indexes.push(cur.options.length); cur.options.push(m[2].trim()); field="opt"; continue; }
     if(/^\*\*Wettelijke basis:\*\*/i.test(line)){ cur.legal_basis=line.replace(/^\*\*Wettelijke basis:\*\*/i,"").trim(); field="legal"; continue; }
     if(/^\*\*Uitleg:\*\*/i.test(line)){ cur.explanation=line.replace(/^\*\*Uitleg:\*\*/i,"").trim(); field="uitleg"; continue; }
     if(/^\*\*Bron:\*\*/i.test(line)){ cur.source=/ai|robot/i.test(line)?"ai":"mens"; field=null; continue; }
+    if(/^\*\*Gevalideerd:\*\*/i.test(line)){ cur.validated=!/nee|neen|geen|no|uit|false/i.test(line); field=null; continue; }
     if(line===""){ continue; }
     // vervolgtekst bij het lopende veld
     if(field==="text") cur.text=(cur.text?cur.text+" ":"")+line;
@@ -719,7 +1013,7 @@ function parseQuizMarkdown(text){
   questions.forEach((q,i)=>{
     if(!q.text) errors.push(`Vraag ${i+1}: geen vraagtekst.`);
     if(q.options.length<2) errors.push(`Vraag ${i+1}: minder dan 2 opties.`);
-    if(!q.correct_indexes.length) errors.push(`Vraag ${i+1}: geen juist antwoord aangeduid (- [x]).`);
+    if(!q.correct_indexes.length) q.validated=false;   // geen [x] ⇒ niet gevalideerd
     q.multi=q.correct_indexes.length>1;
   });
   if(!title) errors.push("Geen titel gevonden (# Titel: ...).");
@@ -753,7 +1047,8 @@ async function viewImport(){
     box.innerHTML=`<div class="card">
       ${parsed.errors.length?`<div style="color:var(--wrong)"><strong>Aandachtspunten:</strong><ul>${parsed.errors.map(e=>`<li>${esc(e)}</li>`).join("")}</ul></div>`:`<p style="color:var(--correct)">${ICON.check} Geen fouten gevonden.</p>`}
       <p><strong>${esc(parsed.title||"(geen titel)")}</strong> — ${parsed.questions.length} vragen</p>
-      <ol>${parsed.questions.slice(0,8).map(q=>`<li>${esc(q.text).slice(0,80)}… <span class="muted">(juist: ${lettersOf(q.correct_indexes)}${q.multi?" · meerkeuze":""})</span></li>`).join("")}</ol>
+      ${parsed.questions.filter(q=>!q.validated).length?`<p class="muted">${parsed.questions.filter(q=>!q.validated).length} vraag/vragen zonder aangeduid juist antwoord → komen binnen als <strong>niet gevalideerd</strong>.</p>`:""}
+      <ol>${parsed.questions.slice(0,8).map(q=>`<li>${esc(q.text).slice(0,80)}… <span class="muted">(juist: ${q.validated?lettersOf(q.correct_indexes):"in overleg"}${q.multi?" · meerkeuze":""})</span></li>`).join("")}</ol>
       ${parsed.questions.length>8?`<p class="muted">…en ${parsed.questions.length-8} meer.</p>`:""}
     </div>`;
     return parsed;
@@ -773,7 +1068,7 @@ async function viewImport(){
       if(error) throw error;
       const rows=parsed.questions.map((q,i)=>{
         const src = q.source==="ai" ? "ai" : (aiAll ? "ai" : "mens");
-        return { quiz_id:quiz.id, sort_order:i+1, text:q.text, options:q.options, correct_indexes:q.correct_indexes, multi:!!q.multi,
+        return { quiz_id:quiz.id, sort_order:i+1, text:q.text, options:q.options, correct_indexes:q.correct_indexes, multi:!!q.multi, validated:q.validated!==false,
           legal_basis:q.legal_basis, explanation:q.explanation, answer_source:src, explanation_source:src };
       });
       const CHUNK=40;
@@ -796,9 +1091,11 @@ async function viewImport(){
 /* ============================================================
    BOOT
    ============================================================ */
+let visitLogged=false;
 async function boot(){
   if(!sb){ document.getElementById("appHeader").hidden=true; route(); return; }
   await loadProfile();
+  if(ME && !visitLogged){ visitLogged=true; sb.from("visits").insert({ user_id:ME.id }).then(()=>{},()=>{}); }
   if(ME) renderHeader();
   route();
 }
