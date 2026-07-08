@@ -259,6 +259,7 @@ async function route(){
     if(p[0]==="quiz") return viewPlay(p[1]);
     if(p[0]==="stats" && p[1]==="vragen") return viewStatsVragen();
     if(p[0]==="stats" && p[1]==="gebruikers") return viewStatsGebruikers();
+    if(p[0]==="tetris") return viewTetris();
     if(p[0]==="account") return viewAccount();
     if(p[0]==="beheer" && p[1]==="vraag") return viewEditQuestion(p[2]);
     if(p[0]==="beheer" && p[1]==="quiz") return viewBeheerQuiz(p[2]);
@@ -304,11 +305,62 @@ async function viewHome(){
   app.innerHTML=`
     <div class="spread"><h1>Quizzen</h1>${isEditor()?`<button class="btn btn-primary btn-sm" data-nav="#/beheer">Beheer</button>`:""}</div>
     <div class="dev-note">${ICON.info} QUIZT.ET wordt nog volop ontwikkeld — vernieuw af en toe eens de pagina om de laatste functies te hebben. <button class="btn btn-ghost btn-sm" id="hardRefresh" style="margin-left:.5rem">Nu vernieuwen</button></div>
-    ${quizzes&&quizzes.length?`<div class="grid" style="margin-top:1rem">${cards}</div>`:`<div class="empty">Nog geen quizzen.</div>`}`;
+    ${quizzes&&quizzes.length?`<div class="grid" style="margin-top:1rem">${cards}</div>`:`<div class="empty">Nog geen quizzen.</div>`}
+    <div id="tetrisTop"></div>`;
   app.querySelectorAll("[data-open]").forEach(c=>c.onclick=()=>go("#/quiz/"+c.dataset.open));
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
   const hr=document.getElementById("hardRefresh");
   if(hr) hr.onclick=()=>{ const base=location.href.split("?")[0].split("#")[0]; location.href=base+"?_="+Date.now()+location.hash; };
+  renderTetrisTop3();
+}
+
+async function bestPerUser(limit){
+  const { data:rows }=await sb.from("tetris_scores").select("user_id,score,lines,level,created_at").order("score",{ascending:false}).limit(200);
+  const seen=new Set(); const best=[]; (rows||[]).forEach(r=>{ if(seen.has(r.user_id)) return; seen.add(r.user_id); best.push(r); });
+  return best.slice(0, limit||best.length);
+}
+async function renderTetrisTop3(){
+  const el=document.getElementById("tetrisTop"); if(!el) return;
+  const top=await bestPerUser(3);
+  if(!top.length){ el.innerHTML=`<div class="card tetris-top-card"><div class="tetris-top-hd">${ICON.info} <strong>Tetris top-3</strong></div><p class="muted" style="font-size:.85rem">Nog niemand op het bord. Speel Tetris na een sessie van minstens 25 vragen met ≥80% juist en zet jezelf als eerste!</p><a class="ilink" data-nav="#/tetris">Naar het volledige scorebord →</a></div>`; }
+  else {
+    const names=await namesFor(top.map(t=>t.user_id));
+    el.innerHTML=`
+      <div class="card tetris-top-card">
+        <div class="tetris-top-hd">🏆 <strong>Tetris top-3</strong> <span class="muted" style="font-size:.78rem">— beste score per speler</span></div>
+        <ol class="tetris-top-list">${top.map((t,i)=>`<li><span class="tetris-medal">${["🥇","🥈","🥉"][i]}</span><span class="tetris-name">${esc(names[t.user_id]||"?")}</span><span class="tetris-num">${t.score}</span></li>`).join("")}</ol>
+        <div class="muted" style="font-size:.78rem">Tetris is enkel te spelen na een oefensessie van minstens 25 vragen met ≥80% juist. Op die manier verdien je je pauze.</div>
+        <a class="ilink" data-nav="#/tetris" style="font-size:.85rem">Naar het volledige scorebord →</a>
+      </div>`;
+  }
+  el.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
+}
+
+async function viewTetris(){
+  app.innerHTML=`<div class="loading">Scorebord laden…</div>`;
+  const top=await bestPerUser(50);
+  const myRank = top.findIndex(t=>t.user_id===ME.id);
+  const names=await namesFor(top.map(t=>t.user_id));
+  app.innerHTML=`
+    <a class="muted" data-nav="#/">← Quizzen</a>
+    <h1 style="margin:.5rem 0">🧱 Tetris scorebord</h1>
+    <div class="card" style="margin-top:.8rem">
+      <div class="setup-hd">${ICON.info} Spelregels</div>
+      <ul class="tetris-rules">
+        <li>Tetris ontgrendel je na een oefensessie van <strong>minstens 25 vragen</strong>.</li>
+        <li>In die sessie moet je <strong>minstens 80% juist</strong> hebben. Niet gehaald? Dan geen pauze.</li>
+        <li>Elke afspeelde game telt — enkel je <strong>beste score</strong> per speler staat in de ranglijst.</li>
+        <li>Toetsenbord: ← → bewegen, ↑ draaien, ↓ sneller, spatie = plonsen, P = pauze.</li>
+        <li>Op mobiel gebruik je de knoppen onderaan.</li>
+      </ul>
+    </div>
+    <h2>Top ${top.length}</h2>
+    ${top.length?`<div class="card" style="padding:.3rem"><table>
+      <thead><tr><th>#</th><th>Naam</th><th>Score</th><th>Lijnen</th><th>Level</th><th>Datum</th></tr></thead>
+      <tbody>${top.map((t,i)=>`<tr${t.user_id===ME.id?' style="background:var(--accent-soft)"':''}><td><strong>${i+1}</strong></td><td>${esc(names[t.user_id]||"?")}${t.user_id===ME.id?' <span class="muted" style="font-size:.72rem">(jij)</span>':''}</td><td><strong>${t.score}</strong></td><td>${t.lines}</td><td>${t.level}</td><td class="muted" style="font-size:.75rem">${fmtDate(t.created_at)}</td></tr>`).join("")}</tbody>
+    </table></div>`:`<p class="muted">Nog geen scores. Speel een rondje na een geslaagde oefensessie en zet jezelf als eerste op het bord!</p>`}
+    ${myRank>=0?`<p class="muted" style="margin-top:.6rem;font-size:.85rem">Jouw beste score: rang ${myRank+1} met ${top[myRank].score} punten.</p>`:top.length?`<p class="muted" style="margin-top:.6rem;font-size:.85rem">Je staat nog niet op het bord.</p>`:""}`;
+  app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
 }
 
 /* ============================================================
@@ -634,15 +686,16 @@ function renderPlayDone(){
         <button class="btn btn-ghost" id="againNew">Nieuwe sessie</button>
         <a class="btn btn-ghost" data-nav="#/">Naar quizzen</a>
       </div>
-      <div class="brain-break">
-        <div class="muted" style="font-size:.82rem;margin-bottom:.4rem">Even je gedachten verzetten?</div>
-        <button class="btn btn-ghost btn-sm" id="openTetris">🧱 Speel Tetris</button>
-      </div>
+      ${(()=>{ const earned=qs.length>=25 && scored>0 && p>=80; const eligible=earned||isAdmin();
+        return `<div class="brain-break">
+          <div class="muted" style="font-size:.82rem;margin-bottom:.4rem">${earned?"Je hebt een pauze verdiend 🎉":(isAdmin()?"Admin-toegang (normaal ≥25 vragen én ≥80% juist)":"Speel Tetris na een sessie van minstens 25 vragen met ≥80% juist.")}</div>
+          <button class="btn btn-ghost btn-sm" id="openTetris" ${eligible?"":"disabled"} title="${eligible?"Speel een rondje Tetris":"Vergrendeld — je moet minstens 25 vragen doen én 80% juist scoren"}">🧱 Speel Tetris ${eligible?"":"🔒"}</button>
+        </div>`; })()}
     </div>`;
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
   const aw=document.getElementById("againWrong"); if(aw) aw.onclick=()=>startSession("alle","foute",PLAY.mode||"slim");
   document.getElementById("againNew").onclick=()=>renderPlaySetup();
-  document.getElementById("openTetris").onclick=openTetris;
+  const tb=document.getElementById("openTetris"); if(tb && !tb.disabled) tb.onclick=openTetris;
 }
 
 /* ============================================================
@@ -707,7 +760,8 @@ function openTetris(){
   const rotate=m=>{ const N=m.length, M=m[0].length; const nm=Array.from({length:M},()=>Array(N).fill(0)); for(let r=0;r<N;r++) for(let c=0;c<M;c++) nm[c][N-1-r]=m[r][c]; return nm; };
   const merge=()=>{ for(let r=0;r<piece.m.length;r++) for(let c=0;c<piece.m[r].length;c++){ if(piece.m[r][c] && piece.y+r>=0) board[piece.y+r][piece.x+c]=piece.m[r][c]; } };
   const clearLines=()=>{ let n=0; for(let r=ROWS-1;r>=0;r--){ if(board[r].every(v=>v)){ board.splice(r,1); board.unshift(Array(COLS).fill(0)); n++; r++; } } if(n){ const pts=[0,100,300,500,800][n]||0; score+=pts*level; lines+=n; level=1+Math.floor(lines/10); dropInterval=Math.max(80, 800-(level-1)*70); } };
-  const spawn=()=>{ piece=next||rand(); next=rand(); if(collide(piece)){ over=true; if(score>hi){ hi=score; try{ localStorage.setItem(HS_KEY,String(hi)); }catch(e){} } } };
+  const submitScore=async(s,ls,lv)=>{ if(!ME||s<=0) return; try{ await sb.from("tetris_scores").insert({ user_id:ME.id, score:s, lines:ls, level:lv }); }catch(e){} };
+  const spawn=()=>{ piece=next||rand(); next=rand(); if(collide(piece)){ over=true; if(score>hi){ hi=score; try{ localStorage.setItem(HS_KEY,String(hi)); }catch(e){} } submitScore(score,lines,level); } };
   const softDrop=()=>{ if(collide(piece,0,1)){ merge(); clearLines(); spawn(); } else piece.y++; };
   const hardDrop=()=>{ let d=0; while(!collide(piece,0,1)){ piece.y++; d++; } score+=2*d; merge(); clearLines(); spawn(); };
   const move=dx=>{ if(!collide(piece,dx,0)) piece.x+=dx; };

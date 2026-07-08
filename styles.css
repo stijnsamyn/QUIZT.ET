@@ -163,6 +163,16 @@ tr:hover td{background:var(--surface2)}
 
 /* Brain break — Tetris */
 .brain-break{margin-top:1.4rem;padding-top:1rem;border-top:1px dashed var(--border);text-align:center}
+.brain-break button[disabled]{opacity:.5;cursor:not-allowed}
+.tetris-top-card{margin-top:1.4rem;background:linear-gradient(180deg, var(--surface) 0%, var(--accent-soft) 100%)}
+.tetris-top-hd{font-size:.95rem;color:var(--ink);margin-bottom:.6rem}
+.tetris-top-list{list-style:none;margin:0 0 .6rem 0;padding:0;display:flex;flex-direction:column;gap:.3rem}
+.tetris-top-list li{display:flex;align-items:center;gap:.6rem;padding:.4rem .5rem;background:var(--surface);border:1px solid var(--border);border-radius:8px}
+.tetris-medal{font-size:1.2rem;width:1.6rem;text-align:center}
+.tetris-name{flex:1;font-weight:600;color:var(--ink);font-size:.9rem}
+.tetris-num{font-weight:800;color:var(--accent-dark);font-size:1rem}
+.tetris-rules{margin:0;padding-left:1.2rem;font-size:.85rem;line-height:1.6;color:var(--text)}
+.tetris-rules li{margin:.2rem 0}
 .tetris-overlay{position:fixed;inset:0;background:rgba(15,23,42,.86);z-index:250;
   display:flex;align-items:center;justify-content:center;padding:1rem;overflow:auto}
 .tetris-modal{background:var(--surface);border-radius:14px;padding:1.1rem;max-width:560px;width:100%;
