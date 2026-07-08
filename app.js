@@ -329,10 +329,10 @@ async function viewPlay(quizId){
   const { data:quiz } = await sb.from("quizzes").select("*").eq("id",quizId).single();
   if(!quiz){ app.innerHTML=`<div class="empty">Quiz niet gevonden.</div>`; return; }
   const { data:questions } = await sb.from("questions").select("*").eq("quiz_id",quizId).order("sort_order");
-  PLAY.quiz=quiz; PLAY.all=questions||[]; PLAY.i=0; PLAY.answers={};
+  PLAY.quiz=quiz; PLAY.all=questions||[]; PLAY.i=0; PLAY.answers={}; PLAY.history={};
   const ids=PLAY.all.map(q=>q.id);
   if(ids.length){ const {data:mine}=await sb.from("answers").select("*").eq("user_id",ME.id).in("question_id",ids);
-    (mine||[]).forEach(a=>PLAY.answers[a.question_id]=a.chosen_indexes||[]); }
+    (mine||[]).forEach(a=>{ PLAY.answers[a.question_id]=a.chosen_indexes||[]; PLAY.history[a.question_id]=a.chosen_indexes||[]; }); }
   // open flags voor deze quiz (voor iedereen zichtbaar op het startscherm)
   PLAY.openFlags=[]; PLAY.flagNames={};
   if(ids.length){ const {data:of}=await sb.from("flags").select("id,question_id,type,toelichting,created_at,user_id").eq("status","open").neq("type","juist").in("question_id",ids).order("type").order("created_at",{ascending:false});
@@ -481,7 +481,7 @@ async function renderQuestion(){
       ${isEditor()?`<button class="btn btn-ghost btn-sm" id="editQ" style="margin-left:auto">Bewerk deze vraag</button>`:""}
     </div>
     <div class="card">
-      <div class="q-meta"><span class="q-num">Vraag ${q.qnum}</span>${questionTags(q)}${answered?(isRight(q,chosen)===true?`<span class="pill juist">juist beantwoord</span>`:isRight(q,chosen)===false?`<span class="pill fout">fout beantwoord</span>`:`<span class="pill twijfel">antwoord genoteerd — in overleg</span>`):`<span class="pill" style="background:var(--surface2);color:var(--text-muted)">nog niet beantwoord</span>`}</div>
+      <div class="q-meta"><span class="q-num">Vraag ${q.qnum}</span>${questionTags(q)}${answered?(isRight(q,chosen)===true?`<span class="pill juist">juist beantwoord</span>`:isRight(q,chosen)===false?`<span class="pill fout">fout beantwoord</span>`:`<span class="pill twijfel">antwoord genoteerd — in overleg</span>`):((PLAY.history&&PLAY.history[q.id]!=null)?(isRight(q,PLAY.history[q.id])===true?`<span class="pill" style="background:var(--correct-soft);color:var(--correct);opacity:.75">eerder juist</span>`:isRight(q,PLAY.history[q.id])===false?`<span class="pill" style="background:var(--wrong-soft);color:var(--wrong);opacity:.75">eerder fout</span>`:`<span class="pill" style="background:var(--warn-soft);color:var(--warn);opacity:.75">eerder beantwoord</span>`):`<span class="pill" style="background:var(--surface2);color:var(--text-muted)">nog niet beantwoord</span>`)}</div>
       <div class="q-text">${esc(q.text)}</div>
       <div id="opts">${opts}</div>
       ${(multi&&!answered)?`<div class="btnrow"><button class="btn btn-primary btn-sm" id="checkMulti">Nakijken</button></div>`:""}
