@@ -407,6 +407,8 @@ function startSession(size, focus, order){
   let pool=orderQuestions(poolFor(focus), PLAY.answers, order);
   if(!pool.length){ toast("Geen vragen voor deze keuze.","err"); return; }
   if(size!=="alle"){ const n=parseInt(size,10)||pool.length; pool=pool.slice(0,n); }
+  // sessie start blanco — vorige antwoorden blijven in DB voor statistiek/focus
+  PLAY.answers={};
   PLAY.questions=pool; PLAY.i=0; renderQuestion();
 }
 
