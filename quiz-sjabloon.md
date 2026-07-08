@@ -34,6 +34,8 @@ FORMAATREGELS (de importer leest hierop)
     Gewone vraag = precies één optie met [x]. Meerkeuzevraag = meerdere opties
     met [x] (dan wordt de vraag automatisch als meerkeuze behandeld). Min. 2 opties.
   • "**Wettelijke basis:**" — de wetsartikelen/grondslag (optioneel, aangeraden).
+  • "**Wettekst:**" — de volledige wettekst van de artikels (optioneel; wordt uitklapbaar
+    bij de vraag getoond).
   • "**Uitleg:**" — waarom dit antwoord juist is (optioneel, aangeraden).
   • "**Bron:**" — mens of AI (optioneel; standaard mens).
   • "**Gevalideerd:**" — ja of nee (optioneel; standaard ja). Zet "nee" als er nog

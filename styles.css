@@ -79,6 +79,7 @@ label{font-size:.8rem;font-weight:600;color:var(--text-muted);display:block;marg
   padding:.9rem 1rem;margin-top:.8rem;font-size:.92rem;line-height:1.55}
 .explain .lbl{font-weight:700;color:var(--accent-dark);font-size:.75rem;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:.25rem}
 .legal{background:var(--surface2);border-radius:var(--radius);padding:.8rem 1rem;margin-top:.6rem;font-size:.88rem}
+.wettekst{white-space:pre-wrap;font-size:.82rem;line-height:1.5;color:var(--text-muted);max-height:340px;overflow:auto}
 
 /* Disclosure / details */
 details{border:1px solid var(--border);border-radius:var(--radius);margin-top:.7rem;background:var(--surface)}

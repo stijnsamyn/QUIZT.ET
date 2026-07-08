@@ -396,17 +396,17 @@ async function renderQuestion(){
         <button class="chip-toggle ${PLAY.mode==="volgorde"?"active":""}" data-mode="volgorde">Op nummer</button>
       </div>
     </div>
+    <div class="btnrow" style="margin-bottom:.8rem">
+      <button class="btn btn-ghost btn-sm" id="prevBtn" ${PLAY.i===0?"disabled":""}>← Vorige</button>
+      <button class="btn btn-ghost btn-sm" id="nextBtn" ${PLAY.i>=total-1?"disabled":""}>Volgende →</button>
+      ${unanswered?`<button class="btn btn-primary btn-sm" id="nextUnans">Volgende onbeantwoorde →</button>`:""}
+    </div>
     <div class="card">
       <div class="q-meta"><span class="q-num">Vraag ${q.qnum}</span>${questionTags(q)}${answered?(isRight(q,chosen)===true?`<span class="pill juist">juist beantwoord</span>`:isRight(q,chosen)===false?`<span class="pill fout">fout beantwoord</span>`:`<span class="pill twijfel">antwoord genoteerd — in overleg</span>`):`<span class="pill" style="background:var(--surface2);color:var(--text-muted)">nog niet beantwoord</span>`}</div>
       <div class="q-text">${esc(q.text)}</div>
       <div id="opts">${opts}</div>
       ${(multi&&!answered)?`<div class="btnrow"><button class="btn btn-primary btn-sm" id="checkMulti">Nakijken</button></div>`:""}
       <div id="afterAnswer"></div>
-    </div>
-    <div class="btnrow">
-      <button class="btn btn-ghost btn-sm" id="prevBtn" ${PLAY.i===0?"disabled":""}>← Vorige</button>
-      <button class="btn btn-ghost btn-sm" id="nextBtn" ${PLAY.i>=total-1?"disabled":""}>Volgende →</button>
-      ${unanswered?`<button class="btn btn-primary btn-sm" id="nextUnans">Volgende onbeantwoorde →</button>`:""}
     </div>`;
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
   document.getElementById("prevBtn").onclick=()=>{ if(PLAY.i>0){PLAY.i--;renderQuestion();} };
@@ -473,20 +473,20 @@ async function renderAfterAnswer(q){
     ${q.validated===false?`<div class="notice">${ICON.info} <strong>Nog geen gevalideerd juist antwoord.</strong> Bekijk hieronder welk antwoord de groep verkiest, kies zelf je voorkeursantwoord en gebruik de flags om in overleg te gaan.</div>`:""}
     <div class="explain"><span class="lbl">Uitleg ${srcBadge("Uitleg",q.explanation_source)}</span>${esc(q.explanation||"— geen uitleg —")}</div>
     ${q.legal_basis?`<div class="legal"><strong>Wettelijke basis:</strong> ${esc(q.legal_basis)}</div>`:""}
+    ${q.wettekst?`<details><summary>${ICON.info} Wettekst</summary><div class="body wettekst">${esc(q.wettekst)}</div></details>`:""}
 
-    <details><summary>${ICON.flag} Flag deze vraag <span class="muted">(fout / twijfel / juist)</span></summary>
+    <details><summary>${ICON.chat} Reageer op deze vraag <span class="muted">— flag &amp; jouw voorkeursantwoord</span></summary>
       <div class="body">
-        <div class="btnrow">
+        <strong>Flag</strong> <span class="muted">(fout / twijfel / juist)</span>
+        <div class="btnrow" style="margin-top:.3rem">
           <button class="chip-toggle" data-ftype="fout">Antwoord lijkt fout</button>
           <button class="chip-toggle" data-ftype="twijfel">Ik twijfel / onduidelijk</button>
           <button class="chip-toggle" data-ftype="juist">Klopt / is juist</button>
         </div>
-        <textarea id="fToel" placeholder="Leg uit waarom (verplicht)…"></textarea>
+        <textarea id="fToel" placeholder="Leg uit waarom (verplicht bij fout/twijfel, niet nodig bij juist)…"></textarea>
         <div class="btnrow"><button class="btn btn-primary btn-sm" id="fSubmit">Flag plaatsen</button></div>
-      </div></details>
-
-    <details><summary>${ICON.chat} Opmerking &amp; jouw voorkeursantwoord</summary>
-      <div class="body">
+        <hr>
+        <strong>Jouw voorkeursantwoord &amp; opmerking</strong>
         <label>Welk antwoord (of antwoorden) vind jij juist?</label>
         ${(q.options||[]).map((o,i)=>`<label style="display:flex;align-items:center;gap:.5rem;font-weight:400;margin:.15rem 0"><input type="checkbox" class="opref" value="${i}" style="width:auto" ${myOpm&&inSet(myOpm.preferred_indexes,i)?"checked":""}> ${letter(i)} — ${esc(o).slice(0,90)}</label>`).join("")}
         <textarea id="oMot" placeholder="Waarom? (motivatie)">${myOpm?esc(myOpm.motivatie||""):""}</textarea>
@@ -496,7 +496,7 @@ async function renderAfterAnswer(q){
     <details ${(flags&&flags.length)?"open":""}><summary>${ICON.flag} Geschiedenis: flags (${(flags||[]).length}) &amp; opmerkingen (${(opm||[]).length})</summary>
       <div class="body">
         ${totV?`<label>Collectief beeld — ${pct(wrongVotes,totV)}% verkiest een ander antwoord dan het huidige</label>${bars}<hr>`:""}
-        ${(flags||[]).map(f=>`<div class="hist ${f.type}"><span class="pill ${f.type}">${f.type}</span> ${f.status==="afgehandeld"?`<span class="pill afgehandeld">afgehandeld</span>`:""} <span class="who">${esc(names[f.user_id]||"?")}</span> <span class="when">${fmtDate(f.created_at)}</span><div>${esc(f.toelichting)}</div></div>`).join("")||`<p class="muted">Nog geen flags.</p>`}
+        ${(flags||[]).map(f=>`<div class="hist ${f.type}"><span class="pill ${f.type}">${f.type}</span> ${f.status==="afgehandeld"?`<span class="pill afgehandeld">afgehandeld</span>`:""} <span class="who">${esc(names[f.user_id]||"?")}</span> <span class="when">${fmtDate(f.created_at)}</span>${f.toelichting?`<div>${esc(f.toelichting)}</div>`:""}</div>`).join("")||`<p class="muted">Nog geen flags.</p>`}
         ${(opm||[]).map(o=>`<div class="hist"><span class="who">${esc(names[o.user_id]||"?")}</span> verkiest <strong>${lettersOf(o.preferred_indexes)}</strong> <span class="when">${fmtDate(o.created_at)}</span>${o.motivatie?`<div>${esc(o.motivatie)}</div>`:""}</div>`).join("")}
       </div></details>
 
@@ -508,8 +508,8 @@ async function renderAfterAnswer(q){
   box.querySelectorAll("[data-ftype]").forEach(b=>b.onclick=()=>{ ftype=b.dataset.ftype; box.querySelectorAll("[data-ftype]").forEach(x=>x.classList.toggle("active",x===b)); });
   document.getElementById("fSubmit").onclick=async()=>{
     const toel=document.getElementById("fToel").value.trim();
-    if(!ftype) return toast("Kies fout of twijfel","err");
-    if(!toel) return toast("Toelichting is verplicht","err");
+    if(!ftype) return toast("Kies fout, twijfel of juist","err");
+    if(ftype!=="juist" && !toel) return toast("Toelichting is verplicht bij fout/twijfel","err");
     const { error }=await sb.from("flags").insert({ question_id:q.id, user_id:ME.id, type:ftype, toelichting:toel });
     if(error) return toast(error.message,"err");
     toast("Flag geplaatst","ok"); renderAfterAnswer(q);
@@ -900,6 +900,8 @@ async function viewBeheerQuiz(quizId){
     </div>
     <div class="spread"><h2>Vragen (${(questions||[]).length})</h2>
       <button class="btn btn-ghost btn-sm" id="addQ">+ Vraag toevoegen</button></div>
+    <input id="qSearch" placeholder="Zoek een vraag — op nummer of tekst…" style="margin-bottom:.6rem">
+    <div class="muted" id="qSearchInfo" style="margin-bottom:.6rem;display:none"></div>
     <div class="stack" id="qList"></div>`;
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
   document.getElementById("saveQuiz").onclick=async()=>{
@@ -914,6 +916,17 @@ async function viewBeheerQuiz(quizId){
   const list=document.getElementById("qList");
   list.innerHTML=(questions||[]).map(q=>questionEditor(q)).join("")||`<p class="muted">Nog geen vragen.</p>`;
   (questions||[]).forEach(q=>wireQuestionEditor(q, quizId));
+  document.getElementById("qSearch").oninput=e=>{
+    const s=e.target.value.trim().toLowerCase();
+    let n=0;
+    (questions||[]).forEach(q=>{
+      const card=document.querySelector(`[data-qcard="${q.id}"]`); if(!card) return;
+      const hit = !s || String(q.qnum)===s || String(q.qnum).includes(s) || (q.text||"").toLowerCase().includes(s);
+      card.style.display = hit?"":"none"; if(hit)n++;
+    });
+    const info=document.getElementById("qSearchInfo");
+    info.style.display = s?"":"none"; info.textContent = s?`${n} vraag/vragen gevonden`:"";
+  };
 }
 
 function srcToggle(id, val){
@@ -939,6 +952,7 @@ function questionEditor(q){
     <button class="btn btn-ghost btn-sm" data-addopt="${q.id}">+ optie</button>
     <label>Herkomst juist antwoord</label>${srcToggle("as-"+q.id, q.answer_source)}
     <label>Wettelijke basis</label><textarea data-f="legal_basis" data-q="${q.id}">${esc(q.legal_basis||"")}</textarea>
+    <label>Wettekst (volledige artikels, uitklapbaar bij de vraag)</label><textarea data-f="wettekst" data-q="${q.id}">${esc(q.wettekst||"")}</textarea>
     <label>Uitleg</label><textarea data-f="explanation" data-q="${q.id}">${esc(q.explanation||"")}</textarea>
     <label>Herkomst uitleg</label>${srcToggle("es-"+q.id, q.explanation_source)}
     <div class="btnrow"><button class="btn btn-primary btn-sm" data-saveq="${q.id}">Vraag opslaan</button></div>
@@ -975,6 +989,7 @@ function wireQuestionEditor(q, quizId){
     const multi=card.querySelector(`[data-multi="${q.id}"]`).checked || correct.length>1;
     const payload={ text, options:opts, correct_indexes:correct, multi, validated,
       legal_basis:card.querySelector(`[data-f="legal_basis"][data-q="${q.id}"]`).value,
+      wettekst:card.querySelector(`[data-f="wettekst"][data-q="${q.id}"]`).value,
       explanation:card.querySelector(`[data-f="explanation"][data-q="${q.id}"]`).value,
       answer_source:srcVals.answer_source, explanation_source:srcVals.explanation_source };
     const { error }=await sb.from("questions").update(payload).eq("id",q.id);
@@ -997,11 +1012,12 @@ function parseQuizMarkdown(text){
     if(/^#\s*Titel:/i.test(line)){ title=line.replace(/^#\s*Titel:/i,"").trim(); continue; }
     if(/^#\s+/.test(line)&&!title){ title=line.replace(/^#+\s*/,"").trim(); continue; }
     if(/^Beschrijving:/i.test(line)){ desc=line.replace(/^Beschrijving:/i,"").trim(); continue; }
-    if(/^##\s*/.test(line)){ push(); cur={ text:"", options:[], correct_indexes:[], legal_basis:"", explanation:"", source:"mens", validated:true }; field="text"; continue; }
+    if(/^##\s*/.test(line)){ push(); cur={ text:"", options:[], correct_indexes:[], legal_basis:"", wettekst:"", explanation:"", source:"mens", validated:true }; field="text"; continue; }
     if(!cur) continue;
     let m;
     if((m=line.match(/^-\s*\[( |x|X)\]\s*(.+)$/))){ if(m[1].toLowerCase()==="x") cur.correct_indexes.push(cur.options.length); cur.options.push(m[2].trim()); field="opt"; continue; }
     if(/^\*\*Wettelijke basis:\*\*/i.test(line)){ cur.legal_basis=line.replace(/^\*\*Wettelijke basis:\*\*/i,"").trim(); field="legal"; continue; }
+    if(/^\*\*Wettekst:\*\*/i.test(line)){ cur.wettekst=line.replace(/^\*\*Wettekst:\*\*/i,"").trim(); field="wettekst"; continue; }
     if(/^\*\*Uitleg:\*\*/i.test(line)){ cur.explanation=line.replace(/^\*\*Uitleg:\*\*/i,"").trim(); field="uitleg"; continue; }
     if(/^\*\*Bron:\*\*/i.test(line)){ cur.source=/ai|robot/i.test(line)?"ai":"mens"; field=null; continue; }
     if(/^\*\*Gevalideerd:\*\*/i.test(line)){ cur.validated=!/nee|neen|geen|no|uit|false/i.test(line); field=null; continue; }
@@ -1009,6 +1025,7 @@ function parseQuizMarkdown(text){
     // vervolgtekst bij het lopende veld
     if(field==="text") cur.text=(cur.text?cur.text+" ":"")+line;
     else if(field==="legal") cur.legal_basis+=" "+line;
+    else if(field==="wettekst") cur.wettekst+=" "+line;
     else if(field==="uitleg") cur.explanation+=" "+line;
   }
   push();
@@ -1071,7 +1088,7 @@ async function viewImport(){
       const rows=parsed.questions.map((q,i)=>{
         const src = q.source==="ai" ? "ai" : (aiAll ? "ai" : "mens");
         return { quiz_id:quiz.id, sort_order:i+1, text:q.text, options:q.options, correct_indexes:q.correct_indexes, multi:!!q.multi, validated:q.validated!==false,
-          legal_basis:q.legal_basis, explanation:q.explanation, answer_source:src, explanation_source:src };
+          legal_basis:q.legal_basis, wettekst:q.wettekst, explanation:q.explanation, answer_source:src, explanation_source:src };
       });
       const CHUNK=40;
       for(let i=0;i<rows.length;i+=CHUNK){
