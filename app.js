@@ -457,7 +457,7 @@ async function renderQuestion(){
     <div class="btnrow" style="margin-bottom:.8rem">
       <button class="btn btn-ghost btn-sm" id="prevBtn" ${PLAY.i===0?"disabled":""}>← Vorige</button>
       <button class="btn btn-ghost btn-sm" id="nextBtn" ${PLAY.i>=total-1?"disabled":""}>Volgende →</button>
-      ${unanswered?`<button class="btn btn-primary btn-sm" id="nextUnans">Volgende onbeantwoorde →</button>`:""}
+      ${unanswered?`<button class="btn btn-primary btn-sm" id="nextUnans">Volgende onbeantwoorde →</button>`:`<button class="btn btn-primary btn-sm" id="doneBtn">Bekijk resultaat →</button>`}
       ${isEditor()?`<button class="btn btn-ghost btn-sm" id="editQ" style="margin-left:auto">Bewerk deze vraag</button>`:""}
     </div>
     <div class="card">
@@ -480,6 +480,8 @@ async function renderQuestion(){
   if(nsBtn) nsBtn.onclick=()=>renderPlaySetup();
   const eqBtn=document.getElementById("editQ");
   if(eqBtn) eqBtn.onclick=()=>go("#/beheer/vraag/"+q.id);
+  const dBtn=document.getElementById("doneBtn");
+  if(dBtn) dBtn.onclick=()=>renderPlayDone();
   app.querySelectorAll("[data-mode]").forEach(b=>b.onclick=()=>{
     if(PLAY.mode===b.dataset.mode) return;
     PLAY.mode=b.dataset.mode;
@@ -500,6 +502,7 @@ async function renderQuestion(){
 }
 
 async function answerQuestion(q, idxArray){
+  const wasNew = PLAY.answers[q.id]==null;
   const chosen=arr(idxArray).slice().sort((a,b)=>a-b);
   const is_correct = isRight(q, chosen);   // null bij niet-gevalideerde vraag
   PLAY.answers[q.id]=chosen;
@@ -508,7 +511,43 @@ async function answerQuestion(q, idxArray){
     await sb.from("answer_events").insert({ question_id:q.id, quiz_id:PLAY.quiz.id, user_id:ME.id, is_correct });
   }
   catch(e){ toast("Antwoord niet opgeslagen: "+e.message,"err"); }
-  renderQuestion();
+  const allAnswered = PLAY.questions.every(x=>PLAY.answers[x.id]!=null);
+  if(wasNew && allAnswered) renderPlayDone(); else renderQuestion();
+}
+
+function renderPlayDone(){
+  const qs=PLAY.questions;
+  const correct=qs.filter(x=>PLAY.answers[x.id]!=null && isRight(x,PLAY.answers[x.id])===true).length;
+  const wrong=qs.filter(x=>PLAY.answers[x.id]!=null && isRight(x,PLAY.answers[x.id])===false).length;
+  const overleg=qs.filter(x=>PLAY.answers[x.id]!=null && x.validated===false).length;
+  const scored=correct+wrong;
+  const p=scored?Math.round(correct/scored*100):0;
+  let title,msg,cls;
+  if(!scored){ title="Sessie voltooid"; msg="Deze vragen hebben (nog) geen gevalideerd antwoord, dus geen score. Bedankt voor je input — die helpt om het juiste antwoord te bepalen!"; cls="ok"; }
+  else if(p>=90){ title="Uitstekend — proficiat!"; msg="Je beheerst deze stof al heel goed. Blijf scherp en houd dit niveau vast."; cls="ok"; }
+  else if(p>=75){ title="Sterk bezig!"; msg="Nog een paar puntjes en het zit helemaal goed. Neem de foute vragen even door en je bent er."; cls="ok"; }
+  else if(p>=50){ title="Goed op weg"; msg="Herhaal vooral je foute vragen — met wat extra oefening ga je er snel op vooruit. Doorzetten!"; cls="warn"; }
+  else { title="Blijven oefenen!"; msg="Niet ontmoedigd raken — bekijk de uitleg bij de foute vragen en probeer opnieuw. Je raakt er wel. Zet 'm op!"; cls="warn"; }
+  app.innerHTML=`
+    <div class="done-card">
+      <div class="done-score ${cls}">${scored?p+"%":"✓"}</div>
+      <h1>${esc(title)}</h1>
+      <p class="muted">${esc(msg)}</p>
+      <div class="done-stats">
+        <span><span class="dot ok"></span> Juist: ${correct}</span>
+        <span><span class="dot bad"></span> Fout: ${wrong}</span>
+        ${overleg?`<span><span class="dot warn"></span> In overleg: ${overleg}</span>`:""}
+      </div>
+      <div class="muted" style="font-size:.8rem;margin-top:.4rem">${scored} beoordeeld · ${qs.length} vragen in deze sessie</div>
+      <div class="btnrow" style="justify-content:center;margin-top:1.3rem">
+        ${wrong?`<button class="btn btn-primary" id="againWrong">Oefen je foute vragen</button>`:""}
+        <button class="btn btn-ghost" id="againNew">Nieuwe sessie</button>
+        <a class="btn btn-ghost" data-nav="#/">Naar quizzen</a>
+      </div>
+    </div>`;
+  app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
+  const aw=document.getElementById("againWrong"); if(aw) aw.onclick=()=>startSession("alle","foute",PLAY.mode||"slim");
+  document.getElementById("againNew").onclick=()=>renderPlaySetup();
 }
 
 async function renderAfterAnswer(q){
@@ -675,10 +714,10 @@ function mountStatsTable(mountId, agg, qtitle){
   let rows=Object.values(agg), sortKey="flags";
   const el=document.getElementById(mountId);
   el.innerHTML=`
-    <div class="filterbar"><span class="muted">Sorteer:</span>
+    <div class="filterbar"><span class="muted">Sorteer ${infoTip("Meeste flags: vragen met de meeste meldingen bovenaan. Hoogste % fout: waar de meeste mensen een ander antwoord verkiezen. Moeilijkst: laagste % juist beantwoord. Vraagnummer: gewoon op volgorde. Vragen zonder gegevens staan telkens onderaan.")}:</span>
       ${[["flags","meeste flags"],["fout","hoogste % fout"],["moeilijk","moeilijkst"],["nummer","vraagnummer"]].map(([k,l])=>`<button class="chip-toggle" data-sort="${k}">${l}</button>`).join("")}</div>
     <div class="card" style="padding:.3rem"><table>
-      <thead><tr><th>#</th><th>Vraag</th><th>% correct</th><th>Flags</th><th>% fout</th></tr></thead>
+      <thead><tr><th>#</th><th>Vraag</th><th>% correct ${infoTip("Aandeel spelers dat deze vraag juist beantwoordde.")}</th><th>Flags ${infoTip("Aantal meldingen bij deze vraag (fout / twijfel / juist).")}</th><th>% fout ${infoTip("Aandeel reacties dat een ander antwoord verkiest dan het huidige juiste antwoord.")}</th></tr></thead>
       <tbody></tbody></table></div>`;
   const draw=()=>{
     const num=(a,b)=>a.q.qnum-b.q.qnum;
@@ -695,7 +734,7 @@ function mountStatsTable(mountId, agg, qtitle){
       <tr class="row-link" data-quiz="${r.q.quiz_id}" data-qid="${r.q.id}">
         <td><span class="q-num">${r.q.qnum}</span></td>
         <td>${esc(r.q.text).slice(0,90)}…${qtitle?`<br><span class="muted" style="font-size:.72rem">${esc(qtitle[r.q.quiz_id]||"")}</span>`:""}</td>
-        <td>${r.played?pct(r.correct,r.played)+"%":"—"}<br><span class="muted" style="font-size:.72rem">${r.played}×</span></td>
+        <td>${r.played?`<strong style="color:${(pc=>pc>=70?"var(--correct)":pc>=50?"var(--warn)":"var(--wrong)")(pct(r.correct,r.played))}">${pct(r.correct,r.played)}%</strong>`:"—"}<br><span class="muted" style="font-size:.72rem">${r.played}×</span></td>
         <td>${r.flags?`<span class="count-chip">${r.flags}</span>`:"—"}</td>
         <td>${r.votes?pct(r.wrongVotes,r.votes)+"%":"—"}</td>
       </tr>`).join("");

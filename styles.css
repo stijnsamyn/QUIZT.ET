@@ -159,6 +159,12 @@ tr:hover td{background:var(--surface2)}
 @media(max-width:640px){.two-col{grid-template-columns:1fr}}
 .mini{padding:.35rem 0;border-bottom:1px solid var(--border);font-size:.83rem;gap:.6rem}
 .mini:last-child{border-bottom:none}
+.done-card{max-width:520px;margin:2rem auto;text-align:center;background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--radius);box-shadow:var(--shadow-md);padding:2rem 1.5rem}
+.done-score{font-size:3.2rem;font-weight:800;line-height:1}
+.done-score.ok{color:var(--correct)} .done-score.warn{color:var(--warn)}
+.done-card h1{margin:.5rem 0 .3rem}
+.done-stats{display:flex;gap:.4rem 1.2rem;justify-content:center;flex-wrap:wrap;font-size:.9rem;color:var(--text-muted);margin-top:1rem}
 hr{border:none;border-top:1px solid var(--border);margin:1rem 0}
 .spread{display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap}
 .ilink{color:var(--accent);cursor:pointer;text-decoration:underline}
