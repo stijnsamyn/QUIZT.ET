@@ -246,6 +246,7 @@ async function route(){
     if(p[0]==="stats" && p[1]==="vragen") return viewStatsVragen();
     if(p[0]==="stats" && p[1]==="gebruikers") return viewStatsGebruikers();
     if(p[0]==="account") return viewAccount();
+    if(p[0]==="beheer" && p[1]==="vraag") return viewEditQuestion(p[2]);
     if(p[0]==="beheer" && p[1]==="quiz") return viewBeheerQuiz(p[2]);
     if(p[0]==="beheer" && p[1]==="import") return viewImport();
     if(p[0]==="beheer") return viewBeheer();
@@ -316,6 +317,10 @@ async function viewPlay(quizId){
   const ids=PLAY.all.map(q=>q.id);
   if(ids.length){ const {data:mine}=await sb.from("answers").select("*").eq("user_id",ME.id).in("question_id",ids);
     (mine||[]).forEach(a=>PLAY.answers[a.question_id]=a.chosen_indexes||[]); }
+  // open flags voor deze quiz (voor iedereen zichtbaar op het startscherm)
+  PLAY.openFlags=[]; PLAY.flagNames={};
+  if(ids.length){ const {data:of}=await sb.from("flags").select("id,question_id,type,toelichting,created_at,user_id").eq("status","open").in("question_id",ids).order("created_at",{ascending:false});
+    PLAY.openFlags=of||[]; PLAY.flagNames=await namesFor(PLAY.openFlags.map(f=>f.user_id)); }
   if(PLAY.pendingJump){
     const jid=PLAY.pendingJump; PLAY.pendingJump=null;
     PLAY.session={size:"alle",focus:"alle"};
@@ -369,8 +374,13 @@ function renderPlaySetup(){
         <button class="btn btn-danger btn-sm" id="wipeBtn">Voortgang wissen</button>
       </div>
       <div class="muted" style="font-size:.78rem;margin-top:.4rem">Wist enkel jouw antwoorden voor deze quiz. Je flags en opmerkingen blijven bewaard.</div>
-    </div>`;
+    </div>
+    ${(PLAY.openFlags&&PLAY.openFlags.length)?`
+    <h2>Open flags (${PLAY.openFlags.length})</h2>
+    <p class="muted" style="font-size:.82rem">Vragen waar iemand iets bij aanstipte. Klik om te bekijken en mee te bespreken.${isEditor()?" Als beheerder kan je ze daar aanpassen.":""}</p>
+    <div class="stack">${PLAY.openFlags.map(f=>{ const qn=(PLAY.all.find(q=>q.id===f.question_id)||{}).qnum; return `<div class="card"><a class="ilink" data-q="${f.question_id}" data-quiz="${PLAY.quiz.id}"><span class="pill ${f.type}">${f.type}</span> Vraag ${qn} →</a> <span class="who">${esc(PLAY.flagNames[f.user_id]||"?")}</span>${f.toelichting?`<div class="muted" style="font-size:.85rem">${esc(f.toelichting)}</div>`:""}</div>`; }).join("")}</div>`:""}`;
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
+  app.querySelectorAll("[data-q]").forEach(a=>a.onclick=()=>PLAY_goto(a.dataset.quiz, a.dataset.q));
   const wire=(id,attr,set)=>app.querySelectorAll(`#${id} [data-${attr}]`).forEach(b=>b.onclick=()=>{
     app.querySelectorAll(`#${id} [data-${attr}]`).forEach(x=>x.classList.toggle("active",x===b)); set(b.dataset[attr]); });
   wire("gSize","size",v=>{ size=v; document.getElementById("sizeCustom").value=""; });
@@ -472,7 +482,7 @@ async function renderQuestion(){
   const nsBtn=document.getElementById("newSession");
   if(nsBtn) nsBtn.onclick=()=>renderPlaySetup();
   const eqBtn=document.getElementById("editQ");
-  if(eqBtn) eqBtn.onclick=()=>{ EDIT_FOCUS={id:q.id, quiz:PLAY.quiz.id}; go("#/beheer/quiz/"+PLAY.quiz.id); };
+  if(eqBtn) eqBtn.onclick=()=>go("#/beheer/vraag/"+q.id);
   app.querySelectorAll("[data-mode]").forEach(b=>b.onclick=()=>{
     if(PLAY.mode===b.dataset.mode) return;
     PLAY.mode=b.dataset.mode;
@@ -1130,6 +1140,54 @@ function wireQuestionEditor(q, quizId){
     if(error) return toast(error.message,"err");
     toast("Vraag opgeslagen (wijzigingen gelogd)","ok");
   };
+}
+
+/* ============================================================
+   ÉÉN VRAAG bewerken + flags/opmerkingen beheren
+   ============================================================ */
+async function viewEditQuestion(qid){
+  if(!isEditor()){ app.innerHTML=`<div class="empty">Geen toegang.</div>`; return; }
+  const { data:q } = await sb.from("questions").select("*").eq("id",qid).single();
+  if(!q){ app.innerHTML=`<div class="empty">Vraag niet gevonden.</div>`; return; }
+  const { data:quiz } = await sb.from("quizzes").select("id,title").eq("id",q.quiz_id).single();
+  const [{data:flags},{data:opm},{data:edits}] = await Promise.all([
+    sb.from("flags").select("*").eq("question_id",qid).order("created_at",{ascending:false}),
+    sb.from("opmerkingen").select("*").eq("question_id",qid).order("created_at",{ascending:false}),
+    sb.from("question_edits").select("*").eq("question_id",qid).order("created_at",{ascending:false}),
+  ]);
+  const names=await namesFor([...(flags||[]),...(opm||[]),...(edits||[])].map(r=>r.user_id||r.edited_by));
+  app.innerHTML=`
+    <a class="muted" data-nav="#/beheer/quiz/${q.quiz_id}">← Alle vragen van "${esc(quiz?quiz.title:"")}"</a>
+    <h1 style="margin:.5rem 0">Vraag ${q.qnum} bewerken</h1>
+    <div class="stack" id="qList">${questionEditor(q)}</div>
+
+    <h2>Flags (${(flags||[]).length})</h2>
+    <div class="stack">${(flags||[]).map(f=>`<div class="card"><div class="spread">
+      <div><span class="pill ${f.type}">${f.type}</span> ${f.status==="afgehandeld"?`<span class="pill afgehandeld">afgehandeld</span>`:""} <span class="who">${esc(names[f.user_id]||"?")}</span> <span class="when">${fmtDate(f.created_at)}</span>${f.toelichting?`<div>${esc(f.toelichting)}</div>`:""}</div>
+      <div class="btnrow" style="margin:0">${f.status==="open"?`<button class="btn btn-ghost btn-sm" data-resolve="${f.id}">${ICON.check} Afhandelen</button>`:""}<button class="btn btn-danger btn-sm" data-delflag="${f.id}">Verwijderen</button></div>
+    </div></div>`).join("")||`<p class="muted">Geen flags.</p>`}</div>
+
+    <h2>Opmerkingen (${(opm||[]).length})</h2>
+    <div class="stack">${(opm||[]).map(o=>`<div class="card"><div class="spread">
+      <div><span class="who">${esc(names[o.user_id]||"?")}</span> verkiest <strong>${lettersOf(o.preferred_indexes)}</strong> <span class="when">${fmtDate(o.created_at)}</span>${o.motivatie?`<div>${esc(o.motivatie)}</div>`:""}</div>
+      <button class="btn btn-danger btn-sm" data-delopm="${o.id}">Verwijderen</button>
+    </div></div>`).join("")||`<p class="muted">Geen opmerkingen.</p>`}</div>
+
+    <h2>Wijzigingshistoriek (${(edits||[]).length})</h2>
+    <div class="stack">${(edits||[]).map(e=>`<div class="hist"><span class="who">${esc(names[e.edited_by]||"?")}</span> <span class="when">${fmtDate(e.created_at)}</span><div>${esc(e.summary)}</div></div>`).join("")||`<p class="muted">Geen wijzigingen.</p>`}</div>`;
+  app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
+  wireQuestionEditor(q, q.quiz_id);
+  app.querySelectorAll("[data-resolve]").forEach(b=>b.onclick=async()=>{
+    const { error }=await sb.from("flags").update({status:"afgehandeld"}).eq("id",b.dataset.resolve);
+    if(error) return toast(error.message,"err"); toast("Afgehandeld","ok"); viewEditQuestion(qid); });
+  app.querySelectorAll("[data-delflag]").forEach(b=>b.onclick=async()=>{
+    if(!confirm("Deze flag verwijderen?")) return;
+    const { error }=await sb.from("flags").delete().eq("id",b.dataset.delflag);
+    if(error) return toast(error.message,"err"); toast("Verwijderd","ok"); viewEditQuestion(qid); });
+  app.querySelectorAll("[data-delopm]").forEach(b=>b.onclick=async()=>{
+    if(!confirm("Deze opmerking verwijderen?")) return;
+    const { error }=await sb.from("opmerkingen").delete().eq("id",b.dataset.delopm);
+    if(error) return toast(error.message,"err"); toast("Verwijderd","ok"); viewEditQuestion(qid); });
 }
 
 /* ============================================================
