@@ -209,15 +209,24 @@ async function doLogout(){ await sb.auth.signOut(); ME=null; go("#/login"); loca
 /* ============================================================
    HEADER / ROUTER
    ============================================================ */
+let USER_COUNT=null;
+async function fetchUserCount(){
+  if(USER_COUNT!=null) return USER_COUNT;
+  try{ const { count } = await sb.from("profiles").select("*",{count:"exact",head:true}); USER_COUNT=count||0; }
+  catch(e){ USER_COUNT=0; }
+  return USER_COUNT;
+}
 function renderHeader(){
   const h=document.getElementById("appHeader");
   if(!ME){ h.hidden=true; return; }
   h.hidden=false;
   const nav=document.getElementById("topnav");
+  const usersLabel = isEditor() ? `Gebruikers${USER_COUNT!=null?` (${USER_COUNT})`:""}` : null;
   const links=[["#/","Quizzen"],["#/stats/vragen","Vraagstatistiek"],["#/account","Mijn account"]];
-  if(isEditor()) links.push(["#/stats/gebruikers","Gebruikers"]);
+  if(isEditor()) links.push(["#/stats/gebruikers",usersLabel]);
   if(isEditor()) links.push(["#/beheer","Beheer"]);
   nav.innerHTML = links.map(([h,l])=>`<a data-nav="${h}">${l}</a>`).join("");
+  if(isEditor() && USER_COUNT==null) fetchUserCount().then(renderHeader);
   const roleName = ME.role==="admin"?"admin":ME.role==="beheerder"?"beheerder":"speler";
   document.getElementById("userbox").innerHTML =
     `<span class="role ${ME.role}">${roleName}</span><span>${esc(ME.display_name)}</span>`+
