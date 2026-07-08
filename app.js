@@ -203,7 +203,8 @@ function renderHeader(){
   if(!ME){ h.hidden=true; return; }
   h.hidden=false;
   const nav=document.getElementById("topnav");
-  const links=[["#/","Quizzen"],["#/stats/vragen","Vraagstatistiek"],["#/stats/gebruikers","Gebruikers"]];
+  const links=[["#/","Quizzen"],["#/stats/vragen","Vraagstatistiek"]];
+  if(isEditor()) links.push(["#/stats/gebruikers","Gebruikers"]);
   if(isEditor()) links.push(["#/beheer","Beheer"]);
   nav.innerHTML = links.map(([h,l])=>`<a data-nav="${h}">${l}</a>`).join("");
   const roleName = ME.role==="admin"?"admin":ME.role==="beheerder"?"beheerder":"speler";
@@ -749,6 +750,7 @@ async function viewQuizStats(quizId){
    STATISTIEK — gebruikers
    ============================================================ */
 async function viewStatsGebruikers(){
+  if(!isEditor()){ app.innerHTML=`<div class="empty">Deze pagina is enkel voor beheerders.</div>`; return; }
   const { data:profiles } = await sb.from("profiles").select("id,display_name,role,cohort");
   const { data:answers } = await sb.from("answers").select("user_id,is_correct");
   const { data:flags } = await sb.from("flags").select("user_id");
