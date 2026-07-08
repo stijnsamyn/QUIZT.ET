@@ -514,18 +514,17 @@ async function answerQuestion(q, idxArray){
 async function renderAfterAnswer(q){
   const box=document.getElementById("afterAnswer");
   box.innerHTML=`<div class="muted">Laden…</div>`;
-  const [{data:flags},{data:opm},{data:edits}] = await Promise.all([
+  const [{data:flags},{data:edits}] = await Promise.all([
     sb.from("flags").select("*").eq("question_id",q.id).order("created_at",{ascending:false}),
-    sb.from("opmerkingen").select("*").eq("question_id",q.id).order("created_at",{ascending:false}),
     sb.from("question_edits").select("*").eq("question_id",q.id).order("created_at",{ascending:false}),
   ]);
-  const names = await namesFor([...(flags||[]),...(opm||[]),...(edits||[])].map(r=>r.user_id||r.edited_by));
+  const names = await namesFor([...(flags||[]).map(f=>f.user_id),...(edits||[]).map(e=>e.edited_by)]);
   const correct=arr(q.correct_indexes);
-  const myOpm=(opm||[]).find(o=>o.user_id===ME.id);
-  // collectief beeld
-  const votes=(opm||[]); const totV=votes.length;
-  const dist=(q.options||[]).map((_,i)=>votes.filter(v=>inSet(v.preferred_indexes,i)).length);
-  const wrongVotes=votes.filter(v=>!setEq(v.preferred_indexes,correct)).length;
+  // collectief beeld — per gebruiker de meest recente voorkeur uit de flags
+  const votes=votesByUser(flags); const voters=Object.keys(votes); const totV=voters.length;
+  const myVote=votes[ME.id];
+  const dist=(q.options||[]).map((_,i)=>voters.filter(u=>inSet(votes[u],i)).length);
+  const wrongVotes=voters.filter(u=>!setEq(votes[u],correct)).length;
   const bars=(q.options||[]).map((o,i)=>`
     <div class="spread" style="gap:.5rem"><div class="bar ${correct.includes(i)?"correct":""}" style="flex:1">
       <span style="width:${pct(dist[i],totV)}%"></span><div class="lab">${letter(i)} — ${pct(dist[i],totV)}% (${dist[i]})</div></div></div>`).join("");
@@ -548,22 +547,20 @@ async function renderAfterAnswer(q){
         <div id="reactPref" hidden>
           <label>Welk antwoord vind jij dan juist?</label>
           <div class="opref-list">
-            ${(q.options||[]).map((o,i)=>`<label class="opref-item"><input type="checkbox" class="opref" value="${i}" ${myOpm&&inSet(myOpm.preferred_indexes,i)?"checked":""}><span><strong>${letter(i)}.</strong> ${esc(o)}</span></label>`).join("")}
+            ${(q.options||[]).map((o,i)=>`<label class="opref-item"><input type="checkbox" class="opref" value="${i}" ${myVote&&inSet(myVote,i)?"checked":""}><span><strong>${letter(i)}.</strong> ${esc(o)}</span></label>`).join("")}
           </div>
         </div>
         <div id="reactComment" hidden>
           <label id="rMotLabel">Commentaar</label>
-          <textarea id="rMot" placeholder="Leg uit waarom…">${myOpm?esc(myOpm.motivatie||""):""}</textarea>
+          <textarea id="rMot" placeholder="Leg uit waarom…"></textarea>
         </div>
         <div class="btnrow" id="reactSubmitRow" hidden><button class="btn btn-primary btn-sm" id="rSubmit">Versturen</button></div>
       </div></details>
 
-    <details ${((flags&&flags.length)||(opm&&opm.length))?"open":""}><summary>${ICON.flag} Reacties (${(flags||[]).length + (opm||[]).filter(o=>!(flags||[]).some(f=>f.user_id===o.user_id)).length})</summary>
+    <details ${(flags&&flags.length)?"open":""}><summary>${ICON.flag} Reacties (${(flags||[]).length})</summary>
       <div class="body">
-        ${totV?`<label>Collectief beeld — ${pct(wrongVotes,totV)}% verkiest een ander antwoord dan het huidige</label>${bars}<hr>`:""}
-        ${(flags||[]).map(f=>{ const o=(opm||[]).find(o=>o.user_id===f.user_id); return `<div class="hist ${f.type}"><span class="pill ${f.type}">${f.type}</span> ${f.status==="afgehandeld"?`<span class="pill afgehandeld">afgehandeld</span>`:""} <span class="who">${esc(names[f.user_id]||"?")}</span>${o?` <span class="muted">· verkiest <strong>${lettersOf(o.preferred_indexes)}</strong></span>`:""} <span class="when">${fmtDate(f.created_at)}</span>${f.toelichting?`<div>${esc(f.toelichting)}</div>`:""}</div>`; }).join("")}
-        ${(opm||[]).filter(o=>!(flags||[]).some(f=>f.user_id===o.user_id)).map(o=>`<div class="hist"><span class="who">${esc(names[o.user_id]||"?")}</span> verkiest <strong>${lettersOf(o.preferred_indexes)}</strong> <span class="when">${fmtDate(o.created_at)}</span>${o.motivatie?`<div>${esc(o.motivatie)}</div>`:""}</div>`).join("")}
-        ${(!(flags&&flags.length)&&!(opm&&opm.length))?`<p class="muted">Nog geen reacties.</p>`:""}
+        ${totV?`<label>Collectief beeld — ${wrongVotes} van de ${totV} die reageerden verkiest een ander antwoord dan het huidige${totV>=5?` (${pct(wrongVotes,totV)}%)`:""}</label>${bars}<hr>`:""}
+        ${(flags||[]).map(f=>`<div class="hist ${f.type}"><span class="pill ${f.type}">${f.type}</span> ${f.status==="afgehandeld"?`<span class="pill afgehandeld">afgehandeld</span>`:""} <span class="who">${esc(names[f.user_id]||"?")}</span>${arr(f.preferred_indexes).length?` <span class="muted">· verkiest <strong>${lettersOf(f.preferred_indexes)}</strong></span>`:""} <span class="when">${fmtDate(f.created_at)}</span>${f.toelichting?`<div>${esc(f.toelichting)}</div>`:""}</div>`).join("")||`<p class="muted">Nog geen reacties.</p>`}
       </div></details>
 
     <details><summary>${ICON.clock} Wijzigingshistoriek (${(edits||[]).length})</summary>
@@ -588,12 +585,8 @@ async function renderAfterAnswer(q){
     const pref=[...box.querySelectorAll(".opref:checked")].map(c=>+c.value).sort((a,b)=>a-b);
     const disagree=(ftype==="twijfel"||ftype==="fout");
     if(disagree && !mot) return toast("Leg kort uit waarom","err");
-    const { error:fe }=await sb.from("flags").insert({ question_id:q.id, user_id:ME.id, type:ftype, toelichting:mot });
+    const { error:fe }=await sb.from("flags").insert({ question_id:q.id, user_id:ME.id, type:ftype, toelichting:mot, preferred_indexes:pref });
     if(fe) return toast(fe.message,"err");
-    if(pref.length){
-      const { error:oe }=await sb.from("opmerkingen").upsert({ question_id:q.id, user_id:ME.id, preferred_indexes:pref, motivatie:mot, updated_at:new Date().toISOString() },{ onConflict:"question_id,user_id" });
-      if(oe) return toast(oe.message,"err");
-    }
     toast("Bedankt voor je reactie","ok"); renderAfterAnswer(q);
   };
 }
@@ -662,12 +655,20 @@ function PLAY_goto(quizId, qid){ PLAY.pendingJump=qid; go("#/quiz/"+quizId); }
 /* ============================================================
    STATISTIEK — gedeelde hulpjes
    ============================================================ */
-function aggregateQuestions(questions, answers, flags, opm){
+// Per gebruiker de meest recente niet-lege voorkeur uit de flags
+function votesByUser(flags){
+  const latest={};
+  (flags||[]).forEach(f=>{ if(!arr(f.preferred_indexes).length) return; const cur=latest[f.user_id]; if(!cur||(f.created_at||"")>(cur.created_at||"")) latest[f.user_id]=f; });
+  const m={}; Object.values(latest).forEach(f=>m[f.user_id]=f.preferred_indexes); return m;
+}
+function aggregateQuestions(questions, answers, flags){
   const agg={};
   (questions||[]).forEach(q=>agg[q.id]={q, played:0, correct:0, flags:0, wrongVotes:0, votes:0});
   (answers||[]).forEach(a=>{ const x=agg[a.question_id]; if(x && a.is_correct!=null){x.played++; if(a.is_correct)x.correct++;} });
-  (flags||[]).forEach(f=>{ const x=agg[f.question_id]; if(x)x.flags++; });
-  (opm||[]).forEach(o=>{ const x=agg[o.question_id]; if(x){x.votes++; if(!setEq(o.preferred_indexes,x.q.correct_indexes))x.wrongVotes++;} });
+  const byQ={};
+  (flags||[]).forEach(f=>{ (byQ[f.question_id]=byQ[f.question_id]||[]).push(f); const x=agg[f.question_id]; if(x)x.flags++; });
+  Object.keys(byQ).forEach(qid=>{ const x=agg[qid]; if(!x)return; const v=votesByUser(byQ[qid]); const us=Object.keys(v);
+    x.votes=us.length; x.wrongVotes=us.filter(u=>!setEq(v[u],x.q.correct_indexes)).length; });
   return agg;
 }
 function mountStatsTable(mountId, agg, qtitle){
@@ -717,18 +718,17 @@ function learningBlock(myEvents, title){
    STATISTIEK — algemeen (alle quizzen)
    ============================================================ */
 async function viewStatsVragen(){
-  const [{data:questions},{data:answers},{data:flags},{data:opm},{data:quizzes},{data:myEvents},{data:allEvents},{data:visits}] = await Promise.all([
+  const [{data:questions},{data:answers},{data:flags},{data:quizzes},{data:myEvents},{data:allEvents},{data:visits}] = await Promise.all([
     sb.from("questions").select("id,qnum,quiz_id,text,correct_indexes,options"),
     sb.from("answers").select("question_id,is_correct"),
-    sb.from("flags").select("question_id,type"),
-    sb.from("opmerkingen").select("question_id,preferred_indexes"),
+    sb.from("flags").select("question_id,type,user_id,preferred_indexes,created_at"),
     sb.from("quizzes").select("id,title,status"),
     sb.from("answer_events").select("is_correct,created_at").eq("user_id",ME.id),
     sb.from("answer_events").select("is_correct,quiz_id,user_id,created_at"),
     sb.from("visits").select("user_id,created_at"),
   ]);
   const qtitle={}; (quizzes||[]).forEach(q=>qtitle[q.id]=q.title);
-  const agg=aggregateQuestions(questions, answers, flags, opm);
+  const agg=aggregateQuestions(questions, answers, flags);
   // per-quiz vergelijking
   const perQuiz={}; (quizzes||[]).forEach(q=>perQuiz[q.id]={q,vragen:0,antw:0,correct:0,flags:0,spelers:new Set()});
   (questions||[]).forEach(q=>{ if(perQuiz[q.quiz_id])perQuiz[q.quiz_id].vragen++; });
@@ -778,14 +778,13 @@ async function viewQuizStats(quizId){
   if(!quiz){ app.innerHTML=`<div class="empty">Quiz niet gevonden.</div>`; return; }
   const { data:questions } = await sb.from("questions").select("id,qnum,quiz_id,text,correct_indexes,options").eq("quiz_id",quizId).order("sort_order");
   const ids=(questions||[]).map(q=>q.id);
-  const [{data:answers},{data:flags},{data:opm},{data:myEvents},{data:allEvents}] = await Promise.all([
+  const [{data:answers},{data:flags},{data:myEvents},{data:allEvents}] = await Promise.all([
     ids.length? sb.from("answers").select("question_id,is_correct,user_id").in("question_id",ids) : Promise.resolve({data:[]}),
-    ids.length? sb.from("flags").select("question_id,type").in("question_id",ids) : Promise.resolve({data:[]}),
-    ids.length? sb.from("opmerkingen").select("question_id,preferred_indexes").in("question_id",ids) : Promise.resolve({data:[]}),
+    ids.length? sb.from("flags").select("question_id,type,user_id,preferred_indexes,created_at").in("question_id",ids) : Promise.resolve({data:[]}),
     sb.from("answer_events").select("is_correct,created_at").eq("quiz_id",quizId).eq("user_id",ME.id),
     sb.from("answer_events").select("is_correct,created_at,user_id").eq("quiz_id",quizId),
   ]);
-  const agg=aggregateQuestions(questions, answers, flags, opm);
+  const agg=aggregateQuestions(questions, answers, flags);
   const myAnsSet=new Set((answers||[]).filter(a=>a.user_id===ME.id).map(a=>a.question_id));
   const myScoredN=(answers||[]).filter(a=>a.user_id===ME.id && a.is_correct!=null).length;
   const myCorrect=(answers||[]).filter(a=>a.user_id===ME.id && a.is_correct===true).length;
@@ -832,12 +831,10 @@ async function viewStatsGebruikers(){
   const { data:profiles } = await sb.from("profiles").select("id,display_name,role,cohort");
   const { data:answers } = await sb.from("answers").select("user_id,is_correct");
   const { data:flags } = await sb.from("flags").select("user_id");
-  const { data:opm } = await sb.from("opmerkingen").select("user_id");
   const { data:visits } = await sb.from("visits").select("user_id");
-  const agg={}; (profiles||[]).forEach(p=>agg[p.id]={p,ans:0,correct:0,flags:0,opm:0,visits:0});
+  const agg={}; (profiles||[]).forEach(p=>agg[p.id]={p,ans:0,correct:0,flags:0,visits:0});
   (answers||[]).forEach(a=>{ const x=agg[a.user_id]; if(x){x.ans++; if(a.is_correct)x.correct++;} });
   (flags||[]).forEach(f=>{ const x=agg[f.user_id]; if(x)x.flags++; });
-  (opm||[]).forEach(o=>{ const x=agg[o.user_id]; if(x)x.opm++; });
   (visits||[]).forEach(v=>{ const x=agg[v.user_id]; if(x)x.visits++; });
   const all=Object.values(agg);
   // cohort-overzicht
@@ -846,7 +843,7 @@ async function viewStatsGebruikers(){
   const draw=()=>{
     const rows=all.filter(r=>filter==="__alle"||(r.p.cohort||"—")===filter).sort((a,b)=>b.ans-a.ans);
     document.getElementById("guBody").innerHTML=rows.map(r=>`<tr><td>${esc(r.p.display_name)}</td><td>${esc(r.p.cohort||"—")}</td><td><span class="role ${r.p.role}">${r.p.role}</span></td>
-      <td>${r.ans}</td><td>${r.ans?pct(r.correct,r.ans)+"%":"—"}</td><td>${r.visits}</td><td>${r.flags}</td><td>${r.opm}</td></tr>`).join("");
+      <td>${r.ans}</td><td>${r.ans?pct(r.correct,r.ans)+"%":"—"}</td><td>${r.visits}</td><td>${r.flags}</td></tr>`).join("");
     document.querySelectorAll("[data-coh]").forEach(b=>b.classList.toggle("active",b.dataset.coh===filter));
   };
   const cohorts=["__alle",...Object.keys(byCohort).sort()];
@@ -861,7 +858,7 @@ async function viewStatsGebruikers(){
     <h2>Gebruikers</h2>
     <div class="filterbar"><span class="muted">Oorsprong:</span>${cohorts.map(c=>`<button class="chip-toggle" data-coh="${esc(c)}">${c==="__alle"?"alle":esc(c)}</button>`).join("")}</div>
     <div class="card" style="padding:.3rem"><table>
-      <thead><tr><th>Naam</th><th>Oorsprong</th><th>Rol</th><th>Beantwoord</th><th>% correct</th><th>Bezoeken</th><th>Flags</th><th>Opmerkingen</th></tr></thead>
+      <thead><tr><th>Naam</th><th>Oorsprong</th><th>Rol</th><th>Beantwoord</th><th>% correct</th><th>Bezoeken</th><th>Reacties</th></tr></thead>
       <tbody id="guBody"></tbody></table></div>`;
   app.querySelectorAll("[data-coh]").forEach(b=>b.onclick=()=>{ filter=b.dataset.coh; draw(); });
   draw();
@@ -871,11 +868,8 @@ async function viewStatsGebruikers(){
    MIJN ACCOUNT — reacties, profiel, wachtwoord
    ============================================================ */
 async function viewAccount(){
-  const [{data:flags},{data:opm}] = await Promise.all([
-    sb.from("flags").select("*").eq("user_id",ME.id).order("created_at",{ascending:false}),
-    sb.from("opmerkingen").select("*").eq("user_id",ME.id).order("created_at",{ascending:false}),
-  ]);
-  const qids=[...new Set([...(flags||[]).map(f=>f.question_id),...(opm||[]).map(o=>o.question_id)])];
+  const { data:flags } = await sb.from("flags").select("*").eq("user_id",ME.id).order("created_at",{ascending:false});
+  const qids=[...new Set((flags||[]).map(f=>f.question_id))];
   let qmap={};
   if(qids.length){ const {data:qq}=await sb.from("questions").select("id,qnum,quiz_id").in("id",qids); (qq||[]).forEach(q=>qmap[q.id]=q); }
   const qlink=(qid)=>{ const q=qmap[qid]; return q?`<a class="ilink" data-q="${qid}" data-quiz="${q.quiz_id}">Vraag ${q.qnum}</a>`:`<span class="muted">(verwijderde vraag)</span>`; };
@@ -898,11 +892,9 @@ async function viewAccount(){
       <div class="btnrow"><button class="btn btn-primary btn-sm" id="savePw">Wachtwoord wijzigen</button></div>
     </div>
 
-    <h2>Mijn reacties (${(flags||[]).length + (opm||[]).length})</h2>
+    <h2>Mijn reacties (${(flags||[]).length})</h2>
     <div class="stack">
-      ${(flags||[]).map(f=>`<div class="card"><div class="spread"><div><span class="pill ${f.type}">${f.type}</span> ${qlink(f.question_id)} <span class="when">${fmtDate(f.created_at)}</span>${f.toelichting?`<div>${esc(f.toelichting)}</div>`:""}</div><button class="btn btn-danger btn-sm" data-delflag="${f.id}">Verwijderen</button></div></div>`).join("")}
-      ${(opm||[]).map(o=>`<div class="card"><div class="spread"><div>verkiest <strong>${lettersOf(o.preferred_indexes)}</strong> — ${qlink(o.question_id)} <span class="when">${fmtDate(o.created_at)}</span>${o.motivatie?`<div>${esc(o.motivatie)}</div>`:""}</div><button class="btn btn-danger btn-sm" data-delopm="${o.id}">Verwijderen</button></div></div>`).join("")}
-      ${(!(flags&&flags.length)&&!(opm&&opm.length))?`<p class="muted">Je hebt nog geen reacties geplaatst.</p>`:""}
+      ${(flags||[]).map(f=>`<div class="card"><div class="spread"><div><span class="pill ${f.type}">${f.type}</span> ${arr(f.preferred_indexes).length?`<span class="muted">· verkiest <strong>${lettersOf(f.preferred_indexes)}</strong></span> `:""}${qlink(f.question_id)} <span class="when">${fmtDate(f.created_at)}</span>${f.toelichting?`<div>${esc(f.toelichting)}</div>`:""}</div><button class="btn btn-danger btn-sm" data-delflag="${f.id}">Verwijderen</button></div></div>`).join("")||`<p class="muted">Je hebt nog geen reacties geplaatst.</p>`}
     </div>`;
   document.getElementById("saveProfile").onclick=async()=>{
     const cohort=document.getElementById("accCohort").value.trim();
@@ -919,8 +911,7 @@ async function viewAccount(){
     toast("Wachtwoord gewijzigd","ok"); document.getElementById("pw1").value=""; document.getElementById("pw2").value="";
   };
   app.querySelectorAll("[data-q]").forEach(a=>a.onclick=()=>PLAY_goto(a.dataset.quiz, a.dataset.q));
-  app.querySelectorAll("[data-delflag]").forEach(b=>b.onclick=async()=>{ if(!confirm("Deze flag verwijderen?"))return; const {error}=await sb.from("flags").delete().eq("id",b.dataset.delflag); if(error)return toast(error.message,"err"); toast("Verwijderd","ok"); viewAccount(); });
-  app.querySelectorAll("[data-delopm]").forEach(b=>b.onclick=async()=>{ if(!confirm("Deze opmerking verwijderen?"))return; const {error}=await sb.from("opmerkingen").delete().eq("id",b.dataset.delopm); if(error)return toast(error.message,"err"); toast("Verwijderd","ok"); viewAccount(); });
+  app.querySelectorAll("[data-delflag]").forEach(b=>b.onclick=async()=>{ if(!confirm("Deze reactie verwijderen?"))return; const {error}=await sb.from("flags").delete().eq("id",b.dataset.delflag); if(error)return toast(error.message,"err"); toast("Verwijderd","ok"); viewAccount(); });
 }
 
 /* ============================================================
@@ -1148,28 +1139,21 @@ async function viewEditQuestion(qid){
   const { data:q } = await sb.from("questions").select("*").eq("id",qid).single();
   if(!q){ app.innerHTML=`<div class="empty">Vraag niet gevonden.</div>`; return; }
   const { data:quiz } = await sb.from("quizzes").select("id,title").eq("id",q.quiz_id).single();
-  const [{data:flags},{data:opm},{data:edits}] = await Promise.all([
+  const [{data:flags},{data:edits}] = await Promise.all([
     sb.from("flags").select("*").eq("question_id",qid).order("created_at",{ascending:false}),
-    sb.from("opmerkingen").select("*").eq("question_id",qid).order("created_at",{ascending:false}),
     sb.from("question_edits").select("*").eq("question_id",qid).order("created_at",{ascending:false}),
   ]);
-  const names=await namesFor([...(flags||[]),...(opm||[]),...(edits||[])].map(r=>r.user_id||r.edited_by));
+  const names=await namesFor([...(flags||[]).map(f=>f.user_id),...(edits||[]).map(e=>e.edited_by)]);
   app.innerHTML=`
     <a class="muted" data-nav="#/beheer/quiz/${q.quiz_id}">← Alle vragen van "${esc(quiz?quiz.title:"")}"</a>
     <h1 style="margin:.5rem 0">Vraag ${q.qnum} bewerken</h1>
     <div class="stack" id="qList">${questionEditor(q)}</div>
 
-    <h2>Flags (${(flags||[]).length})</h2>
+    <h2>Reacties (${(flags||[]).length})</h2>
     <div class="stack">${(flags||[]).map(f=>`<div class="card"><div class="spread">
-      <div><span class="pill ${f.type}">${f.type}</span> ${f.status==="afgehandeld"?`<span class="pill afgehandeld">afgehandeld</span>`:""} <span class="who">${esc(names[f.user_id]||"?")}</span> <span class="when">${fmtDate(f.created_at)}</span>${f.toelichting?`<div>${esc(f.toelichting)}</div>`:""}</div>
+      <div><span class="pill ${f.type}">${f.type}</span> ${f.status==="afgehandeld"?`<span class="pill afgehandeld">afgehandeld</span>`:""} <span class="who">${esc(names[f.user_id]||"?")}</span>${arr(f.preferred_indexes).length?` <span class="muted">· verkiest <strong>${lettersOf(f.preferred_indexes)}</strong></span>`:""} <span class="when">${fmtDate(f.created_at)}</span>${f.toelichting?`<div>${esc(f.toelichting)}</div>`:""}</div>
       <div class="btnrow" style="margin:0">${f.status==="open"?`<button class="btn btn-ghost btn-sm" data-resolve="${f.id}">${ICON.check} Afhandelen</button>`:""}<button class="btn btn-danger btn-sm" data-delflag="${f.id}">Verwijderen</button></div>
-    </div></div>`).join("")||`<p class="muted">Geen flags.</p>`}</div>
-
-    <h2>Opmerkingen (${(opm||[]).length})</h2>
-    <div class="stack">${(opm||[]).map(o=>`<div class="card"><div class="spread">
-      <div><span class="who">${esc(names[o.user_id]||"?")}</span> verkiest <strong>${lettersOf(o.preferred_indexes)}</strong> <span class="when">${fmtDate(o.created_at)}</span>${o.motivatie?`<div>${esc(o.motivatie)}</div>`:""}</div>
-      <button class="btn btn-danger btn-sm" data-delopm="${o.id}">Verwijderen</button>
-    </div></div>`).join("")||`<p class="muted">Geen opmerkingen.</p>`}</div>
+    </div></div>`).join("")||`<p class="muted">Geen reacties.</p>`}</div>
 
     <h2>Wijzigingshistoriek (${(edits||[]).length})</h2>
     <div class="stack">${(edits||[]).map(e=>`<div class="hist"><span class="who">${esc(names[e.edited_by]||"?")}</span> <span class="when">${fmtDate(e.created_at)}</span><div>${esc(e.summary)}</div></div>`).join("")||`<p class="muted">Geen wijzigingen.</p>`}</div>`;
@@ -1179,12 +1163,8 @@ async function viewEditQuestion(qid){
     const { error }=await sb.from("flags").update({status:"afgehandeld"}).eq("id",b.dataset.resolve);
     if(error) return toast(error.message,"err"); toast("Afgehandeld","ok"); viewEditQuestion(qid); });
   app.querySelectorAll("[data-delflag]").forEach(b=>b.onclick=async()=>{
-    if(!confirm("Deze flag verwijderen?")) return;
+    if(!confirm("Deze reactie verwijderen?")) return;
     const { error }=await sb.from("flags").delete().eq("id",b.dataset.delflag);
-    if(error) return toast(error.message,"err"); toast("Verwijderd","ok"); viewEditQuestion(qid); });
-  app.querySelectorAll("[data-delopm]").forEach(b=>b.onclick=async()=>{
-    if(!confirm("Deze opmerking verwijderen?")) return;
-    const { error }=await sb.from("opmerkingen").delete().eq("id",b.dataset.delopm);
     if(error) return toast(error.message,"err"); toast("Verwijderd","ok"); viewEditQuestion(qid); });
 }
 
