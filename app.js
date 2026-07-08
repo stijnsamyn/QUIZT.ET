@@ -145,7 +145,6 @@ async function viewLogin(){
           <br><br>Sterk aangeraden: gebruik hier een wachtwoord dat je <strong>nog nooit ergens anders</strong> hebt gebruikt.
         </div>
         <form id="authForm">
-          <div id="nameRow" hidden><label>Weergavenaam</label><input id="dname" autocomplete="name"></div>
           <div id="cohortRow" hidden>
             <label>Oorsprong</label>
             <select id="cohort">${promList().map(p=>`<option value="${p}">${p}</option>`).join("")}<option value="__ander">Andere…</option></select>
@@ -163,7 +162,6 @@ async function viewLogin(){
   const setMode = m => { mode=m;
     document.getElementById("tabLogin").classList.toggle("active",m==="login");
     document.getElementById("tabReg").classList.toggle("active",m==="reg");
-    document.getElementById("nameRow").hidden = m!=="reg";
     document.getElementById("cohortRow").hidden = m!=="reg";
     document.getElementById("regNote").hidden = m!=="reg";
     document.getElementById("forgotRow").hidden = m!=="login";
@@ -189,11 +187,10 @@ async function viewLogin(){
     try{
       if(mode==="reg"){
         if(!email.toLowerCase().endsWith("@police.belgium.eu")){ toast("Registreren kan enkel met een @police.belgium.eu e-mailadres.","err"); btn.disabled=false; return; }
-        const dname=document.getElementById("dname").value.trim()||email.split("@")[0];
         let cohort=document.getElementById("cohort").value;
         if(cohort==="__ander") cohort=document.getElementById("cohortOther").value.trim();
         if(!cohort){ toast("Geef je oorsprong op.","err"); btn.disabled=false; return; }
-        const { error } = await sb.auth.signUp({ email, password:pw, options:{ data:{ display_name:dname, cohort } }});
+        const { error } = await sb.auth.signUp({ email, password:pw, options:{ data:{ cohort } }});
         if(error) throw error;
         toast("Account aangemaakt. Je kan nu inloggen.","ok");
         setMode("login");
@@ -888,9 +885,10 @@ async function viewAccount(){
 
     <h2>Profiel</h2>
     <div class="card">
-      <label>Weergavenaam</label><input id="accName" value="${esc(ME.display_name)}">
-      <label>Oorsprong</label><input id="accCohort" value="${esc(ME.cohort||"")}">
-      <div class="btnrow"><button class="btn btn-primary btn-sm" id="saveProfile">Profiel opslaan</button></div>
+      <label>Weergavenaam</label>
+      <div>${esc(ME.display_name)} <span class="muted" style="font-size:.78rem">— automatisch de tekst vóór de @ van je e-mailadres</span></div>
+      <label style="margin-top:.6rem">Oorsprong</label><input id="accCohort" value="${esc(ME.cohort||"")}">
+      <div class="btnrow"><button class="btn btn-primary btn-sm" id="saveProfile">Oorsprong opslaan</button></div>
     </div>
 
     <h2>Wachtwoord wijzigen</h2>
@@ -907,11 +905,10 @@ async function viewAccount(){
       ${(!(flags&&flags.length)&&!(opm&&opm.length))?`<p class="muted">Je hebt nog geen reacties geplaatst.</p>`:""}
     </div>`;
   document.getElementById("saveProfile").onclick=async()=>{
-    const name=document.getElementById("accName").value.trim()||ME.display_name;
     const cohort=document.getElementById("accCohort").value.trim();
-    const { error }=await sb.from("profiles").update({ display_name:name, cohort }).eq("id",ME.id);
+    const { error }=await sb.from("profiles").update({ cohort }).eq("id",ME.id);
     if(error) return toast(error.message,"err");
-    ME.display_name=name; ME.cohort=cohort; toast("Profiel opgeslagen","ok"); renderHeader();
+    ME.cohort=cohort; toast("Opgeslagen","ok");
   };
   document.getElementById("savePw").onclick=async()=>{
     const a=document.getElementById("pw1").value, b=document.getElementById("pw2").value;
