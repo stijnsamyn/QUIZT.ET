@@ -64,6 +64,11 @@ async function viewLogin(){
           <button id="tabLogin" class="active">Inloggen</button>
           <button id="tabReg" ${regOpen?"":"disabled title='Registratie is afgesloten'"}>Registreren</button>
         </div>
+        <div id="regNote" class="notice" hidden>
+          <strong>Toegang enkel met een @police.belgium.eu e-mailadres.</strong>
+          Registreer met je politie-e-mailadres; andere adressen worden geweigerd.
+          <br><br>Sterk aangeraden: gebruik hier een wachtwoord dat je <strong>nog nooit ergens anders</strong> hebt gebruikt.
+        </div>
         <form id="authForm">
           <div id="nameRow" hidden><label>Weergavenaam</label><input id="dname" autocomplete="name"></div>
           <label>E-mail</label><input id="email" type="email" autocomplete="email" required>
@@ -78,6 +83,7 @@ async function viewLogin(){
     document.getElementById("tabLogin").classList.toggle("active",m==="login");
     document.getElementById("tabReg").classList.toggle("active",m==="reg");
     document.getElementById("nameRow").hidden = m!=="reg";
+    document.getElementById("regNote").hidden = m!=="reg";
     document.getElementById("submitBtn").textContent = m==="reg"?"Account aanmaken":"Inloggen";
   };
   document.getElementById("tabLogin").onclick=()=>setMode("login");
@@ -89,6 +95,7 @@ async function viewLogin(){
     const btn=document.getElementById("submitBtn"); btn.disabled=true;
     try{
       if(mode==="reg"){
+        if(!email.toLowerCase().endsWith("@police.belgium.eu")){ toast("Registreren kan enkel met een @police.belgium.eu e-mailadres.","err"); btn.disabled=false; return; }
         const dname=document.getElementById("dname").value.trim()||email.split("@")[0];
         const { error } = await sb.auth.signUp({ email, password:pw, options:{ data:{ display_name:dname } }});
         if(error) throw error;
