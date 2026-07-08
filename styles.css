@@ -165,6 +165,8 @@ hr{border:none;border-top:1px solid var(--border);margin:1rem 0}
 .ilink:hover{color:var(--accent-dark)}
 .dev-note{display:flex;align-items:center;gap:.45rem;background:var(--accent-soft);color:var(--accent-dark);
   border:1px solid var(--accent-soft-2);border-radius:var(--radius);padding:.6rem .8rem;font-size:.82rem;margin-top:.9rem}
+@keyframes flashfocus{0%{box-shadow:0 0 0 3px var(--accent)}100%{box-shadow:0 0 0 3px transparent}}
+.flash{animation:flashfocus 2.4s ease-out}
 
 /* line-icons */
 .ico{width:15px;height:15px;vertical-align:-2px}

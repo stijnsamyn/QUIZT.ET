@@ -11,6 +11,7 @@ const sb = configOk ? window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABAS
 
 /* ---------- State ---------- */
 let ME = null;            // profiel {id, display_name, role}
+let EDIT_FOCUS = null;    // {id, quiz} — vraag om naar te scrollen in de editor
 const app = document.getElementById("app");
 
 /* ---------- Line-icons (subtiel, currentColor) ---------- */
@@ -450,6 +451,7 @@ async function renderQuestion(){
       <button class="btn btn-ghost btn-sm" id="prevBtn" ${PLAY.i===0?"disabled":""}>← Vorige</button>
       <button class="btn btn-ghost btn-sm" id="nextBtn" ${PLAY.i>=total-1?"disabled":""}>Volgende →</button>
       ${unanswered?`<button class="btn btn-primary btn-sm" id="nextUnans">Volgende onbeantwoorde →</button>`:""}
+      ${isEditor()?`<button class="btn btn-ghost btn-sm" id="editQ" style="margin-left:auto">Bewerk deze vraag</button>`:""}
     </div>
     <div class="card">
       <div class="q-meta"><span class="q-num">Vraag ${q.qnum}</span>${questionTags(q)}${answered?(isRight(q,chosen)===true?`<span class="pill juist">juist beantwoord</span>`:isRight(q,chosen)===false?`<span class="pill fout">fout beantwoord</span>`:`<span class="pill twijfel">antwoord genoteerd — in overleg</span>`):`<span class="pill" style="background:var(--surface2);color:var(--text-muted)">nog niet beantwoord</span>`}</div>
@@ -469,6 +471,8 @@ async function renderQuestion(){
   };
   const nsBtn=document.getElementById("newSession");
   if(nsBtn) nsBtn.onclick=()=>renderPlaySetup();
+  const eqBtn=document.getElementById("editQ");
+  if(eqBtn) eqBtn.onclick=()=>{ EDIT_FOCUS={id:q.id, quiz:PLAY.quiz.id}; go("#/beheer/quiz/"+PLAY.quiz.id); };
   app.querySelectorAll("[data-mode]").forEach(b=>b.onclick=()=>{
     if(PLAY.mode===b.dataset.mode) return;
     PLAY.mode=b.dataset.mode;
@@ -1041,6 +1045,11 @@ async function viewBeheerQuiz(quizId){
   const list=document.getElementById("qList");
   list.innerHTML=(questions||[]).map(q=>questionEditor(q)).join("")||`<p class="muted">Nog geen vragen.</p>`;
   (questions||[]).forEach(q=>wireQuestionEditor(q, quizId));
+  if(EDIT_FOCUS && EDIT_FOCUS.quiz===quizId){
+    const card=document.querySelector(`[data-qcard="${EDIT_FOCUS.id}"]`);
+    if(card){ card.scrollIntoView({behavior:"smooth",block:"center"}); card.classList.add("flash"); setTimeout(()=>card.classList.remove("flash"),2500); }
+    EDIT_FOCUS=null;
+  }
   document.getElementById("qSearch").oninput=e=>{
     const s=e.target.value.trim().toLowerCase();
     let n=0;
