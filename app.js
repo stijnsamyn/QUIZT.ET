@@ -104,11 +104,13 @@ function barChartSVG(points, opts){
   return `<svg viewBox="0 0 ${W} ${H}" class="chart">${grid}${bars}${xl}</svg>`;
 }
 
-// PROM-cohorten: één per jaar, telkens bijkomend op 1 maart. Groeit dus vanzelf.
+// PROM-cohorten: nu is PROM23 de nieuwste; vanaf 1 maart 2027 komt PROM24 erbij,
+// daarna elk jaar op 1 maart één nummer hoger. Groeit dus vanzelf.
 function promList(){
-  const start=2023; const now=new Date();
-  let latest=now.getFullYear(); if(now.getMonth()<2) latest--;   // vóór maart? dan telt vorig jaar
-  const out=[]; for(let y=latest;y>=start;y--) out.push("PROM"+String(y).slice(2));
+  const base=23, baseYear=2027;           // 1 maart 2027 → PROM24
+  const now=new Date(), Y=now.getFullYear(), m=now.getMonth();  // maart = index 2
+  const latest = base + Math.max(0, Y-baseYear) + ((Y>=baseYear && m>=2)?1:0);
+  const out=[]; for(let n=latest;n>=base;n--) out.push("PROM"+n);
   return out;
 }
 
