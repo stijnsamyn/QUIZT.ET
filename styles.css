@@ -202,6 +202,12 @@ details .body{padding:.3rem .9rem .9rem}
 .ref-order-list li{margin:.15rem 0;color:var(--text)}
 .ref-order-list code{background:var(--accent-soft);color:var(--accent-dark);padding:.05rem .35rem;border-radius:3px;font-size:.85em;font-weight:700}
 
+/* Test-preview binnen vraag-editor */
+.preview-card{margin:.6rem 0 1rem;padding:.6rem .8rem;background:var(--accent-soft);
+  border:1px dashed var(--accent);border-radius:10px}
+.preview-hd{display:flex;justify-content:space-between;align-items:center;gap:.6rem;flex-wrap:wrap;
+  color:var(--accent-dark);font-size:.85rem}
+
 /* Ref-picker popup */
 .ref-picker-modal{max-width:640px}
 .ref-picker-list{display:flex;flex-direction:column;gap:.4rem}

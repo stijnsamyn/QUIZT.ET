@@ -1181,8 +1181,8 @@ function openTetris(){
 }
 
 // Popup waarin een schrijver een antwoord aanklikt om {X}, {juist} of {docent} in te voegen
-function openRefPicker(qid, targetTextarea){
-  const q = (PLAY.all||[]).find(x=>x.id===qid);
+function openRefPicker(qid, targetTextarea, qObj){
+  const q = qObj || (PLAY.all||[]).find(x=>x.id===qid);
   if(!q){ toast("Vraag niet geladen","err"); return; }
   const correct = arr(q.correct_indexes);
   const docent = arr(q.docent_indexes);
@@ -2400,6 +2400,7 @@ function questionEditor(q){
       <span class="muted" style="font-size:.72rem">Snel invoegen:</span>
       <button type="button" class="opt-ref-chip opt-ref-special" data-insert-special="juist" title="Voeg {juist} in — verwijst altijd naar het juiste antwoord, ongeacht shuffle">{juist}</button>
       <button type="button" class="opt-ref-chip opt-ref-special" data-insert-special="docent" title="Voeg {docent} in — verwijst naar het antwoord dat de docent koos">{docent}</button>
+      <button type="button" class="btn btn-ghost btn-sm ref-picker-btn" data-editor-picker="${q.id}" style="padding:.15rem .55rem;font-size:.72rem">${ICON.info} Verwijs via popup…</button>
       <span class="muted" style="font-size:.72rem;margin-left:.4rem">Tip: shift+klik op een {A}-chip om een groep {A,B} te maken.</span>
     </div>
     <textarea data-f="explanation" data-q="${q.id}">${esc(q.explanation||"")}</textarea>
@@ -2481,6 +2482,22 @@ function wireQuestionEditor(q, quizId){
     };
   }
   card.querySelectorAll(".opt-ref-chip").forEach(wireRefChip);
+  // Popup-versie: verzamelt LIVE de huidige opties + J/D-vinkjes uit de editor
+  const pickerBtn = card.querySelector(`[data-editor-picker="${q.id}"]`);
+  if(pickerBtn) pickerBtn.onclick=()=>{
+    const rows=[...card.querySelectorAll(`[data-opts="${q.id}"] .optrow`)];
+    const options=[], corr=[], doc=[];
+    rows.forEach((r,i)=>{
+      const v=r.querySelector(`[data-opt="${q.id}"]`).value.trim();
+      if(!v) return;
+      const idx=options.length; options.push(v);
+      if(r.querySelector(".corr").checked) corr.push(idx);
+      if(r.querySelector(".doc").checked) doc.push(idx);
+    });
+    const liveQ = { id:q.id, options, correct_indexes:corr, docent_indexes:doc,
+      answer_source:q.answer_source, explanation_source:q.explanation_source, legal_basis_source:q.legal_basis_source };
+    openRefPicker(q.id, lastFocused, liveQ);
+  };
   card.querySelectorAll(`[data-opts="${q.id}"] .optrow`).forEach(addRm);
   // waarschuwing bij J≠D: iedere J- of D-verandering evalueert opnieuw
   const paintMismatchWarn=()=>{
@@ -2525,6 +2542,86 @@ function wireQuestionEditor(q, quizId){
 }
 
 /* ============================================================
+   TEST-PREVIEW binnen de vraag-editor
+   ============================================================ */
+// Laat de beheerder de vraag "spelen" om de weergave te controleren zonder DB-writes
+function renderTestPreview(q, chosen){
+  const el=document.getElementById("testPreview"); if(!el) return;
+  const correct=arr(q.correct_indexes);
+  const docent=arr(q.docent_indexes);
+  const docentDiffers=docent.length>0 && !setEq(docent,correct);
+  const validated=q.validated!==false;
+  const multi=q.multi || correct.length>1;
+  const answered = chosen!=null;
+  // Vaste volgorde (geen shuffle) zodat de beheerder zeker weet welke {A} met welke optie klopt
+  const opts=(q.options||[]).map((o,i)=>{
+    let cls="opt";
+    if(answered){ cls+=" disabled";
+      if(validated){ if(correct.includes(i)) cls+=" correct"; else if(inSet(chosen,i)) cls+=" wrong"; }
+      if(docentDiffers && docent.includes(i)) cls+=" docent";
+    }
+    const docentBadge = answered && docentDiffers && docent.includes(i) ? `<span class="opt-doc" title="Volgens de docent">👨‍🏫</span>` : "";
+    const box = (!answered && multi) ? `<input type="checkbox" class="test-mopt" value="${i}" style="width:auto;margin-top:.15rem">` : "";
+    return `<div class="${cls}" data-test-opt="${i}">${box}<span class="letter">${letter(i)}</span><span>${esc(o)} ${answered&&validated&&correct.includes(i)?srcBadge("Juist antwoord",q.answer_source):""}${docentBadge}</span></div>`;
+  }).join("");
+  const isRightNow = answered ? (validated ? setEq(chosen, correct) : null) : null;
+  const statusPill = answered
+    ? (isRightNow===true?`<span class="pill juist">juist beantwoord</span>`
+       :isRightNow===false?`<span class="pill fout">fout beantwoord</span>`
+       :`<span class="pill twijfel">antwoord genoteerd — in overleg</span>`)
+    : `<span class="pill" style="background:var(--surface2);color:var(--text-muted)">nog niet beantwoord</span>`;
+  el.innerHTML=`
+    <div class="preview-hd">
+      <div>${ICON.info} <strong>Test deze vraag</strong> <span class="muted" style="font-size:.78rem">— zoals de speler ze zal zien (zonder shuffle voor jouw referentie). Geen DB-writes.</span></div>
+      <button class="btn btn-ghost btn-sm" id="testReset">↺ Opnieuw</button>
+    </div>
+    <div class="card" style="margin-top:.4rem">
+      <div class="q-meta"><span class="q-num">Vraag ${q.qnum}</span>${questionTags(q)}${statusPill}</div>
+      <div class="q-text">${esc(q.text)}</div>
+      ${(!answered && (q.wettekst || q.legal_basis)) ? `<details class="prehelp"><summary>${ICON.info} Raadpleeg wettekst voor je antwoordt</summary>
+        <div class="prehelp-body">
+          ${q.legal_basis?`<div class="prehelp-legal"><strong>Wettelijke basis:</strong> ${html(translateOptRefs(q.legal_basis, q.id, q))}</div>`:""}
+          ${q.wettekst?`<div class="wettekst">${html(translateOptRefs(q.wettekst, q.id, q))}</div>`:""}
+        </div></details>`:""}
+      <div id="testOpts">${opts}</div>
+      ${(multi && !answered)?`<div class="btnrow"><button class="btn btn-primary btn-sm" id="testCheckMulti">Nakijken</button></div>`:""}
+      ${answered?`
+      <div class="explain" style="margin-top:.8rem">
+        <span class="lbl">Wettelijk juist antwoord ${srcBadge("Uitleg",q.explanation_source)}</span>${html(translateOptRefs(q.explanation||"— geen uitleg —", q.id, q))}
+        ${q.legal_basis?`<div class="legal-inline"><strong>Wettelijke basis:</strong> ${srcBadge("Wettelijke basis",q.legal_basis_source)} ${html(translateOptRefs(q.legal_basis, q.id, q))}</div>`:""}
+        ${q.wettekst?`<details class="wettekst-d"><summary>${ICON.info} Toon wettekst</summary><div class="wettekst">${html(translateOptRefs(q.wettekst, q.id, q))}</div></details>`:""}
+      </div>
+      ${docentDiffers ? `<div class="docent-block differs">
+        <div class="docent-hd">👨‍🏫 <strong>Volgens de docent</strong> <span class="pill" style="background:var(--warn-soft);color:var(--warn)">wijkt af van wettelijk antwoord</span></div>
+        <ul class="docent-items">${docent.map(i=>`<li><strong>${letter(i)}.</strong> ${esc((q.options||[])[i]||"")}</li>`).join("")}</ul>
+        ${q.docent_note?`<div class="docent-note">${esc(translateOptRefs(q.docent_note, q.id, q))}</div>`:""}
+      </div>`:""}
+      `:""}
+    </div>
+  `;
+  document.getElementById("testReset").onclick=()=>renderTestPreview(q, null);
+  if(!answered){
+    if(multi){
+      // Toggle chosen visueel + submit via nakijk-knop
+      const syncChosen=()=>el.querySelectorAll("[data-test-opt]").forEach(row=>{
+        const cb=row.querySelector(".test-mopt"); row.classList.toggle("chosen", !!(cb&&cb.checked));
+      });
+      el.querySelectorAll("[data-test-opt]").forEach(row=>row.onclick=e=>{
+        if(e.target.tagName!=="INPUT"){ const cb=row.querySelector(".test-mopt"); if(cb) cb.checked=!cb.checked; }
+        syncChosen();
+      });
+      document.getElementById("testCheckMulti").onclick=()=>{
+        const sel=[...el.querySelectorAll(".test-mopt:checked")].map(c=>+c.value);
+        if(!sel.length) return toast("Kruis minstens één antwoord aan","err");
+        renderTestPreview(q, sel.sort((a,b)=>a-b));
+      };
+    } else {
+      el.querySelectorAll("[data-test-opt]").forEach(row=>row.onclick=()=>renderTestPreview(q, [+row.dataset.testOpt]));
+    }
+  }
+}
+
+/* ============================================================
    ÉÉN VRAAG bewerken + flags/opmerkingen beheren
    ============================================================ */
 async function viewEditQuestion(qid){
@@ -2543,6 +2640,9 @@ async function viewEditQuestion(qid){
       <button class="btn btn-primary btn-sm" id="saveAndPreview">${ICON.check} Opslaan &amp; bekijken →</button>
     </div>
     <h1 style="margin:.5rem 0">Vraag ${q.qnum} bewerken</h1>
+
+    <div class="preview-card" id="testPreview"></div>
+
     <div class="stack" id="qList">${questionEditor(q)}</div>
 
     <h2>Reacties (${(flags||[]).length})</h2>
@@ -2555,6 +2655,7 @@ async function viewEditQuestion(qid){
     <div class="stack">${(edits||[]).map(e=>`<div class="hist"><span class="who">${esc(names[e.edited_by]||"?")}</span> <span class="when">${fmtDate(e.created_at)}</span><div>${esc(e.summary)}</div></div>`).join("")||`<p class="muted">Geen wijzigingen.</p>`}</div>`;
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
   wireQuestionEditor(q, q.quiz_id);
+  renderTestPreview(q);
   // "Opslaan & bekijken" — trigger de bestaande save-knop en spring dan naar de speelweergave
   document.getElementById("saveAndPreview").onclick=async()=>{
     const saveBtn=document.querySelector(`[data-saveq="${q.id}"]`);
