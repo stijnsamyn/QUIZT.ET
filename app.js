@@ -2339,7 +2339,10 @@ async function viewEditQuestion(qid){
   ]);
   const names=await namesFor([...(flags||[]).map(f=>f.user_id),...(edits||[]).map(e=>e.edited_by)]);
   app.innerHTML=`
-    <a class="muted" data-nav="#/beheer/quiz/${q.quiz_id}">← Alle vragen van "${esc(quiz?quiz.title:"")}"</a>
+    <div class="spread">
+      <a class="muted" data-nav="#/beheer/quiz/${q.quiz_id}">← Alle vragen van "${esc(quiz?quiz.title:"")}"</a>
+      <button class="btn btn-primary btn-sm" id="saveAndPreview">${ICON.check} Opslaan &amp; bekijken →</button>
+    </div>
     <h1 style="margin:.5rem 0">Vraag ${q.qnum} bewerken</h1>
     <div class="stack" id="qList">${questionEditor(q)}</div>
 
@@ -2353,6 +2356,15 @@ async function viewEditQuestion(qid){
     <div class="stack">${(edits||[]).map(e=>`<div class="hist"><span class="who">${esc(names[e.edited_by]||"?")}</span> <span class="when">${fmtDate(e.created_at)}</span><div>${esc(e.summary)}</div></div>`).join("")||`<p class="muted">Geen wijzigingen.</p>`}</div>`;
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
   wireQuestionEditor(q, q.quiz_id);
+  // "Opslaan & bekijken" — trigger de bestaande save-knop en spring dan naar de speelweergave
+  document.getElementById("saveAndPreview").onclick=async()=>{
+    const saveBtn=document.querySelector(`[data-saveq="${q.id}"]`);
+    if(!saveBtn) return;
+    // Reset de toast-fout-vlag door de save uit te voeren; we luisteren naar de bestaande onclick
+    saveBtn.click();
+    // De bestaande save is async — geef de UI even tijd om een toast op te bouwen en dan navigeren.
+    setTimeout(()=>PLAY_goto(q.quiz_id, q.id), 600);
+  };
   app.querySelectorAll("[data-resolve]").forEach(b=>b.onclick=async()=>{
     const { error }=await sb.from("flags").update({status:"afgehandeld"}).eq("id",b.dataset.resolve);
     if(error) return toast(error.message,"err"); toast("Afgehandeld","ok"); viewEditQuestion(qid); });
