@@ -1317,7 +1317,7 @@ function renderFlagThread(flags, names, qid){
           <div><strong>⚠️ Let op:</strong> schrijf <em>niet</em> "antwoord C" — bij een andere speler zit die letter op een andere optie na de shuffle.</div>
           <div style="margin-top:.3rem">💡 Gebruik <code>{A}</code>, <code>{B}</code>, <code>{juist}</code> of <code>{docent}</code>.</div>
         </div>
-        <div class="fmt-hint">Opmaak: <code>**vet**</code>, <code>*cursief*</code>, <code>`code`</code>, <code>- </code> voor bullets, witregel voor paragrafen.</div>
+        <div class="fmt-hint">Opmaak: <code>**vet**</code>, <code>*cursief*</code>, <code>&#96;code&#96;</code>, <code>- </code> voor bullets, witregel voor paragrafen.</div>
         ${refPanel}
         <div class="btnrow">
           <button class="btn btn-primary btn-sm flag-edit-save" data-edit-save="${f.id}">Opslaan</button>
@@ -1330,7 +1330,7 @@ function renderFlagThread(flags, names, qid){
           <div><strong>⚠️ Let op:</strong> schrijf <em>niet</em> "antwoord C" — bij een andere speler zit die letter op een andere optie na de shuffle.</div>
           <div style="margin-top:.3rem">💡 Gebruik <code>{A}</code>, <code>{B}</code>, <code>{juist}</code> of <code>{docent}</code> — die worden vertaald naar de juiste letter voor elke lezer.</div>
         </div>
-        <div class="fmt-hint">Opmaak: <code>**vet**</code>, <code>*cursief*</code>, <code>`code`</code>, <code>- </code> voor bullets, witregel voor paragrafen.</div>
+        <div class="fmt-hint">Opmaak: <code>**vet**</code>, <code>*cursief*</code>, <code>&#96;code&#96;</code>, <code>- </code> voor bullets, witregel voor paragrafen.</div>
         ${refPanel}
         <div class="btnrow">
           <button class="btn btn-primary btn-sm flag-reply-send" data-reply-send="${f.id}">Versturen</button>
@@ -1417,7 +1417,7 @@ async function renderAfterAnswer(q){
             <div><strong>⚠️ Let op:</strong> schrijf <em>niet</em> "antwoord C" of "de derde optie" — bij een andere speler staan de letters in een andere volgorde na de shuffle. "Antwoord C" is voor niemand hetzelfde als voor jou.</div>
             <div style="margin-top:.3rem">💡 <strong>Gebruik in de plaats</strong> de knop hieronder — klik op het antwoord en de juiste <code>{...}</code>-token wordt automatisch ingevoegd.</div>
           </div>
-          <div class="fmt-hint">Opmaak: <code>**vet**</code>, <code>*cursief*</code>, <code>`code`</code>, lijnen met <code>- </code> voor bullets, en witregel voor een nieuwe paragraaf.</div>
+          <div class="fmt-hint">Opmaak: <code>**vet**</code>, <code>*cursief*</code>, <code>&#96;code&#96;</code>, lijnen met <code>- </code> voor bullets, en witregel voor een nieuwe paragraaf.</div>
           <div class="btnrow" style="margin:.3rem 0"><button type="button" class="btn btn-ghost btn-sm ref-picker-btn" data-ref-picker-for="${q.id}" data-target="rMot">${ICON.info} Verwijs naar een antwoord…</button></div>
         </div>
         <div class="btnrow" id="reactSubmitRow" hidden><button class="btn btn-primary btn-sm" id="rSubmit">Versturen</button></div>
