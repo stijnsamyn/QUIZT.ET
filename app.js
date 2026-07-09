@@ -77,6 +77,34 @@ function lettersOfForQ(qid, idxs){
     .sort((a,b)=> (a.pos>=0?a.pos:999) - (b.pos>=0?b.pos:999))
     .map(x=>letter(x.pos>=0?x.pos:x.i)).join(", ");
 }
+// Minimale markdown-achtige opmaak voor commentaarvelden:
+//   **vet**  → <strong>vet</strong>
+//   *cursief* → <em>cursief</em>
+//   `code` → <code>code</code>
+//   Regels beginnend met "- " of "* " → bullet-lijst
+//   Lege regel → nieuwe paragraaf; enkele newline → regelbreuk
+// Volgorde: eerst translateOptRefs, dan escape (safety), dan opmaak toepassen.
+function formatCommentBody(text, qid, qObj){
+  if(!text) return "";
+  let s = translateOptRefs(text, qid, qObj);
+  s = esc(s);
+  const applyInline = t => t
+    .replace(/\*\*([^*\n]+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*\n]+?)\*(?!\*)/g, "$1<em>$2</em>")
+    .replace(/`([^`\n]+)`/g, "<code>$1</code>");
+  const paragraphs = s.split(/\n{2,}/);
+  return paragraphs.map(p=>{
+    const lines = p.split(/\n/);
+    const bulletLines = lines.filter(l=>l.trim()!=="");
+    const isList = bulletLines.length>0 && bulletLines.every(l=>/^\s*[-*]\s+/.test(l));
+    if(isList){
+      const items = bulletLines.map(l=>applyInline(l.replace(/^\s*[-*]\s+/,"").trim()));
+      return `<ul class="cmt-list">${items.map(i=>`<li>${i}</li>`).join("")}</ul>`;
+    }
+    return `<p class="cmt-p">${lines.map(applyInline).join("<br>")}</p>`;
+  }).join("");
+}
+
 // Vertaal placeholders in rijke tekst naar de LETTER(S) die de gebruiker in de huidige shuffle ziet.
 //   {A}..{Z}   → verwijzing naar een specifieke optie op editor-positie (A = eerste optie enz.)
 //   {juist}    → verwijzing naar het juiste antwoord van deze vraag (elke shuffle, elke gebruiker klopt)
@@ -1274,13 +1302,14 @@ function renderFlagThread(flags, names, qid){
         ${isMine?`<button class="btn btn-ghost btn-sm flag-edit-btn" data-edit="${f.id}" title="Wijzig je eigen reactie">Bewerken</button>
           <button class="btn btn-danger btn-sm flag-del-btn" data-del="${f.id}" title="Verwijder je eigen reactie">Verwijder</button>`:""}
       </div>
-      ${f.toelichting?`<div class="flag-body">${esc(translateOptRefs(f.toelichting, qid))}</div>`:""}
+      ${f.toelichting?`<div class="flag-body cmt">${formatCommentBody(f.toelichting, qid)}</div>`:""}
       ${isMine?`<div class="flag-edit-form" data-edit-form-for="${f.id}" hidden>
         <textarea class="flag-edit-text">${esc(f.toelichting||"")}</textarea>
         <div class="ref-hint">
           <div><strong>⚠️ Let op:</strong> schrijf <em>niet</em> "antwoord C" — bij een andere speler zit die letter op een andere optie na de shuffle.</div>
           <div style="margin-top:.3rem">💡 Gebruik <code>{A}</code>, <code>{B}</code>, <code>{juist}</code> of <code>{docent}</code>.</div>
         </div>
+        <div class="fmt-hint">Opmaak: <code>**vet**</code>, <code>*cursief*</code>, <code>`code`</code>, <code>- </code> voor bullets, witregel voor paragrafen.</div>
         ${refPanel}
         <div class="btnrow">
           <button class="btn btn-primary btn-sm flag-edit-save" data-edit-save="${f.id}">Opslaan</button>
@@ -1293,6 +1322,7 @@ function renderFlagThread(flags, names, qid){
           <div><strong>⚠️ Let op:</strong> schrijf <em>niet</em> "antwoord C" — bij een andere speler zit die letter op een andere optie na de shuffle.</div>
           <div style="margin-top:.3rem">💡 Gebruik <code>{A}</code>, <code>{B}</code>, <code>{juist}</code> of <code>{docent}</code> — die worden vertaald naar de juiste letter voor elke lezer.</div>
         </div>
+        <div class="fmt-hint">Opmaak: <code>**vet**</code>, <code>*cursief*</code>, <code>`code`</code>, <code>- </code> voor bullets, witregel voor paragrafen.</div>
         ${refPanel}
         <div class="btnrow">
           <button class="btn btn-primary btn-sm flag-reply-send" data-reply-send="${f.id}">Versturen</button>
@@ -1379,6 +1409,7 @@ async function renderAfterAnswer(q){
             <div><strong>⚠️ Let op:</strong> schrijf <em>niet</em> "antwoord C" of "de derde optie" — bij een andere speler staan de letters in een andere volgorde na de shuffle. "Antwoord C" is voor niemand hetzelfde als voor jou.</div>
             <div style="margin-top:.3rem">💡 <strong>Gebruik in de plaats</strong> de knop hieronder — klik op het antwoord en de juiste <code>{...}</code>-token wordt automatisch ingevoegd.</div>
           </div>
+          <div class="fmt-hint">Opmaak: <code>**vet**</code>, <code>*cursief*</code>, <code>`code`</code>, lijnen met <code>- </code> voor bullets, en witregel voor een nieuwe paragraaf.</div>
           <div class="btnrow" style="margin:.3rem 0"><button type="button" class="btn btn-ghost btn-sm ref-picker-btn" data-ref-picker-for="${q.id}" data-target="rMot">${ICON.info} Verwijs naar een antwoord…</button></div>
         </div>
         <div class="btnrow" id="reactSubmitRow" hidden><button class="btn btn-primary btn-sm" id="rSubmit">Versturen</button></div>
@@ -1859,7 +1890,7 @@ async function viewAccount(){
 
     <h2>Mijn reacties (${(flags||[]).length})</h2>
     <div class="stack">
-      ${(flags||[]).map(f=>`<div class="card"><div class="spread"><div><span class="pill ${f.type}">${f.type}</span> ${arr(f.preferred_indexes).length?`<span class="muted">· verkiest <strong>${lettersOf(f.preferred_indexes)}</strong></span> `:""}${qlink(f.question_id)} <span class="when">${fmtDate(f.created_at)}</span>${f.toelichting?`<div>${esc(f.toelichting)}</div>`:""}</div><button class="btn btn-danger btn-sm" data-delflag="${f.id}">Verwijderen</button></div></div>`).join("")||`<p class="muted">Je hebt nog geen reacties geplaatst.</p>`}
+      ${(flags||[]).map(f=>`<div class="card"><div class="spread"><div><span class="pill ${f.type}">${f.type}</span> ${arr(f.preferred_indexes).length?`<span class="muted">· verkiest <strong>${lettersOf(f.preferred_indexes)}</strong></span> `:""}${qlink(f.question_id)} <span class="when">${fmtDate(f.created_at)}</span>${f.toelichting?`<div class="cmt">${formatCommentBody(f.toelichting, f.question_id)}</div>`:""}</div><button class="btn btn-danger btn-sm" data-delflag="${f.id}">Verwijderen</button></div></div>`).join("")||`<p class="muted">Je hebt nog geen reacties geplaatst.</p>`}
     </div>
     ${isEditor()?`
     <h2>Beheerdershandleiding</h2>
@@ -2047,14 +2078,14 @@ async function viewMeldingen(){
       const q=g.q; const quiz=q?quizMap[q.quiz_id]:null;
       const qtext = q ? (q.text||"").slice(0,110)+((q.text||"").length>110?"…":"") : "(vraag verwijderd)";
       const flagList=g.flags.map(f=>{
-        const snippet = f.toelichting ? (f.toelichting.length>140 ? esc(f.toelichting.slice(0,140))+"…" : esc(f.toelichting)) : "";
+        const snippet = f.toelichting ? formatCommentBody(f.toelichting.length>140 ? f.toelichting.slice(0,140)+"…" : f.toelichting, f.question_id, qmap[f.question_id]) : "";
         return `<div class="notify-flag ${f.type}">
           <div class="notify-flag-head">
             <span class="fg-type">${f.type}</span>
             <span class="fg-who">${esc(names[f.user_id]||"?")}</span>
             <span class="fg-when">${fmtDate(f.created_at)} <span class="muted">(${humanAgo(new Date(f.created_at).getTime())})</span></span>
           </div>
-          ${snippet?`<div class="fg-body">${snippet}</div>`:""}
+          ${snippet?`<div class="fg-body cmt">${snippet}</div>`:""}
         </div>`;
       }).join("");
       return `<div class="fg-card ${isNew?'notify-new':''}">
@@ -2205,7 +2236,7 @@ function renderBeheerFlagGroups(flags, qmap, quizById, names){
     const byParent={}; g.flags.forEach(f=>{ if(f.parent_id){ (byParent[f.parent_id]=byParent[f.parent_id]||[]).push(f); } });
     const renderFlag = (f, depth) => {
       const kids = byParent[f.id]||[];
-      const bodyPreview = f.toelichting ? (f.toelichting.length>140 ? esc(f.toelichting.slice(0,140))+"…" : esc(f.toelichting)) : "";
+      const bodyPreview = f.toelichting ? formatCommentBody(f.toelichting.length>140 ? f.toelichting.slice(0,140)+"…" : f.toelichting, g.q?g.q.id:null, g.q) : "";
       return `<div class="fg-flag ${f.type}" style="margin-left:${Math.min(depth,3)*1.1}rem">
         <div class="fg-flag-head">
           ${depth>0?`<span class="fg-reply-arrow" title="Antwoord op reactie hierboven">↳</span>`:""}
@@ -2251,7 +2282,7 @@ function renderSetupFlagGroups(flags, allQuestions, quiz, flagNames){
     const byParent={}; g.flags.forEach(f=>{ if(f.parent_id){ (byParent[f.parent_id]=byParent[f.parent_id]||[]).push(f); } });
     const renderFlag=(f, depth)=>{
       const kids = byParent[f.id]||[];
-      const bodyPreview = f.toelichting ? (f.toelichting.length>140 ? esc(f.toelichting.slice(0,140))+"…" : esc(f.toelichting)) : "";
+      const bodyPreview = f.toelichting ? formatCommentBody(f.toelichting.length>140 ? f.toelichting.slice(0,140)+"…" : f.toelichting, g.q?g.q.id:null, g.q) : "";
       return `<div class="fg-flag ${f.type}" style="margin-left:${Math.min(depth,3)*1.1}rem">
         <div class="fg-flag-head">
           ${depth>0?`<span class="fg-reply-arrow" title="Antwoord op reactie hierboven">↳</span>`:""}
@@ -2658,7 +2689,7 @@ async function viewEditQuestion(qid){
 
     <h2>Reacties (${(flags||[]).length})</h2>
     <div class="stack">${(flags||[]).map(f=>`<div class="card"><div class="spread">
-      <div><span class="pill ${f.type}">${f.type}</span> ${f.status==="afgehandeld"?`<span class="pill afgehandeld">afgehandeld</span>`:""} <span class="who">${esc(names[f.user_id]||"?")}</span>${arr(f.preferred_indexes).length?` <span class="muted">· verkiest <strong>${lettersOf(f.preferred_indexes)}</strong></span>`:""} <span class="when">${fmtDate(f.created_at)}</span>${f.toelichting?`<div>${esc(f.toelichting)}</div>`:""}</div>
+      <div><span class="pill ${f.type}">${f.type}</span> ${f.status==="afgehandeld"?`<span class="pill afgehandeld">afgehandeld</span>`:""} <span class="who">${esc(names[f.user_id]||"?")}</span>${arr(f.preferred_indexes).length?` <span class="muted">· verkiest <strong>${lettersOf(f.preferred_indexes)}</strong></span>`:""} <span class="when">${fmtDate(f.created_at)}</span>${f.toelichting?`<div class="cmt">${formatCommentBody(f.toelichting, qid, q)}</div>`:""}</div>
       <div class="btnrow" style="margin:0">${f.status==="open"?`<button class="btn btn-ghost btn-sm" data-resolve="${f.id}">${ICON.check} Afhandelen</button>`:""}<button class="btn btn-danger btn-sm" data-delflag="${f.id}">Verwijderen</button></div>
     </div></div>`).join("")||`<p class="muted">Geen reacties.</p>`}</div>
 

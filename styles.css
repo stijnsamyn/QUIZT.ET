@@ -236,6 +236,18 @@ details .body{padding:.3rem .9rem .9rem}
   border-left:3px solid var(--warn);border-radius:6px;font-size:.78rem;line-height:1.5;color:var(--text)}
 .ref-hint code{background:var(--surface);padding:.05rem .3rem;border-radius:3px;font-size:.8em;font-weight:700;color:var(--accent-dark)}
 .ref-hint strong{color:var(--warn)}
+.fmt-hint{margin:.3rem 0 .1rem;font-size:.72rem;color:var(--text-muted);line-height:1.4}
+.fmt-hint code{background:var(--surface2);padding:.02rem .3rem;border-radius:3px;font-size:.9em}
+/* Commentaar-opmaak (markdown-lite) */
+.cmt .cmt-p{margin:.15rem 0}
+.cmt .cmt-p:first-child{margin-top:0}
+.cmt .cmt-p:last-child{margin-bottom:0}
+.cmt .cmt-list{margin:.2rem 0 .2rem 1.2rem;padding:0}
+.cmt .cmt-list li{margin:.1rem 0}
+.cmt strong{color:var(--ink)}
+.cmt em{color:var(--text)}
+.cmt code{background:var(--surface2);color:var(--accent-dark);padding:.02rem .3rem;border-radius:3px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.9em}
 .flag-reply-form .btnrow{margin-top:.4rem}
 
 /* bars */
