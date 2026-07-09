@@ -1349,10 +1349,10 @@ async function viewQuizStats(quizId){
   const { data:questions } = await sb.from("questions").select("id,qnum,quiz_id,text,correct_indexes,options").eq("quiz_id",quizId).order("sort_order");
   const ids=(questions||[]).map(q=>q.id);
   const [{data:answers},{data:flags},{data:myEvents},{data:allEvents}] = await Promise.all([
-    ids.length? sb.from("answers").select("question_id,is_correct,user_id").in("question_id",ids) : Promise.resolve({data:[]}),
-    ids.length? sb.from("flags").select("question_id,type,user_id,preferred_indexes,created_at").in("question_id",ids) : Promise.resolve({data:[]}),
-    sb.from("answer_events").select("is_correct,created_at").eq("quiz_id",quizId).eq("user_id",ME.id),
-    sb.from("answer_events").select("is_correct,created_at,user_id").eq("quiz_id",quizId),
+    ids.length? sb.from("answers").select("question_id,is_correct,user_id").in("question_id",ids).range(0,99999) : Promise.resolve({data:[]}),
+    ids.length? sb.from("flags").select("question_id,type,user_id,preferred_indexes,created_at").in("question_id",ids).range(0,49999) : Promise.resolve({data:[]}),
+    sb.from("answer_events").select("is_correct,created_at").eq("quiz_id",quizId).eq("user_id",ME.id).range(0,49999),
+    sb.from("answer_events").select("is_correct,created_at,user_id").eq("quiz_id",quizId).range(0,199999),
   ]);
   const agg=aggregateQuestions(questions, answers, flags);
   const myAnsSet=new Set((answers||[]).filter(a=>a.user_id===ME.id).map(a=>a.question_id));
@@ -1398,14 +1398,12 @@ async function viewQuizStats(quizId){
    ============================================================ */
 async function viewStatsGebruikers(){
   if(!isEditor()){ app.innerHTML=`<div class="empty">Deze pagina is enkel voor beheerders.</div>`; return; }
-  const { data:profiles } = await sb.from("profiles").select("id,display_name,role,cohort");
-  const { data:answers } = await sb.from("answers").select("user_id,is_correct");
-  const { data:flags } = await sb.from("flags").select("user_id");
-  const { data:visits } = await sb.from("visits").select("user_id");
-  const agg={}; (profiles||[]).forEach(p=>agg[p.id]={p,ans:0,correct:0,flags:0,visits:0});
-  (answers||[]).forEach(a=>{ const x=agg[a.user_id]; if(x){x.ans++; if(a.is_correct)x.correct++;} });
-  (flags||[]).forEach(f=>{ const x=agg[f.user_id]; if(x)x.flags++; });
-  (visits||[]).forEach(v=>{ const x=agg[v.user_id]; if(x)x.visits++; });
+  const [{data:profiles},{data:userStats}] = await Promise.all([
+    sb.from("profiles").select("id,display_name,role,cohort"),
+    sb.from("user_stats_public").select("*"),
+  ]);
+  const statsById={}; (userStats||[]).forEach(s=>statsById[s.user_id]=s);
+  const agg={}; (profiles||[]).forEach(p=>{ const s=statsById[p.id]||{}; agg[p.id]={p,ans:s.n_answers||0,correct:s.n_correct||0,flags:s.n_flags||0,visits:s.n_visits||0}; });
   const all=Object.values(agg);
   // cohort-overzicht
   const byCohort={}; all.forEach(r=>{ const c=r.p.cohort||"—"; (byCohort[c]=byCohort[c]||{n:0,ans:0,correct:0,visits:0}); byCohort[c].n++; byCohort[c].ans+=r.ans; byCohort[c].correct+=r.correct; byCohort[c].visits+=r.visits; });
@@ -1455,8 +1453,8 @@ async function viewStatsGebruikers(){
    ============================================================ */
 async function viewAccount(){
   const [{data:flags},{data:myEvents}] = await Promise.all([
-    sb.from("flags").select("*").eq("user_id",ME.id).order("created_at",{ascending:false}),
-    sb.from("answer_events").select("is_correct,created_at").eq("user_id",ME.id),
+    sb.from("flags").select("*").eq("user_id",ME.id).order("created_at",{ascending:false}).range(0,9999),
+    sb.from("answer_events").select("is_correct,created_at").eq("user_id",ME.id).range(0,49999),
   ]);
   const qids=[...new Set((flags||[]).map(f=>f.question_id))];
   let qmap={};
@@ -1472,7 +1470,7 @@ async function viewAccount(){
     const { data:peers } = await sb.from("profiles").select("id").eq("cohort",ME.cohort);
     const peerIds=(peers||[]).map(p=>p.id);
     if(peerIds.length>=2){
-      const { data:peerEvents } = await sb.from("answer_events").select("user_id,is_correct").in("user_id",peerIds);
+      const { data:peerEvents } = await sb.from("answer_events").select("user_id,is_correct").in("user_id",peerIds).range(0,199999);
       // per user % juist (enkel gevalideerd)
       const byUser={};
       (peerEvents||[]).forEach(e=>{ if(e.is_correct==null) return; const x=byUser[e.user_id]=byUser[e.user_id]||{c:0,t:0}; x.t++; if(e.is_correct)x.c++; });
