@@ -76,6 +76,20 @@ function lettersOfForQ(qid, idxs){
     .sort((a,b)=> (a.pos>=0?a.pos:999) - (b.pos>=0?b.pos:999))
     .map(x=>letter(x.pos>=0?x.pos:x.i)).join(", ");
 }
+// Vertaal {A}..{Z} in rijke tekst naar de LETTER die de gebruiker in de huidige shuffle ziet.
+// Beheerders gebruiken {A} om te verwijzen naar "de eerste optie in de DB" — zo blijft
+// de uitleg correct wanneer de opties door elkaar geschud getoond worden.
+function translateOptRefs(text, qid){
+  if(text==null) return text;
+  return String(text).replace(/\{([A-Za-z])\}/g, (m, ch)=>{
+    const upper=ch.toUpperCase();
+    const origIdx=upper.charCodeAt(0)-65;
+    if(origIdx<0||origIdx>25) return m;
+    const l=letterForOrig(qid, origIdx);
+    // beheerder mag ook kleine {a} typen → we respecteren de casing
+    return ch===upper ? l : l.toLowerCase();
+  });
+}
 
 /* ---------- Statistiek-hulpjes ---------- */
 function scored(events){ return (events||[]).filter(e=>e.is_correct!=null); }  // enkel gevalideerde antwoorden
@@ -286,7 +300,7 @@ async function route(){
     if(p[0]==="beheer" && p[1]==="vraag") return viewEditQuestion(p[2]);
     if(p[0]==="beheer" && p[1]==="quiz") return viewBeheerQuiz(p[2]);
     if(p[0]==="beheer" && p[1]==="import") return viewImport();
-    if(p[0]==="beheer") return viewBeheer();
+    if(p[0]==="beheer") return viewBeheer(p[1]||"quizzen");
     viewHome();
   }catch(err){ console.error(err); app.innerHTML=`<div class="card err">Fout: ${esc(err.message)}</div>`; }
 }
@@ -550,7 +564,7 @@ function renderPlaySetup(){
   const resumeBanner = savedValid ? `<div class="resume-banner">
     <div>
       <strong>${ICON.clock} Je had een sessie aan de gang</strong>
-      <div class="muted" style="font-size:.82rem">Vraag ${(saved.i||0)+1} van ${saved.questionIds.length} · ${humanAgo(saved.ts||Date.now())} · synchroon op al je toestellen</div>
+      <div class="muted" style="font-size:.82rem">Vraag ${(saved.i||0)+1} van ${saved.questionIds.length} · ${humanAgo(saved.ts||Date.now())} · synct automatisch tussen je toestellen</div>
     </div>
     <div class="btnrow" style="margin:0">
       <button class="btn btn-primary btn-sm" id="resumeBtn">Hervat sessie</button>
@@ -562,7 +576,7 @@ function renderPlaySetup(){
     <h1 style="margin:.5rem 0">${esc(PLAY.quiz.title)}</h1>
     <p class="muted">${esc(PLAY.quiz.description||"")}</p>
     <div class="muted" style="font-size:.82rem;margin:.4rem 0 1.2rem">
-      Meer over deze quiz: <a class="ilink" data-nav="#/quiz/${PLAY.quiz.id}/overzicht">Overzicht van alle vragen</a> · <a class="ilink" data-nav="#/quiz/${PLAY.quiz.id}/stats">Statistiek</a>
+      Meer over deze quiz: <a class="ilink" data-nav="#/quiz/${PLAY.quiz.id}/overzicht">Overzicht van alle vragen</a> · <a class="ilink" data-nav="#/quiz/${PLAY.quiz.id}/stats">Statistiek van deze quiz</a>
     </div>
     ${resumeBanner}
     <div class="setup-panel">
@@ -606,9 +620,9 @@ function renderPlaySetup(){
       <div class="muted" style="font-size:.78rem;margin-top:.4rem">Wist je <strong>huidige</strong> antwoordstatus zodat je met een schone lei kan hertesten. De filters "Enkel mijn foute" en "Nog niet beantwoord" tonen daarna weer alles, en "slim oefenen" behandelt elke vraag als nieuw. Je bijdrage aan de statistieken en de lijst "historisch fout" blijven wél bewaard, net als je flags en opmerkingen.</div>
     </div>
     ${(PLAY.openFlags&&PLAY.openFlags.length)?`
-    <h2>Open flags (${PLAY.openFlags.length})</h2>
-    <p class="muted" style="font-size:.82rem">Vragen waar iemand iets bij aanstipte. Klik om te bekijken en mee te bespreken.${isEditor()?" Als beheerder kan je ze daar aanpassen.":""}</p>
-    <div class="stack">${PLAY.openFlags.map(f=>{ const qn=(PLAY.all.find(q=>q.id===f.question_id)||{}).qnum; return `<div class="card"><a class="ilink" data-q="${f.question_id}" data-quiz="${PLAY.quiz.id}"><span class="pill ${f.type}">${f.type}</span> Vraag ${qn} →</a> <span class="who">${esc(PLAY.flagNames[f.user_id]||"?")}</span>${f.toelichting?`<div class="muted" style="font-size:.85rem">${esc(f.toelichting)}</div>`:""}</div>`; }).join("")}</div>`:""}`;
+    <h2>Open flags <span class="muted" style="font-weight:400;font-size:.75em">— ${PLAY.openFlags.length} reactie${PLAY.openFlags.length===1?"":"s"} verdeeld over ${new Set(PLAY.openFlags.map(f=>f.question_id)).size} vraag/vragen</span></h2>
+    <p class="muted" style="font-size:.82rem">Klik een vraag open om alle reacties erop te zien${isEditor()?" (als beheerder kan je ze afhandelen)":""}. Als er meer meldingen bij één vraag horen worden ze samen getoond.</p>
+    ${renderSetupFlagGroups(PLAY.openFlags, PLAY.all, PLAY.quiz, PLAY.flagNames)}`:""}`;
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
   app.querySelectorAll("[data-q]").forEach(a=>a.onclick=()=>PLAY_goto(a.dataset.quiz, a.dataset.q));
   const rb=document.getElementById("resumeBtn"); if(rb) rb.onclick=()=>resumeSavedSession();
@@ -788,6 +802,11 @@ async function renderQuestion(){
     <div class="card">
       <div class="q-meta"><span class="q-num">Vraag ${q.qnum}</span>${questionTags(q)}${answered?(isRight(q,chosen)===true?`<span class="pill juist">juist beantwoord</span>`:isRight(q,chosen)===false?`<span class="pill fout">fout beantwoord</span>`:`<span class="pill twijfel">antwoord genoteerd — in overleg</span>`):((PLAY.history&&PLAY.history[q.id]!=null)?(isRight(q,PLAY.history[q.id])===true?`<span class="pill" style="background:var(--correct-soft);color:var(--correct);opacity:.75">eerder juist</span>`:isRight(q,PLAY.history[q.id])===false?`<span class="pill" style="background:var(--wrong-soft);color:var(--wrong);opacity:.75">eerder fout</span>`:`<span class="pill" style="background:var(--warn-soft);color:var(--warn);opacity:.75">eerder beantwoord</span>`):`<span class="pill" style="background:var(--surface2);color:var(--text-muted)">nieuwe vraag voor jou</span>`)}</div>
       <div class="q-text">${esc(q.text)}</div>
+      ${(!answered && (q.wettekst || q.legal_basis)) ? `<details class="prehelp"><summary>${ICON.info} Raadpleeg wettekst voor je antwoordt</summary>
+        <div class="prehelp-body">
+          ${q.legal_basis?`<div class="prehelp-legal"><strong>Wettelijke basis:</strong> ${html(translateOptRefs(q.legal_basis, q.id))}</div>`:""}
+          ${q.wettekst?`<div class="wettekst">${html(translateOptRefs(q.wettekst, q.id))}</div>`:""}
+        </div></details>`:""}
       <div id="opts">${opts}</div>
       ${(multi&&!answered)?`<div class="btnrow"><button class="btn btn-primary btn-sm" id="checkMulti">Nakijken</button></div>`:""}
       <div id="afterAnswer"></div>
@@ -956,10 +975,10 @@ function renderDoneReview(qs, filter){
           if(docentDiffers && docent.includes(i)) cls+=" docent";
           return `<div class="${cls}"><strong>${letter(i)}.</strong> ${esc(o)}${validated&&correct.includes(i)?' <span class="pill juist" style="margin-left:.3rem">juist</span>':""}${docentDiffers&&docent.includes(i)?' <span class="pill" style="margin-left:.3rem;background:rgba(192,38,211,.12);color:#a21caf">docent</span>':""}</div>`;
         }).join("")}</div>
-        ${q.explanation?`<div class="rv-explain"><strong>Uitleg:</strong> ${srcBadge("Uitleg",q.explanation_source)} ${html(q.explanation)}</div>`:""}
-        ${q.legal_basis?`<div class="rv-legal"><strong>Wettelijke basis:</strong> ${srcBadge("Wettelijke basis",q.legal_basis_source)} ${html(q.legal_basis)}</div>`:""}
-        ${q.docent_note && docentDiffers ? `<div class="rv-docent"><strong>Docent-toelichting:</strong> ${esc(q.docent_note)}</div>`:""}
-        ${q.wettekst?`<details class="rv-wettekst"><summary>${ICON.info} Toon volledige wettekst</summary><div class="wettekst">${html(q.wettekst)}</div></details>`:""}
+        ${q.explanation?`<div class="rv-explain"><strong>Uitleg:</strong> ${srcBadge("Uitleg",q.explanation_source)} ${html(translateOptRefs(q.explanation, q.id))}</div>`:""}
+        ${q.legal_basis?`<div class="rv-legal"><strong>Wettelijke basis:</strong> ${srcBadge("Wettelijke basis",q.legal_basis_source)} ${html(translateOptRefs(q.legal_basis, q.id))}</div>`:""}
+        ${q.docent_note && docentDiffers ? `<div class="rv-docent"><strong>Docent-toelichting:</strong> ${esc(translateOptRefs(q.docent_note, q.id))}</div>`:""}
+        ${q.wettekst?`<details class="rv-wettekst"><summary>${ICON.info} Toon volledige wettekst</summary><div class="wettekst">${html(translateOptRefs(q.wettekst, q.id))}</div></details>`:""}
         <div class="btnrow" style="margin-top:.6rem"><button class="btn btn-ghost btn-sm" data-goq="${q.id}">Open deze vraag →</button></div>
       </div>
     </details>`;
@@ -1163,7 +1182,7 @@ async function renderAfterAnswer(q){
     return `<div class="docent-block ${differs?"differs":"agrees"}">
       <div class="docent-hd">👨‍🏫 <strong>Volgens de docent</strong> ${differs?`<span class="pill" style="background:var(--warn-soft);color:var(--warn)">wijkt af van wettelijk antwoord</span>`:`<span class="pill juist">stemt overeen</span>`}</div>
       <ul class="docent-items">${items}</ul>
-      ${hasOfficialDocent && q.docent_note ? `<div class="docent-note">${esc(q.docent_note)}</div>` : ""}
+      ${hasOfficialDocent && q.docent_note ? `<div class="docent-note">${esc(translateOptRefs(q.docent_note, q.id))}</div>` : ""}
       ${src}
     </div>`;
   })() : "";
@@ -1171,9 +1190,9 @@ async function renderAfterAnswer(q){
   box.innerHTML=`
     ${q.validated===false?`<div class="notice">${ICON.info} <strong>Nog geen gevalideerd juist antwoord.</strong> Bekijk hieronder welk antwoord de groep verkiest, kies zelf je voorkeursantwoord en gebruik de flags om in overleg te gaan.</div>`:""}
     <div class="explain">
-      <span class="lbl">Wettelijk juist antwoord ${srcBadge("Uitleg",q.explanation_source)}</span>${html(q.explanation||"— geen uitleg —")}
-      ${q.legal_basis?`<div class="legal-inline"><strong>Wettelijke basis:</strong> ${srcBadge("Wettelijke basis",q.legal_basis_source)} ${html(q.legal_basis)}</div>`:""}
-      ${q.wettekst?`<details class="wettekst-d"><summary>${ICON.info} Toon wettekst</summary><div class="wettekst">${html(q.wettekst)}</div></details>`:""}
+      <span class="lbl">Wettelijk juist antwoord ${srcBadge("Uitleg",q.explanation_source)}</span>${html(translateOptRefs(q.explanation||"— geen uitleg —", q.id))}
+      ${q.legal_basis?`<div class="legal-inline"><strong>Wettelijke basis:</strong> ${srcBadge("Wettelijke basis",q.legal_basis_source)} ${html(translateOptRefs(q.legal_basis, q.id))}</div>`:""}
+      ${q.wettekst?`<details class="wettekst-d"><summary>${ICON.info} Toon wettekst</summary><div class="wettekst">${html(translateOptRefs(q.wettekst, q.id))}</div></details>`:""}
     </div>
     ${docentBlock}
 
@@ -1701,10 +1720,24 @@ function openBeheerManual(){
         <li><strong>Wettelijke basis</strong> — één zin of paragraaf met de bron (art. X, wet Y).</li>
         <li><strong>Wettekst</strong> — de volledige artikeltekst, uitklapbaar getoond onder de uitleg.</li>
         <li><strong>Uitleg</strong> — de context waarom het antwoord juist is.</li>
-        <li><strong>Herkomst juist antwoord / uitleg</strong> — mens of AI. Wordt zichtbaar als klein icoontje bij de vraag.</li>
-        <li><strong>Vraag verwijderen</strong> — permanent, inclusief alle antwoorden en flags op die vraag.</li>
+        <li><strong>Herkomst</strong> — voor juist antwoord, uitleg én wettelijke basis kan je apart mens of AI aanduiden. Verschijnt als klein icoontje bij de vraag.</li>
+        <li><strong>Vraag verwijderen</strong> — permanent, en verwijdert ook alle antwoorden, events en flags die aan die vraag hangen.</li>
       </ul>
       <p class="tip">💡 Elke bewerking wordt gelogd in de wijzigingshistoriek van de vraag.</p>
+
+      <h3>Antwoorden worden geschud — hoe verwijs je ernaar?</h3>
+      <p>De app schudt per gebruiker en per sessie de volgorde van de antwoordopties. Dat traint spelers op de <em>inhoud</em>, niet op de positie. Gevolg: "A" bij jou kan bij een andere gebruiker "C" zijn.</p>
+      <p>In je <strong>uitleg</strong>, <strong>wettelijke basis</strong>, <strong>wettekst</strong> of <strong>docent-toelichting</strong> mag je verwijzen met <code>{A}</code>, <code>{B}</code>, <code>{C}</code>, … De app vertaalt die automatisch naar de letter die de speler <em>daadwerkelijk ziet</em>.</p>
+      <p class="tip">Voorbeeld: schrijf "Antwoord {A} is juist want art. 34 Sv. bepaalt…". Ziet Anke bij "A" in haar shuffle staan, blijft "{A}" → "A". Ziet Bart daar "C", vertaalt "{A}" naar "C". Zo blijft je uitleg altijd kloppen.</p>
+      <p>De letters tussen <code>{ }</code> verwijzen naar de <strong>volgorde in de editor</strong>: <code>{A}</code> = eerste optie in het formulier, <code>{B}</code> = tweede, enz. Ook <code>{a}</code> (klein) werkt.</p>
+
+      <h3>Flags en reacties (Beheer → tab "Open flags")</h3>
+      <ul>
+        <li>Reacties (fout, twijfel, docent, commentaar) staan <strong>gegroepeerd per vraag</strong>. Vaak zijn er meerdere reacties over hetzelfde: dat zie je aan het pill met "N reacties".</li>
+        <li>Klik op de vraagtitel om de discussie te bekijken en desnoods de vraag aan te passen.</li>
+        <li>Handel af per flag met het ✓-icoontje, of gebruik <strong>"Alles afhandelen"</strong> om alle reacties op één vraag ineens te sluiten.</li>
+        <li>Je kan zelf reageren op reacties zoals elke speler (met het "Reageer"-knopje bij de vraag).</li>
+      </ul>
 
       <h3>Flags &amp; opmerkingen afhandelen</h3>
       <ul>
@@ -1758,14 +1791,27 @@ function openBeheerManual(){
 /* ============================================================
    BEHEER-dashboard
    ============================================================ */
-async function viewBeheer(){
+async function viewBeheer(tab){
   if(!isEditor()){ app.innerHTML=`<div class="empty">Geen toegang.</div>`; return; }
-  const { data:quizzes } = await sb.from("quizzes").select("*").order("created_at");
-  const { data:openFlags } = await sb.from("flags").select("id,question_id,type,toelichting,created_at,user_id").eq("status","open").neq("type","juist").order("type").order("created_at",{ascending:false});
-  const names=await namesFor((openFlags||[]).map(f=>f.user_id));
-  // map question -> quiz voor flaglinks
+  tab = tab || "quizzen";
+  // Fetch alle relevante data
+  const [{data:quizzes},{data:openFlags}] = await Promise.all([
+    sb.from("quizzes").select("*").order("created_at"),
+    sb.from("flags").select("id,question_id,type,toelichting,created_at,user_id,parent_id,status").eq("status","open").neq("type","juist").order("created_at",{ascending:true}).range(0,4999),
+  ]);
+  const flagCount=(openFlags||[]).length;
+  // Vragen ophalen voor de flags (voor labeling en groepering)
   let qmap={};
-  if(openFlags&&openFlags.length){ const {data:qq}=await sb.from("questions").select("id,qnum,quiz_id").in("id",[...new Set(openFlags.map(f=>f.question_id))]); (qq||[]).forEach(q=>qmap[q.id]=q); }
+  if(flagCount){ const {data:qq}=await sb.from("questions").select("id,qnum,quiz_id,text").in("id",[...new Set((openFlags||[]).map(f=>f.question_id))]); (qq||[]).forEach(q=>qmap[q.id]=q); }
+  const quizById={}; (quizzes||[]).forEach(q=>quizById[q.id]=q);
+  const names=await namesFor((openFlags||[]).map(f=>f.user_id));
+
+  const tabs=[
+    { key:"quizzen", label:"Quizzen", count:(quizzes||[]).length, always:true },
+    { key:"flags",   label:"Open flags", count:flagCount, always:true },
+    { key:"gebruikers", label:"Gebruikers", count:USER_COUNT!=null?USER_COUNT:null, admin:true },
+    { key:"instellingen", label:"Instellingen", count:null, admin:true },
+  ].filter(t=>t.always || (t.admin && isAdmin()));
 
   app.innerHTML=`
     <div class="spread"><h1>Beheer</h1>
@@ -1773,49 +1819,160 @@ async function viewBeheer(){
         <button class="btn btn-ghost btn-sm" id="newQuiz">+ Nieuwe quiz</button>
         <button class="btn btn-ghost btn-sm" data-nav="#/beheer/import">Quiz importeren</button>
       </div></div>
-
-    <h2>Quizzen</h2>
-    <div class="stack">${(quizzes||[]).map(q=>`
-      <div class="card"><div class="spread">
-        <div><strong>${esc(q.title)}</strong> <span class="badge ${q.status==="gepubliceerd"?"pub":"concept"}">${q.status}</span>
-          <div class="muted">${esc(q.description||"")}</div></div>
-        <div class="btnrow" style="margin:0">
-          <button class="btn btn-ghost btn-sm" data-edit="${q.id}">Bewerken</button>
-          <button class="btn btn-ghost btn-sm" data-pub="${q.id}" data-status="${q.status}">${q.status==="gepubliceerd"?"Terug naar concept":"Publiceren"}</button>
-          <button class="btn btn-danger btn-sm" data-del="${q.id}">Verwijderen</button>
-        </div></div></div>`).join("")||`<p class="muted">Nog geen quizzen.</p>`}
-    </div>
-
-    <h2>Open flags (${(openFlags||[]).length})</h2>
-    <p class="muted" style="font-size:.82rem">Klik op een flag om naar de vraag te gaan en te onderzoeken. Handel pas af als het opgelost is.</p>
-    <div class="stack">${(openFlags||[]).map(f=>{ const qq=qmap[f.question_id]; return `
-      <div class="card"><div class="spread">
-        <div>${qq?`<a class="ilink" data-q="${qq.id}" data-quiz="${qq.quiz_id}"><span class="pill ${f.type}">${f.type}</span> Vraag ${qq.qnum} — onderzoeken →</a>`:`<span class="pill ${f.type}">${f.type}</span>`} <span class="who">${esc(names[f.user_id]||"?")}</span>
-          ${f.toelichting?`<div>${esc(f.toelichting)}</div>`:""}</div>
-        <button class="btn btn-ghost btn-sm" data-resolve="${f.id}">${ICON.check} Markeer afgehandeld</button>
-      </div></div>`; }).join("")||`<p class="muted">Geen open flags.</p>`}
-    </div>
-
-    ${isAdmin()?`<h2>Gebruikers &amp; rollen</h2><div id="usersBox" class="card">Laden…</div>
-      <h2>Instellingen</h2><div id="settingsBox" class="card">Laden…</div>`:""}
+    <div class="beheer-tabs">${tabs.map(t=>`<a class="beheer-tab ${t.key===tab?"active":""}" data-nav="#/beheer${t.key==="quizzen"?"":"/"+t.key}">${t.label}${t.count!=null?` <span class="beheer-tab-count">${t.count}</span>`:""}</a>`).join("")}</div>
+    <div id="beheerContent"></div>
   `;
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
   document.getElementById("newQuiz").onclick=createQuiz;
-  app.querySelectorAll("[data-edit]").forEach(b=>b.onclick=()=>go("#/beheer/quiz/"+b.dataset.edit));
-  app.querySelectorAll("[data-pub]").forEach(b=>b.onclick=async()=>{
-    const ns=b.dataset.status==="gepubliceerd"?"concept":"gepubliceerd";
-    await sb.from("quizzes").update({status:ns}).eq("id",b.dataset.pub); toast("Status bijgewerkt","ok"); viewBeheer();
+
+  const content=document.getElementById("beheerContent");
+  if(tab==="quizzen"){
+    content.innerHTML=`
+      <div class="stack" style="margin-top:1rem">${(quizzes||[]).map(q=>`
+        <div class="card"><div class="spread">
+          <div><strong>${esc(q.title)}</strong> <span class="badge ${q.status==="gepubliceerd"?"pub":"concept"}">${q.status}</span>
+            <div class="muted">${esc(q.description||"")}</div></div>
+          <div class="btnrow" style="margin:0">
+            <button class="btn btn-ghost btn-sm" data-edit="${q.id}">Bewerken</button>
+            <button class="btn btn-ghost btn-sm" data-pub="${q.id}" data-status="${q.status}">${q.status==="gepubliceerd"?"Terug naar concept":"Publiceren"}</button>
+            <button class="btn btn-danger btn-sm" data-del="${q.id}">Verwijderen</button>
+          </div></div></div>`).join("")||`<p class="muted">Nog geen quizzen.</p>`}
+      </div>`;
+    content.querySelectorAll("[data-edit]").forEach(b=>b.onclick=()=>go("#/beheer/quiz/"+b.dataset.edit));
+    content.querySelectorAll("[data-pub]").forEach(b=>b.onclick=async()=>{
+      const ns=b.dataset.status==="gepubliceerd"?"concept":"gepubliceerd";
+      await sb.from("quizzes").update({status:ns}).eq("id",b.dataset.pub); toast("Status bijgewerkt","ok"); viewBeheer(tab);
+    });
+    content.querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{
+      const q=quizById[b.dataset.del];
+      if(!confirm(`Quiz "${q?q.title:""}" definitief verwijderen? Dit verwijdert ook ALLE vragen, antwoorden, events, flags en tetris-scores die aan deze quiz gekoppeld zijn. Deze actie is onomkeerbaar.`)) return;
+      await sb.from("quizzes").delete().eq("id",b.dataset.del); toast("Verwijderd","ok"); viewBeheer(tab);
+    });
+  }
+  else if(tab==="flags"){
+    content.innerHTML=`
+      <p class="muted" style="font-size:.85rem;margin-top:.8rem">Reacties zijn per vraag gegroepeerd. Klik op de vraagtitel om naar de vraag te gaan; markeer flags per stuk of alles voor deze vraag ineens af.</p>
+      ${flagCount ? renderBeheerFlagGroups(openFlags||[], qmap, quizById, names) : `<div class="empty">Geen open flags — alles is afgehandeld! 🎉</div>`}
+    `;
+    content.querySelectorAll("[data-q]").forEach(a=>a.onclick=()=>PLAY_goto(a.dataset.quiz, a.dataset.q));
+    content.querySelectorAll("[data-resolve]").forEach(b=>b.onclick=async()=>{
+      if(!confirm("Deze flag als afgehandeld markeren?")) return;
+      await sb.from("flags").update({status:"afgehandeld"}).eq("id",b.dataset.resolve); toast("Afgehandeld","ok"); viewBeheer(tab);
+    });
+    content.querySelectorAll("[data-resolve-all]").forEach(b=>b.onclick=async()=>{
+      const ids=b.dataset.resolveAll.split(",").filter(Boolean);
+      if(!ids.length) return;
+      if(!confirm(`Alle ${ids.length} openstaande flag(s) voor deze vraag afhandelen?`)) return;
+      await sb.from("flags").update({status:"afgehandeld"}).in("id",ids); toast(`${ids.length} flag(s) afgehandeld`,"ok"); viewBeheer(tab);
+    });
+  }
+  else if(tab==="gebruikers"){
+    if(!isAdmin()){ content.innerHTML=`<div class="empty">Enkel voor admin.</div>`; return; }
+    content.innerHTML=`<div id="usersBox" class="card" style="margin-top:1rem">Laden…</div>`;
+    renderUsers();
+  }
+  else if(tab==="instellingen"){
+    if(!isAdmin()){ content.innerHTML=`<div class="empty">Enkel voor admin.</div>`; return; }
+    content.innerHTML=`<div id="settingsBox" class="card" style="margin-top:1rem">Laden…</div>`;
+    renderSettings();
+  }
+}
+
+// Groep flags per vraag, met threading (parent→children) binnen elke groep
+function renderBeheerFlagGroups(flags, qmap, quizById, names){
+  // Groepeer per question_id
+  const byQ={};
+  flags.forEach(f=>{ (byQ[f.question_id]=byQ[f.question_id]||[]).push(f); });
+  // Sorteer vragen op quiz-titel + qnum
+  const groups=Object.entries(byQ).map(([qid, fs])=>{
+    const q=qmap[qid]; const quiz=q?quizById[q.quiz_id]:null;
+    return { qid, q, quiz, flags:fs };
+  }).sort((a,b)=>{
+    const A=a.quiz?a.quiz.title:""; const B=b.quiz?b.quiz.title:"";
+    if(A!==B) return A<B?-1:1;
+    return (a.q?a.q.qnum:0) - (b.q?b.q.qnum:0);
   });
-  app.querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{
-    if(!confirm("Deze quiz en al zijn vragen verwijderen?")) return;
-    await sb.from("quizzes").delete().eq("id",b.dataset.del); toast("Verwijderd","ok"); viewBeheer();
-  });
-  app.querySelectorAll("[data-q]").forEach(a=>a.onclick=()=>PLAY_goto(a.dataset.quiz, a.dataset.q));
-  app.querySelectorAll("[data-resolve]").forEach(b=>b.onclick=async()=>{
-    if(!confirm("Deze flag als afgehandeld markeren?")) return;
-    await sb.from("flags").update({status:"afgehandeld"}).eq("id",b.dataset.resolve); toast("Afgehandeld","ok"); viewBeheer();
-  });
-  if(isAdmin()){ renderUsers(); renderSettings(); }
+  const typeIcon = t => t==="fout"?"⚠️" : t==="twijfel"?"❔" : t==="docent"?"👨‍🏫" : t==="commentaar"?"💬" : "";
+  return `<div class="flag-groups">${groups.map(g=>{
+    // Bouw thread: roots (parent_id null of niet in flags) + children
+    const idsInGroup=new Set(g.flags.map(f=>f.id));
+    const roots=g.flags.filter(f=>!f.parent_id || !idsInGroup.has(f.parent_id));
+    const byParent={}; g.flags.forEach(f=>{ if(f.parent_id){ (byParent[f.parent_id]=byParent[f.parent_id]||[]).push(f); } });
+    const renderFlag = (f, depth) => {
+      const kids = byParent[f.id]||[];
+      return `<div class="fg-flag ${f.type}" style="margin-left:${Math.min(depth,3)*1.1}rem">
+        <div class="fg-flag-head">
+          ${depth>0?`<span class="fg-reply-arrow" title="Antwoord op reactie hierboven">↳</span>`:""}
+          <span class="fg-type">${typeIcon(f.type)} ${f.type}</span>
+          <span class="fg-who">${esc(names[f.user_id]||"?")}</span>
+          <span class="fg-when">${fmtDate(f.created_at)}</span>
+          <button class="btn btn-ghost btn-sm fg-resolve-btn" data-resolve="${f.id}" title="Deze reactie afhandelen">${ICON.check}</button>
+        </div>
+        ${f.toelichting?`<div class="fg-body">${esc(f.toelichting)}</div>`:""}
+        ${kids.map(k=>renderFlag(k, depth+1)).join("")}
+      </div>`;
+    };
+    const flagsHtml = roots.map(r=>renderFlag(r,0)).join("");
+    const allIds = g.flags.map(f=>f.id).join(",");
+    const textPreview = g.q ? (g.q.text||"").slice(0,110) + ((g.q.text||"").length>110?"…":"") : "(vraag onbekend)";
+    return `<div class="fg-card">
+      <div class="fg-card-hd">
+        <div class="fg-card-hd-left">
+          ${g.q ? `<a class="ilink fg-qlink" data-q="${g.q.id}" data-quiz="${g.q.quiz_id}"><span class="q-num">${g.q.qnum}</span> ${esc(textPreview)}</a>` : `<span>${esc(textPreview)}</span>`}
+          <div class="fg-quiz-title">${g.quiz ? esc(g.quiz.title) : ""}</div>
+        </div>
+        <div class="fg-card-hd-right">
+          <span class="fg-count-pill" title="Aantal reacties op deze vraag">${g.flags.length} reactie${g.flags.length===1?"":"s"}</span>
+          ${g.flags.length>1?`<button class="btn btn-ghost btn-sm" data-resolve-all="${allIds}" title="Alle reacties op deze vraag afhandelen">Alles afhandelen</button>`:""}
+        </div>
+      </div>
+      <div class="fg-flags">${flagsHtml}</div>
+    </div>`;
+  }).join("")}</div>`;
+}
+
+// Zelfde groepering als beheer, maar zonder resolve-knoppen en met de quiz-context al bekend
+function renderSetupFlagGroups(flags, allQuestions, quiz, flagNames){
+  const qById={}; (allQuestions||[]).forEach(q=>qById[q.id]=q);
+  const byQ={};
+  flags.forEach(f=>{ (byQ[f.question_id]=byQ[f.question_id]||[]).push(f); });
+  const groups=Object.entries(byQ).map(([qid, fs])=>({ qid, q:qById[qid], flags:fs }))
+    .sort((a,b)=>(a.q?a.q.qnum:0) - (b.q?b.q.qnum:0));
+  const typeIcon = t => t==="fout"?"⚠️" : t==="twijfel"?"❔" : t==="docent"?"👨‍🏫" : t==="commentaar"?"💬" : "";
+  return `<div class="flag-groups">${groups.map(g=>{
+    const idsInGroup=new Set(g.flags.map(f=>f.id));
+    const roots=g.flags.filter(f=>!f.parent_id || !idsInGroup.has(f.parent_id));
+    const byParent={}; g.flags.forEach(f=>{ if(f.parent_id){ (byParent[f.parent_id]=byParent[f.parent_id]||[]).push(f); } });
+    const renderFlag=(f, depth)=>{
+      const kids = byParent[f.id]||[];
+      return `<div class="fg-flag ${f.type}" style="margin-left:${Math.min(depth,3)*1.1}rem">
+        <div class="fg-flag-head">
+          ${depth>0?`<span class="fg-reply-arrow" title="Antwoord op reactie hierboven">↳</span>`:""}
+          <span class="fg-type">${typeIcon(f.type)} ${f.type}</span>
+          <span class="fg-who">${esc(flagNames[f.user_id]||"?")}</span>
+          <span class="fg-when">${fmtDate(f.created_at)}</span>
+        </div>
+        ${f.toelichting?`<div class="fg-body">${esc(f.toelichting)}</div>`:""}
+        ${kids.map(k=>renderFlag(k, depth+1)).join("")}
+      </div>`;
+    };
+    const flagsHtml = roots.map(r=>renderFlag(r,0)).join("");
+    const textPreview = g.q ? (g.q.text||"").slice(0,110) + ((g.q.text||"").length>110?"…":"") : "(vraag onbekend)";
+    return `<details class="fg-card">
+      <summary>
+        <div class="fg-card-hd">
+          <div class="fg-card-hd-left">
+            <span class="fg-qlink">${g.q?`<span class="q-num">${g.q.qnum}</span> `:""}${esc(textPreview)}</span>
+          </div>
+          <div class="fg-card-hd-right">
+            <span class="fg-count-pill">${g.flags.length} reactie${g.flags.length===1?"":"s"}</span>
+            ${g.q?`<button class="btn btn-ghost btn-sm" type="button" data-q="${g.q.id}" data-quiz="${quiz.id}" onclick="event.stopPropagation()">Onderzoeken →</button>`:""}
+          </div>
+        </div>
+      </summary>
+      <div class="fg-flags">${flagsHtml}</div>
+    </details>`;
+  }).join("")}</div>`;
 }
 
 async function createQuiz(){
@@ -1933,7 +2090,7 @@ function questionEditor(q){
     <label>Wettelijke basis</label><textarea data-f="legal_basis" data-q="${q.id}">${esc(q.legal_basis||"")}</textarea>
     <label>Herkomst wettelijke basis</label>${srcToggle("ls-"+q.id, q.legal_basis_source)}
     <label>Wettekst (volledige artikels, uitklapbaar bij de vraag)</label><textarea data-f="wettekst" data-q="${q.id}">${esc(q.wettekst||"")}</textarea>
-    <label>Uitleg</label><textarea data-f="explanation" data-q="${q.id}">${esc(q.explanation||"")}</textarea>
+    <label>Uitleg ${infoTip("Om te verwijzen naar antwoord-opties gebruik je {A} {B} {C} …  De app vertaalt die naar de letter die de gebruiker ziet, zodat je uitleg klopt ook als de antwoorden geschud staan. Bv. 'Antwoord {A} is juist omdat…' — als bij die gebruiker A verschoven is naar C, wordt het automatisch 'Antwoord C is juist omdat…'.")}</label><textarea data-f="explanation" data-q="${q.id}" placeholder="Gebruik {A} {B} {C} … om te verwijzen naar antwoord-opties (de app vertaalt automatisch naar de geschudde letters).">${esc(q.explanation||"")}</textarea>
     <label>Herkomst uitleg</label>${srcToggle("es-"+q.id, q.explanation_source)}
     <div class="btnrow"><button class="btn btn-primary btn-sm" data-saveq="${q.id}">Vraag opslaan</button></div>
   </div>`;
@@ -2062,7 +2219,7 @@ function parseQuizMarkdown(text){
     if(/^\*\*Wettekst:\*\*/i.test(line)){ cur.wettekst=line.replace(/^\*\*Wettekst:\*\*/i,"").trim(); field="wettekst"; continue; }
     if(/^\*\*Uitleg:\*\*/i.test(line)){ cur.explanation=line.replace(/^\*\*Uitleg:\*\*/i,"").trim(); field="uitleg"; continue; }
     if(/^\*\*Docent(-toelichting)?:\*\*/i.test(line)){ cur.docent_note=line.replace(/^\*\*Docent(-toelichting)?:\*\*/i,"").trim(); field="docent"; continue; }
-    if(/^\*\*Bron:\*\*/i.test(line)){ cur.source=/ai|robot/i.test(line)?"ai":"mens"; field=null; continue; }
+    if(/^\*\*Bron:\*\*/i.test(line)){ cur.source=/\b(ai|robot)\b/i.test(line)?"ai":"mens"; field=null; continue; }
     if(/^\*\*Gevalideerd:\*\*/i.test(line)){ cur.validated=!/nee|neen|geen|no|uit|false/i.test(line); field=null; continue; }
     if(line===""){
       // lege regel = paragraafgrens in multi-line velden
@@ -2174,7 +2331,10 @@ let visitLogged=false;
 function shouldLogVisit(){
   try{
     const key="quiztet_last_visit_"+(ME&&ME.id||"");
-    const today=new Date().toISOString().slice(0,10);
+    // Lokale datum in plaats van UTC — vermijdt dat een refresh na middernacht
+    // in België (UTC+1/+2) een tweede visit registreert terwijl het pas de volgende dag is voor jou.
+    const d=new Date();
+    const today=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
     if(localStorage.getItem(key)===today) return false;
     localStorage.setItem(key, today);
     return true;

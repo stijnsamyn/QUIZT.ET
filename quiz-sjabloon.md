@@ -45,8 +45,14 @@ FORMAATREGELS (de importer leest hierop)
   • "**Wettekst:**" — de volledige wettekst van de artikels (optioneel; wordt uitklapbaar
     bij de vraag getoond).
   • "**Uitleg:**" — waarom dit antwoord juist is (optioneel, aangeraden).
+    LET OP: de app schudt de antwoordopties per speler. Verwijs in je uitleg dus
+    NOOIT direct naar "antwoord A" of "optie B" (die letter varieert per speler).
+    Gebruik in de plaats {A} {B} {C} … — die worden op runtime vertaald naar de
+    letter die de speler écht ziet.
+    Bv.  "Antwoord {A} is juist omdat art. 34 Sv. bepaalt dat…"
   • "**Docent:**" of "**Docent-toelichting:**" — korte uitleg waarom de docent afwijkt
     van het juridische antwoord (optioneel; enkel zinvol als er ook een [d]-optie is).
+    Ook hier mag je {A} {B} … gebruiken.
   • "**Bron:**" — mens of AI (optioneel; standaard mens).
   • "**Gevalideerd:**" — ja of nee (optioneel; standaard ja). Zet "nee" als er nog
     geen zeker juist antwoord is: de vraag krijgt dan de tag "Niet gevalideerd" en de
@@ -73,8 +79,9 @@ Welke huiszoeking dient te gebeuren tussen 5 uur 's morgens en 21 uur 's avonds?
 - [ ] Huiszoeking op basis van hulpgeroep.
 
 **Wettelijke basis:** Art. 1 Wet 7 juni 1969; Art. 87-90 Sv.
-**Uitleg:** De huiszoeking op basis van een onderzoeksrechterlijk mandaat is gebonden aan
-het wettelijke tijdsvenster (5u–21u). De andere types zijn daar niet aan onderworpen.
+**Uitleg:** Antwoord {C} is juist: de huiszoeking op basis van een onderzoeksrechterlijk
+mandaat is gebonden aan het wettelijke tijdsvenster (5u–21u). De andere types zijn daar
+niet aan onderworpen.
 **Bron:** mens
 
 
@@ -87,7 +94,21 @@ Binnen welke termijn kan je verzet aantekenen na de betekening van het vonnis?
 - [ ] Eén maand.
 
 **Wettelijke basis:** Art. 187 Sv.
-**Uitleg:** Verzet tegen een verstekvonnis moet binnen de vijftien dagen na de betekening.
+**Uitleg:** Antwoord {B} klopt: verzet tegen een verstekvonnis moet binnen de vijftien
+dagen na de betekening.
+**Bron:** mens
+
+
+## Vraag 3 (voorbeeld met docent-verschil)
+Wat is de maximale duur van een gerechtelijke arrestatie (art. 1 WVH)?
+
+- [ ] [ ] 24 uur.
+- [x] [d] 48 uur.
+- [ ] [ ] 72 uur.
+
+**Wettelijke basis:** Art. 1 WVH.
+**Uitleg:** Juridisch is dat antwoord {B} — 48 uur — sinds de grondwetswijziging van 2017.
+**Docent:** Onze docent bevestigt {B} als juist, in overeenstemming met de wet.
 **Bron:** mens
 
 
