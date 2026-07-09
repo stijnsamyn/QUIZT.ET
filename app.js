@@ -57,6 +57,25 @@ const arr = v => Array.isArray(v)?v:(v==null?[]:[v]);
 const setEq = (a,b)=>{ a=arr(a); b=arr(b); if(a.length!==b.length) return false; const s=new Set(a); return b.every(x=>s.has(x)); };
 const inSet = (a,i)=>arr(a).includes(i);
 const lettersOf = idxs => arr(idxs).slice().sort((x,y)=>x-y).map(letter).join(", ")||"—";
+// In een lopende sessie zit de gebruiker naar een geschudde optie-volgorde te kijken.
+// Deze helpers vertalen originele DB-indexen naar de LETTERS die de gebruiker ZELF ziet,
+// zodat vote-bars, flag-pills en het reactie-formulier consistent blijven met de opties bovenaan.
+function displayOrder(qid){ return (PLAY.optOrder && PLAY.optOrder[qid]) || null; }
+function letterForOrig(qid, origIdx){
+  const ord=displayOrder(qid);
+  if(!ord) return letter(origIdx);
+  const pos=ord.indexOf(origIdx);
+  return pos>=0 ? letter(pos) : letter(origIdx);
+}
+function lettersOfForQ(qid, idxs){
+  const ord=displayOrder(qid);
+  const list=arr(idxs);
+  if(!list.length) return "—";
+  if(!ord) return list.slice().sort((a,b)=>a-b).map(letter).join(", ");
+  return list.map(i=>({i, pos:ord.indexOf(i)}))
+    .sort((a,b)=> (a.pos>=0?a.pos:999) - (b.pos>=0?b.pos:999))
+    .map(x=>letter(x.pos>=0?x.pos:x.i)).join(", ");
+}
 
 /* ---------- Statistiek-hulpjes ---------- */
 function scored(events){ return (events||[]).filter(e=>e.is_correct!=null); }  // enkel gevalideerde antwoorden
@@ -1073,10 +1092,11 @@ function openTetris(){
   overlay.addEventListener("click", e=>{ if(e.target===overlay) close(); });
 }
 
-function renderFlagThread(flags, names){
+function renderFlagThread(flags, names, qid){
   // Bouw thread: roots (parent_id null) chronologisch, met children eronder (chronologisch)
   const byParent={ null:[] };
   flags.forEach(f=>{ const p=f.parent_id||"null"; (byParent[p]=byParent[p]||[]).push(f); });
+  const letterFn = qid ? (idxs=>lettersOfForQ(qid, idxs)) : lettersOf;
   const renderOne=(f, depth)=>{
     const isReply=!!f.parent_id;
     const kids=byParent[f.id]||[];
@@ -1086,7 +1106,7 @@ function renderFlagThread(flags, names){
         <span class="pill ${f.type}">${f.type}</span>
         ${f.status==="afgehandeld"?`<span class="pill afgehandeld">afgehandeld</span>`:""}
         <span class="who">${esc(names[f.user_id]||"?")}</span>
-        ${arr(f.preferred_indexes).length?` <span class="muted">· verkiest <strong>${lettersOf(f.preferred_indexes)}</strong></span>`:""}
+        ${arr(f.preferred_indexes).length?` <span class="muted">· verkiest <strong>${letterFn(f.preferred_indexes)}</strong></span>`:""}
         <span class="when">${fmtDate(f.created_at)}</span>
         <button class="btn btn-ghost btn-sm flag-reply-btn" data-reply-to="${f.id}" title="Reageer op deze reactie">Reageer</button>
       </div>
@@ -1120,9 +1140,10 @@ async function renderAfterAnswer(q){
   const myVote=votes[ME.id];
   const dist=(q.options||[]).map((_,i)=>voters.filter(u=>inSet(votes[u],i)).length);
   const wrongVotes=voters.filter(u=>!setEq(votes[u],correct)).length;
-  const bars=(q.options||[]).map((o,i)=>`
-    <div class="spread" style="gap:.5rem"><div class="bar ${correct.includes(i)?"correct":""}" style="flex:1">
-      <span style="width:${pct(dist[i],totV)}%"></span><div class="lab">${letter(i)} — ${pct(dist[i],totV)}% (${dist[i]})</div></div></div>`).join("");
+  const displayIdxs = displayOrder(q.id) || (q.options||[]).map((_,i)=>i);
+  const bars=displayIdxs.map((origIdx,pos)=>`
+    <div class="spread" style="gap:.5rem"><div class="bar ${correct.includes(origIdx)?"correct":""}" style="flex:1">
+      <span style="width:${pct(dist[origIdx],totV)}%"></span><div class="lab">${letter(pos)} — ${pct(dist[origIdx],totV)}% (${dist[origIdx]})</div></div></div>`).join("");
 
   // docent-consensus uit flags met type=docent (voor als er nog geen officieel docent_indexes is)
   const docentFlags=(flags||[]).filter(f=>f.type==="docent" && arr(f.preferred_indexes).length);
@@ -1135,7 +1156,7 @@ async function renderAfterAnswer(q){
   const docentBlock=(hasOfficialDocent || hasDocentConsensus) ? (()=>{
     const idxs = hasOfficialDocent ? officialDocent : Object.keys(docentVotes).map(Number).sort((a,b)=>docentVotes[b]-docentVotes[a]);
     const differs = !setEq(idxs, arr(q.correct_indexes));
-    const items=idxs.map(i=>`<li><strong>${letter(i)}.</strong> ${esc((q.options||[])[i]||"")}</li>`).join("");
+    const items=idxs.map(i=>`<li><strong>${letterForOrig(q.id, i)}.</strong> ${esc((q.options||[])[i]||"")}</li>`).join("");
     const src = hasOfficialDocent
       ? `<span class="docent-src">Officieel genoteerd door beheerder</span>`
       : `<span class="docent-src">Op basis van ${docentUsers.size} melding${docentUsers.size===1?"":"en"} door spelers — nog niet officieel bevestigd</span>`;
@@ -1167,7 +1188,7 @@ async function renderAfterAnswer(q){
         <div id="reactPref" hidden>
           <label id="rPrefLabel">Welk antwoord vind jij dan juist?</label>
           <div class="opref-list">
-            ${(q.options||[]).map((o,i)=>`<label class="opref-item"><input type="checkbox" class="opref" value="${i}" ${myVote&&inSet(myVote,i)?"checked":""}><span><strong>${letter(i)}.</strong> ${esc(o)}</span></label>`).join("")}
+            ${((displayOrder(q.id)||(q.options||[]).map((_,i)=>i)).map((origIdx,pos)=>`<label class="opref-item"><input type="checkbox" class="opref" value="${origIdx}" ${myVote&&inSet(myVote,origIdx)?"checked":""}><span><strong>${letter(pos)}.</strong> ${esc((q.options||[])[origIdx]||"")}</span></label>`)).join("")}
           </div>
         </div>
         <div id="reactComment" hidden>
@@ -1180,7 +1201,7 @@ async function renderAfterAnswer(q){
     <details ${(flags&&flags.length)?"open":""}><summary>${ICON.flag} Reacties (${(flags||[]).length}) <span class="muted" style="font-size:.72rem;font-weight:400">— oudste eerst</span></summary>
       <div class="body">
         ${totV?`<label>Collectief beeld — ${wrongVotes} van de ${totV} die reageerden verkiest een ander antwoord dan het huidige${totV>=5?` (${pct(wrongVotes,totV)}%)`:""}</label>${bars}<hr>`:""}
-        <div id="flagThread">${renderFlagThread(flags||[], names)}</div>
+        <div id="flagThread">${renderFlagThread(flags||[], names, q.id)}</div>
       </div></details>
 
     <details><summary>${ICON.clock} Wijzigingshistoriek (${(edits||[]).length})</summary>
