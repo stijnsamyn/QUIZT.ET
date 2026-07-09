@@ -390,24 +390,52 @@ function orderQuestions(all, answers, mode){
 // Speelvoorkeuren per gebruiker onthouden (browser)
 function loadPrefs(){ try{ return JSON.parse(localStorage.getItem("quiztet_play")||"{}"); }catch(e){ return {}; } }
 function savePrefs(p){ try{ localStorage.setItem("quiztet_play", JSON.stringify(p)); }catch(e){} }
-// Sessie-persistentie zodat browser-back / tab-close / crash je niet doet verliezen
+// Sessie-persistentie zodat browser-back / tab-close / crash je niet doet verliezen,
+// en synchronisatie met Supabase zodat je gsm en laptop dezelfde sessie zien.
 const SESSION_KEY = qid => `quiztet_session_${qid}`;
+let _sessionSyncTimer=null;
+function currentSessionState(){
+  return {
+    quizId:PLAY.quiz.id, session:PLAY.session||{}, mode:PLAY.mode||"slim",
+    questionIds:PLAY.questions.map(q=>q.id), i:PLAY.i||0,
+    answers:PLAY.answers||{}, optOrder:PLAY.optOrder||{},
+    ts:Date.now(),
+  };
+}
 function saveSession(){
   if(!PLAY.quiz || !PLAY.questions) return;
-  try{
-    const state={
-      quizId:PLAY.quiz.id, session:PLAY.session||{}, mode:PLAY.mode||"slim",
-      questionIds:PLAY.questions.map(q=>q.id), i:PLAY.i||0,
-      answers:PLAY.answers||{}, optOrder:PLAY.optOrder||{},
-      ts:Date.now(),
-    };
-    localStorage.setItem(SESSION_KEY(PLAY.quiz.id), JSON.stringify(state));
-  }catch(e){}
+  const state=currentSessionState();
+  try{ localStorage.setItem(SESSION_KEY(PLAY.quiz.id), JSON.stringify(state)); }catch(e){}
+  // debounced upsert naar Supabase — één schrijfactie per seconde is meer dan genoeg
+  clearTimeout(_sessionSyncTimer);
+  _sessionSyncTimer=setTimeout(()=>{
+    sb.from("play_sessions").upsert({ user_id:ME.id, quiz_id:PLAY.quiz.id, state, updated_at:new Date().toISOString() },{ onConflict:"user_id,quiz_id" }).then(()=>{},()=>{});
+  }, 800);
 }
-function loadSession(quizId){
+function loadLocalSession(quizId){
   try{ const raw=localStorage.getItem(SESSION_KEY(quizId)); return raw?JSON.parse(raw):null; }catch(e){ return null; }
 }
-function clearSession(quizId){ try{ localStorage.removeItem(SESSION_KEY(quizId)); }catch(e){} }
+async function loadRemoteSession(quizId){
+  try{
+    const { data } = await sb.from("play_sessions").select("state,updated_at").eq("user_id",ME.id).eq("quiz_id",quizId).maybeSingle();
+    if(!data) return null;
+    // updated_at heeft prioriteit als tijdstempel — vervangt state.ts
+    const state=data.state||{};
+    state.ts = new Date(data.updated_at).getTime();
+    return state;
+  }catch(e){ return null; }
+}
+async function loadSession(quizId){
+  // Neem de nieuwste van beide (lokaal + remote)
+  const [local, remote] = await Promise.all([Promise.resolve(loadLocalSession(quizId)), loadRemoteSession(quizId)]);
+  if(local && remote) return (local.ts||0) >= (remote.ts||0) ? local : remote;
+  return local || remote || null;
+}
+function clearSession(quizId){
+  try{ localStorage.removeItem(SESSION_KEY(quizId)); }catch(e){}
+  clearTimeout(_sessionSyncTimer);
+  sb.from("play_sessions").delete().eq("user_id",ME.id).eq("quiz_id",quizId).then(()=>{},()=>{});
+}
 function humanAgo(ms){ const s=Math.round((Date.now()-ms)/1000);
   if(s<60) return "net"; if(s<3600) return Math.round(s/60)+" min geleden";
   if(s<86400) return Math.round(s/3600)+" u geleden"; return Math.round(s/86400)+" d geleden"; }
@@ -416,6 +444,7 @@ async function viewPlay(quizId){
   if(!quiz){ app.innerHTML=`<div class="empty">Quiz niet gevonden.</div>`; return; }
   const { data:questions } = await sb.from("questions").select("*").eq("quiz_id",quizId).order("sort_order");
   PLAY.quiz=quiz; PLAY.all=questions||[]; PLAY.i=0; PLAY.answers={}; PLAY.history={}; PLAY.everWrong=new Set();
+  PLAY.savedSession = await loadSession(quizId);
   const ids=PLAY.all.map(q=>q.id);
   if(ids.length){
     const [{data:mine},{data:wrongEvents}]=await Promise.all([
@@ -438,9 +467,9 @@ async function viewPlay(quizId){
   } else renderPlaySetup();
 }
 
-// Herstel een eerder onderbroken sessie uit localStorage
+// Herstel een eerder onderbroken sessie (uit cache van viewPlay)
 function resumeSavedSession(){
-  const saved=loadSession(PLAY.quiz.id);
+  const saved=PLAY.savedSession;
   if(!saved || !saved.questionIds || !saved.questionIds.length){ clearSession(PLAY.quiz.id); return; }
   const byId={}; PLAY.all.forEach(q=>byId[q.id]=q);
   const restored=saved.questionIds.map(id=>byId[id]).filter(Boolean);
@@ -497,12 +526,12 @@ function renderPlaySetup(){
     const n=custom>0?custom:(size==="alle"?total:parseInt(size,10));
     return `Je start met <strong>${n}</strong> ${focusLabel(focus)}, ${orderLabel(order)}.`;
   };
-  const saved=loadSession(PLAY.quiz.id);
+  const saved=PLAY.savedSession;
   const savedValid = saved && saved.questionIds && saved.questionIds.length && (saved.i||0) < saved.questionIds.length;
   const resumeBanner = savedValid ? `<div class="resume-banner">
     <div>
       <strong>${ICON.clock} Je had een sessie aan de gang</strong>
-      <div class="muted" style="font-size:.82rem">Vraag ${(saved.i||0)+1} van ${saved.questionIds.length} · ${humanAgo(saved.ts||Date.now())}</div>
+      <div class="muted" style="font-size:.82rem">Vraag ${(saved.i||0)+1} van ${saved.questionIds.length} · ${humanAgo(saved.ts||Date.now())} · synchroon op al je toestellen</div>
     </div>
     <div class="btnrow" style="margin:0">
       <button class="btn btn-primary btn-sm" id="resumeBtn">Hervat sessie</button>
