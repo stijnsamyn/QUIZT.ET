@@ -498,8 +498,11 @@ summary .ico,button .ico{color:inherit}
 /* voortgang */
 .progress{margin:.4rem 0 1rem}
 .progress .bar{height:24px}
+.progress-line{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}
+.progress-dots{display:flex;gap:.4rem;flex-shrink:0}
+.dot-count{display:inline-flex;align-items:center;gap:.25rem;font-size:.82rem;font-weight:700;color:var(--text)}
 .progress-legend{display:flex;align-items:center;gap:.5rem 1rem;flex-wrap:wrap;font-size:.8rem;color:var(--text-muted);margin-top:.4rem}
-.dot{display:inline-block;width:.7rem;height:.7rem;border-radius:99px;vertical-align:-1px;margin-right:.1rem}
+.dot{display:inline-block;width:.75rem;height:.75rem;border-radius:99px;vertical-align:-1px}
 .dot.ok{background:var(--correct)} .dot.bad{background:var(--wrong)} .dot.none{background:var(--border)} .dot.warn{background:var(--warn)}
 
 /* tags + info-tooltip */

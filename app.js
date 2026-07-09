@@ -849,17 +849,15 @@ async function renderQuestion(){
     <h1 style="font-size:1.2rem;margin:.6rem 0 .4rem">${esc(PLAY.quiz.title)}</h1>
     <div class="progress">
       <div class="muted" style="font-size:.75rem;margin-bottom:.15rem">Voortgang in deze sessie</div>
-      <div class="bar"><span style="width:${pct(answeredN,total)}%"></span><div class="lab">Beantwoord ${answeredN}/${total}</div></div>
-      <div class="progress-legend">
-        <span class="dot ok"></span> Juist: ${correctN}
-        <span class="dot bad"></span> Fout: ${wrongN}
-        ${overlegN?`<span class="dot warn"></span> In overleg: ${overlegN}`:""}
-        <span class="dot none"></span> Nog te doen: ${unanswered}
-        ${allDone?`<span class="pill" style="background:var(--correct-soft);color:var(--correct)">${ICON.check} Sessie voltooid</span>`:""}
-        <span style="margin-left:auto"></span>
-        <span class="muted">Volgorde:</span>
-        <button class="chip-toggle ${PLAY.mode==="slim"?"active":""}" data-mode="slim" title="Nooit-beantwoorde vragen krijgen voorrang, dan fout beantwoorde">Slim oefenen</button>
-        <button class="chip-toggle ${PLAY.mode==="nummer"?"active":""}" data-mode="nummer">Op nummer</button>
+      <div class="progress-line">
+        <div class="bar" style="flex:1"><span style="width:${pct(answeredN,total)}%"></span><div class="lab">Beantwoord ${answeredN}/${total}</div></div>
+        <div class="progress-dots" title="Juist / Fout${overlegN?" / In overleg":""} / Nog te doen">
+          <span class="dot-count"><span class="dot ok"></span>${correctN}</span>
+          <span class="dot-count"><span class="dot bad"></span>${wrongN}</span>
+          ${overlegN?`<span class="dot-count"><span class="dot warn"></span>${overlegN}</span>`:""}
+          <span class="dot-count"><span class="dot none"></span>${unanswered}</span>
+        </div>
+        ${allDone?`<span class="pill" style="background:var(--correct-soft);color:var(--correct);white-space:nowrap">${ICON.check} Sessie voltooid</span>`:""}
       </div>
     </div>
     <div class="btnrow" style="margin-bottom:.8rem">
