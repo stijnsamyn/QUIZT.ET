@@ -561,10 +561,11 @@ function renderPlaySetup(){
   };
   const saved=PLAY.savedSession;
   const savedValid = saved && saved.questionIds && saved.questionIds.length && (saved.i||0) < saved.questionIds.length;
+  const savedAnsCount = saved && saved.answers ? Object.keys(saved.answers).length : 0;
   const resumeBanner = savedValid ? `<div class="resume-banner">
     <div>
       <strong>${ICON.clock} Je had een sessie aan de gang</strong>
-      <div class="muted" style="font-size:.82rem">Vraag ${(saved.i||0)+1} van ${saved.questionIds.length} · ${humanAgo(saved.ts||Date.now())} · synct automatisch tussen je toestellen</div>
+      <div class="muted" style="font-size:.82rem">Positie: vraag ${(saved.i||0)+1}/${saved.questionIds.length} · <strong>${savedAnsCount} beantwoord</strong> · ${humanAgo(saved.ts||Date.now())} · synct tussen je toestellen</div>
     </div>
     <div class="btnrow" style="margin:0">
       <button class="btn btn-primary btn-sm" id="resumeBtn">Hervat sessie</button>
