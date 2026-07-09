@@ -1570,7 +1570,8 @@ async function viewStatsGebruikers(){
     sb.from("user_stats_public").select("*"),
   ]);
   const statsById={}; (userStats||[]).forEach(s=>statsById[s.user_id]=s);
-  const agg={}; (profiles||[]).forEach(p=>{ const s=statsById[p.id]||{}; agg[p.id]={p,ans:s.n_answers||0,correct:s.n_correct||0,flags:s.n_flags||0,visits:s.n_visits||0}; });
+  // We tonen antwoord-EVENTS (elke poging, ook herhaald), niet enkel unieke vragen
+  const agg={}; (profiles||[]).forEach(p=>{ const s=statsById[p.id]||{}; agg[p.id]={p,ans:s.n_events||0,correct:s.n_events_correct||0,flags:s.n_flags||0,visits:s.n_visits||0,unique:s.n_answers||0}; });
   const all=Object.values(agg);
   // cohort-overzicht
   const byCohort={}; all.forEach(r=>{ const c=r.p.cohort||"—"; (byCohort[c]=byCohort[c]||{n:0,ans:0,correct:0,visits:0}); byCohort[c].n++; byCohort[c].ans+=r.ans; byCohort[c].correct+=r.correct; byCohort[c].visits+=r.visits; });
@@ -1578,14 +1579,14 @@ async function viewStatsGebruikers(){
   let filter="__alle";
   let uSort={key:"ans", dir:"desc"};
   let cSort={key:"name", dir:"asc"};
-  const uKeyOf=(r,k)=>({name:(r.p.display_name||"").toLowerCase(), cohort:(r.p.cohort||"").toLowerCase(), role:r.p.role, ans:r.ans, pctc:r.ans?r.correct/r.ans*100:-1, visits:r.visits, flags:r.flags})[k];
+  const uKeyOf=(r,k)=>({name:(r.p.display_name||"").toLowerCase(), cohort:(r.p.cohort||"").toLowerCase(), role:r.p.role, ans:r.ans, unique:r.unique, pctc:r.ans?r.correct/r.ans*100:-1, visits:r.visits, flags:r.flags})[k];
   const cKeyOf=(r,k)=>({name:(r.name||"").toLowerCase(), n:r.n, ans:r.ans, pctc:r.pctc, visits:r.visits})[k];
   const cmp=(a,b,dir)=>{ if(a<b)return dir==="asc"?-1:1; if(a>b)return dir==="asc"?1:-1; return 0; };
   const arrow=(col,st)=>st.key===col?` <span class="muted" style="font-size:.72rem">${st.dir==="asc"?"▲":"▼"}</span>`:"";
   const drawU=()=>{
     const rows=all.filter(r=>filter==="__alle"||(r.p.cohort||"—")===filter).slice().sort((a,b)=>cmp(uKeyOf(a,uSort.key),uKeyOf(b,uSort.key),uSort.dir));
     document.getElementById("guBody").innerHTML=rows.map(r=>`<tr><td>${esc(r.p.display_name)}</td><td>${esc(r.p.cohort||"—")}</td><td><span class="role ${r.p.role}">${r.p.role}</span></td>
-      <td>${r.ans}</td><td>${r.ans?pct(r.correct,r.ans)+"%":"—"}</td><td>${r.visits}</td><td>${r.flags}</td></tr>`).join("");
+      <td>${r.ans}</td><td class="muted">${r.unique}</td><td>${r.ans?pct(r.correct,r.ans)+"%":"—"}</td><td>${r.visits}</td><td>${r.flags}</td></tr>`).join("");
     document.querySelectorAll("[data-coh]").forEach(b=>b.classList.toggle("active",b.dataset.coh===filter));
     document.querySelectorAll("[data-usort]").forEach(t=>t.innerHTML=t.dataset.label+arrow(t.dataset.usort,uSort));
   };
@@ -1600,6 +1601,7 @@ async function viewStatsGebruikers(){
   app.innerHTML=`
     <h1>Gebruikersstatistiek</h1>
     <p class="muted">Publiek zichtbaar. Klik op een kolomkop om te sorteren.</p>
+    <p class="muted" style="font-size:.82rem"><strong>Beantwoord</strong> = totaal aantal keer dat de speler een vraag beantwoord heeft (herhalingen tellen mee). <strong>Uniek</strong> = aantal verschillende vragen die de speler ooit beantwoord heeft (max = totaal aantal vragen).</p>
     <h2>Per oorsprong</h2>
     <div class="card" style="padding:.3rem"><table>
       <thead><tr>${thC("name","Oorsprong")}${thC("n","Gebruikers")}${thC("ans","Antwoorden")}${thC("pctc","Gem. % correct")}${thC("visits","Bezoeken")}</tr></thead>
@@ -1607,7 +1609,7 @@ async function viewStatsGebruikers(){
     <h2>Gebruikers</h2>
     <div class="filterbar"><span class="muted">Oorsprong:</span>${cohorts.map(c=>`<button class="chip-toggle" data-coh="${esc(c)}">${c==="__alle"?"alle":esc(c)}</button>`).join("")}</div>
     <div class="card" style="padding:.3rem"><table>
-      <thead><tr>${thU("name","Naam")}${thU("cohort","Oorsprong")}${thU("role","Rol")}${thU("ans","Beantwoord")}${thU("pctc","% correct")}${thU("visits","Bezoeken")}${thU("flags","Reacties")}</tr></thead>
+      <thead><tr>${thU("name","Naam")}${thU("cohort","Oorsprong")}${thU("role","Rol")}${thU("ans","Beantwoord")}${thU("unique","Uniek")}${thU("pctc","% correct")}${thU("visits","Bezoeken")}${thU("flags","Reacties")}</tr></thead>
       <tbody id="guBody"></tbody></table></div>`;
   app.querySelectorAll("[data-coh]").forEach(b=>b.onclick=()=>{ filter=b.dataset.coh; drawU(); });
   app.querySelectorAll("[data-usort]").forEach(t=>t.onclick=()=>{ const k=t.dataset.usort; uSort.dir=(uSort.key===k&&uSort.dir==="desc")?"asc":"desc"; uSort.key=k; drawU(); });
