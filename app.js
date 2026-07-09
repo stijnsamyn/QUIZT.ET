@@ -1180,19 +1180,73 @@ function openTetris(){
   overlay.addEventListener("click", e=>{ if(e.target===overlay) close(); });
 }
 
+// Popup waarin een schrijver een antwoord aanklikt om {X}, {juist} of {docent} in te voegen
+function openRefPicker(qid, targetTextarea){
+  const q = (PLAY.all||[]).find(x=>x.id===qid);
+  if(!q){ toast("Vraag niet geladen","err"); return; }
+  const correct = arr(q.correct_indexes);
+  const docent = arr(q.docent_indexes);
+  const docentDiffers = docent.length>0 && !setEq(docent,correct);
+  const overlay=document.createElement("div");
+  overlay.className="modes-overlay ref-picker-overlay";
+  overlay.innerHTML=`<div class="modes-modal ref-picker-modal" role="dialog" aria-label="Verwijs naar een antwoord">
+    <div class="modes-hd">
+      <div class="modes-title">${ICON.info} Klik op het antwoord waarnaar je wil verwijzen</div>
+      <button class="tetris-close" id="rpClose" aria-label="Sluiten">×</button>
+    </div>
+    <div class="modes-body">
+      <p class="muted" style="font-size:.85rem;margin-bottom:.6rem">Klik om de bijhorende <code>{...}</code>-token in te voegen. De app vertaalt die op de leesscherm naar de letter die de lezer <em>echt</em> ziet, zelfs als de opties bij hem geschud zijn.</p>
+      <h3 style="font-size:.9rem;margin:.5rem 0 .3rem">Speciale verwijzingen</h3>
+      <div class="ref-picker-list">
+        <button type="button" class="ref-picker-opt special" data-token="{juist}">
+          <span class="rp-letter">✓</span>
+          <span class="rp-text"><strong>Het juiste antwoord</strong> — verwijst altijd naar wat correct is voor deze vraag${correct.length?` (nu: ${correct.map(i=>letter(i)+". "+(q.options||[])[i]).join(" · ")})`:""}</span>
+          <span class="rp-token">{juist}</span>
+        </button>
+        ${docentDiffers?`<button type="button" class="ref-picker-opt special docent" data-token="{docent}">
+          <span class="rp-letter">👨‍🏫</span>
+          <span class="rp-text"><strong>Antwoord van de docent</strong> — ${docent.map(i=>letter(i)+". "+(q.options||[])[i]).join(" · ")}</span>
+          <span class="rp-token">{docent}</span>
+        </button>`:""}
+      </div>
+      <h3 style="font-size:.9rem;margin:.9rem 0 .3rem">Individuele opties (vaste volgorde)</h3>
+      <div class="ref-picker-list">${(q.options||[]).map((o,i)=>`
+        <button type="button" class="ref-picker-opt ${correct.includes(i)?"is-correct":""} ${docentDiffers&&docent.includes(i)?"is-docent":""}" data-token="{${letter(i)}}">
+          <span class="rp-letter">${letter(i)}</span>
+          <span class="rp-text">${esc(o)}${correct.includes(i)?` <span class="pill juist" style="margin-left:.3rem">juist</span>`:""}${docentDiffers&&docent.includes(i)?` <span class="pill" style="margin-left:.3rem;background:rgba(192,38,211,.12);color:#a21caf">docent</span>`:""}</span>
+          <span class="rp-token">{${letter(i)}}</span>
+        </button>`).join("")}</div>
+      <p class="muted" style="font-size:.75rem;margin-top:.7rem">Tip: klik meerdere keren om meerdere tokens achter elkaar in te voegen. Sluit dan het venster (Esc of ×).</p>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+  const insertToken=(token)=>{
+    if(!targetTextarea) return;
+    const start=targetTextarea.selectionStart, end=targetTextarea.selectionEnd;
+    const v=targetTextarea.value;
+    // Voeg een spatie voor de token toe als de voorafgaande char niet whitespace/newline is
+    const pre=(start>0 && !/\s/.test(v[start-1]))?" ":"";
+    const ins=pre+token;
+    targetTextarea.value=v.slice(0,start)+ins+v.slice(end);
+    const pos=start+ins.length;
+    // focus terug op textarea zonder popup te sluiten
+    targetTextarea.focus(); targetTextarea.setSelectionRange(pos,pos);
+  };
+  overlay.querySelectorAll("[data-token]").forEach(b=>b.onclick=()=>insertToken(b.dataset.token));
+  const close=()=>{ overlay.remove(); window.removeEventListener("keydown",onKey); };
+  const onKey=e=>{ if(e.key==="Escape") close(); };
+  overlay.querySelector("#rpClose").onclick=close;
+  overlay.addEventListener("click",e=>{ if(e.target===overlay) close(); });
+  window.addEventListener("keydown",onKey);
+}
+
 function renderFlagThread(flags, names, qid){
   // Bouw thread: roots (parent_id null) chronologisch, met children eronder (chronologisch)
   const byParent={ null:[] };
   flags.forEach(f=>{ const p=f.parent_id||"null"; (byParent[p]=byParent[p]||[]).push(f); });
   const letterFn = qid ? (idxs=>lettersOfForQ(qid, idxs)) : lettersOf;
-  // Vaste-volgorde referentie: helpt schrijvers om de juiste {X} te kiezen
-  const qObj = (PLAY.all||[]).find(x=>x.id===qid);
-  const refPanel = qObj ? `<details class="ref-order-panel"><summary>${ICON.info} Toon opties in vaste volgorde (om te weten welke {A}, {B}… je moet typen)</summary>
-    <div class="ref-order-body">
-      <p class="muted" style="font-size:.72rem;margin-bottom:.3rem">Bij het spelen worden de opties door elkaar geschud. Dit lijstje toont ze zoals ze in de database staan, zodat je zeker weet welke letter je moet gebruiken.</p>
-      <ol class="ref-order-list">${(qObj.options||[]).map((o,i)=>`<li><code>{${letter(i)}}</code> = <span>${esc(o)}</span></li>`).join("")}</ol>
-    </div>
-  </details>` : "";
+  // Klikbare popup-knop die de juiste {X} in de textarea invoegt
+  const refPanel = qid ? `<div class="btnrow" style="margin:.3rem 0"><button type="button" class="btn btn-ghost btn-sm ref-picker-btn" data-ref-picker-for="${qid}">${ICON.info} Verwijs naar een antwoord…</button></div>` : "";
   const renderOne=(f, depth)=>{
     const isReply=!!f.parent_id;
     const kids=byParent[f.id]||[];
@@ -1312,15 +1366,9 @@ async function renderAfterAnswer(q){
           <textarea id="rMot" placeholder="Leg uit waarom…"></textarea>
           <div class="ref-hint">
             <div><strong>⚠️ Let op:</strong> schrijf <em>niet</em> "antwoord C" of "de derde optie" — bij een andere speler staan de letters in een andere volgorde na de shuffle. "Antwoord C" is voor niemand hetzelfde als voor jou.</div>
-            <div style="margin-top:.3rem">💡 <strong>Gebruik in de plaats:</strong> <code>{A}</code>, <code>{B}</code>, <code>{C}</code> … (verwijst naar de optie op die positie in de editor), <code>{juist}</code> (naar het juiste antwoord), <code>{docent}</code> (naar wat de docent koos). De app vertaalt automatisch naar de letter die elke lezer <em>echt</em> ziet.</div>
+            <div style="margin-top:.3rem">💡 <strong>Gebruik in de plaats</strong> de knop hieronder — klik op het antwoord en de juiste <code>{...}</code>-token wordt automatisch ingevoegd.</div>
           </div>
-          <details class="ref-order-panel">
-            <summary>${ICON.info} Toon opties in vaste volgorde (om te weten welke {A}, {B}… je moet typen)</summary>
-            <div class="ref-order-body">
-              <p class="muted" style="font-size:.72rem;margin-bottom:.3rem">Bij het spelen worden de opties door elkaar geschud. Dit lijstje toont ze zoals ze in de database staan, zodat je zeker weet welke letter je moet gebruiken.</p>
-              <ol class="ref-order-list">${(q.options||[]).map((o,i)=>`<li><code>{${letter(i)}}</code> = <span>${esc(o)}</span></li>`).join("")}</ol>
-            </div>
-          </details>
+          <div class="btnrow" style="margin:.3rem 0"><button type="button" class="btn btn-ghost btn-sm ref-picker-btn" data-ref-picker-for="${q.id}" data-target="rMot">${ICON.info} Verwijs naar een antwoord…</button></div>
         </div>
         <div class="btnrow" id="reactSubmitRow" hidden><button class="btn btn-primary btn-sm" id="rSubmit">Versturen</button></div>
       </div></details>
@@ -1407,6 +1455,16 @@ async function renderAfterAnswer(q){
     const { error }=await sb.from("flags").update({ toelichting:text }).eq("id",id).eq("user_id",ME.id);
     if(error) return toast(error.message,"err");
     toast("Reactie bijgewerkt","ok"); renderAfterAnswer(q);
+  });
+  // Verwijs-naar-antwoord popup — vind de meest relevante textarea
+  box.querySelectorAll(".ref-picker-btn").forEach(b=>b.onclick=()=>{
+    const qid=b.dataset.refPickerFor;
+    // Bepaal welke textarea target moet zijn: expliciete data-target, anders zoek in dezelfde form
+    let ta=null;
+    if(b.dataset.target){ ta=document.getElementById(b.dataset.target); }
+    if(!ta){ const form=b.closest("[data-reply-form-for],[data-edit-form-for]"); if(form) ta=form.querySelector("textarea"); }
+    if(!ta){ ta=box.querySelector("#rMot"); }
+    openRefPicker(qid, ta);
   });
   // Eigen reactie verwijderen
   box.querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{

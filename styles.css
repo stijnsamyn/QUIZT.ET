@@ -201,6 +201,31 @@ details .body{padding:.3rem .9rem .9rem}
 .ref-order-list{margin:0;padding-left:1.2rem;font-size:.82rem;line-height:1.55}
 .ref-order-list li{margin:.15rem 0;color:var(--text)}
 .ref-order-list code{background:var(--accent-soft);color:var(--accent-dark);padding:.05rem .35rem;border-radius:3px;font-size:.85em;font-weight:700}
+
+/* Ref-picker popup */
+.ref-picker-modal{max-width:640px}
+.ref-picker-list{display:flex;flex-direction:column;gap:.4rem}
+.ref-picker-opt{display:flex;align-items:center;gap:.7rem;padding:.65rem .8rem;text-align:left;
+  background:var(--surface);border:1px solid var(--border);border-radius:8px;cursor:pointer;
+  font:inherit;font-size:.88rem;color:var(--text);width:100%}
+.ref-picker-opt:hover{background:var(--accent-soft);border-color:var(--accent);transform:translateX(2px)}
+.ref-picker-opt:active{transform:translateX(2px) scale(.99)}
+.ref-picker-opt.is-correct{background:var(--correct-soft);border-color:var(--correct)}
+.ref-picker-opt.is-correct:hover{background:rgba(22,128,61,.18)}
+.ref-picker-opt.is-docent{box-shadow:inset 3px 0 0 #c026d3}
+.ref-picker-opt.special{background:linear-gradient(90deg, var(--correct-soft), var(--surface));border-color:var(--correct)}
+.ref-picker-opt.special.docent{background:linear-gradient(90deg, rgba(192,38,211,.1), var(--surface));border-color:#c026d3}
+.rp-letter{flex-shrink:0;width:2rem;height:2rem;display:inline-flex;align-items:center;justify-content:center;
+  background:var(--accent-soft);color:var(--accent-dark);border-radius:6px;font-weight:800;font-size:.95rem}
+.ref-picker-opt.is-correct .rp-letter{background:var(--correct);color:#fff}
+.ref-picker-opt.special .rp-letter{background:var(--correct);color:#fff;font-size:1.1rem}
+.ref-picker-opt.special.docent .rp-letter{background:#c026d3;color:#fff}
+.rp-text{flex:1;line-height:1.4}
+.rp-token{flex-shrink:0;background:var(--surface2);color:var(--text-muted);padding:.15rem .5rem;
+  border-radius:99px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.72rem;font-weight:700}
+.ref-picker-opt:hover .rp-token{background:var(--accent);color:#fff}
+
+/* Oude inline-panel styling niet meer gebruikt maar houd achter voor safety */
 .ref-hint{margin:.4rem 0;padding:.5rem .7rem;background:var(--warn-soft);
   border-left:3px solid var(--warn);border-radius:6px;font-size:.78rem;line-height:1.5;color:var(--text)}
 .ref-hint code{background:var(--surface);padding:.05rem .3rem;border-radius:3px;font-size:.8em;font-weight:700;color:var(--accent-dark)}
