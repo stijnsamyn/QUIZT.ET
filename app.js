@@ -2601,12 +2601,16 @@ function renderTestPreview(q, chosen){
   const opts=(q.options||[]).map((o,i)=>{
     let cls="opt";
     if(answered){ cls+=" disabled";
-      if(validated){ if(correct.includes(i)) cls+=" correct"; else if(inSet(chosen,i)) cls+=" wrong"; }
+      // In de test-preview: toon altijd het correcte antwoord in groen — ook bij niet-gevalideerde
+      // vragen wil de beheerder zien wat er bedoeld is.
+      if(correct.includes(i)) cls+=" correct";
+      else if(inSet(chosen,i)) cls+=" wrong";
       if(docentDiffers && docent.includes(i)) cls+=" docent";
     }
     const docentBadge = answered && docentDiffers && docent.includes(i) ? `<span class="opt-doc" title="Volgens de docent">👨‍🏫</span>` : "";
+    const correctBadge = answered && correct.includes(i) ? srcBadge(validated?"Juist antwoord":"Bedoeld als juist (niet gevalideerd)", q.answer_source) : "";
     const box = (!answered && multi) ? `<input type="checkbox" class="test-mopt" value="${i}" style="width:auto;margin-top:.15rem">` : "";
-    return `<div class="${cls}" data-test-opt="${i}">${box}<span class="letter">${letter(i)}</span><span>${esc(o)} ${answered&&validated&&correct.includes(i)?srcBadge("Juist antwoord",q.answer_source):""}${docentBadge}</span></div>`;
+    return `<div class="${cls}" data-test-opt="${i}">${box}<span class="letter">${letter(i)}</span><span>${esc(o)} ${correctBadge}${docentBadge}</span></div>`;
   }).join("");
   const isRightNow = answered ? (validated ? setEq(chosen, correct) : null) : null;
   const statusPill = answered
