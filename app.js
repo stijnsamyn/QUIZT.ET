@@ -1447,7 +1447,13 @@ async function viewAccount(){
     <h2>Mijn reacties (${(flags||[]).length})</h2>
     <div class="stack">
       ${(flags||[]).map(f=>`<div class="card"><div class="spread"><div><span class="pill ${f.type}">${f.type}</span> ${arr(f.preferred_indexes).length?`<span class="muted">· verkiest <strong>${lettersOf(f.preferred_indexes)}</strong></span> `:""}${qlink(f.question_id)} <span class="when">${fmtDate(f.created_at)}</span>${f.toelichting?`<div>${esc(f.toelichting)}</div>`:""}</div><button class="btn btn-danger btn-sm" data-delflag="${f.id}">Verwijderen</button></div></div>`).join("")||`<p class="muted">Je hebt nog geen reacties geplaatst.</p>`}
-    </div>`;
+    </div>
+    ${isEditor()?`
+    <h2>Beheerdershandleiding</h2>
+    <div class="card">
+      <button class="btn btn-primary btn-sm" id="beheerHelpBtn">${ICON.info} Wat kan ik als ${isAdmin()?"admin":"beheerder"} doen?</button>
+      <span class="muted" style="font-size:.82rem;margin-left:.5rem">Overzicht van al je bevoegdheden en waar ze zich bevinden.</span>
+    </div>`:""}`;
   document.getElementById("saveProfile").onclick=async()=>{
     const cohort=document.getElementById("accCohort").value.trim();
     const { error }=await sb.from("profiles").update({ cohort }).eq("id",ME.id);
@@ -1464,6 +1470,106 @@ async function viewAccount(){
   };
   app.querySelectorAll("[data-q]").forEach(a=>a.onclick=()=>PLAY_goto(a.dataset.quiz, a.dataset.q));
   app.querySelectorAll("[data-delflag]").forEach(b=>b.onclick=async()=>{ if(!confirm("Deze reactie verwijderen?"))return; const {error}=await sb.from("flags").delete().eq("id",b.dataset.delflag); if(error)return toast(error.message,"err"); toast("Verwijderd","ok"); viewAccount(); });
+  const bh=document.getElementById("beheerHelpBtn"); if(bh) bh.onclick=openBeheerManual;
+}
+
+function openBeheerManual(){
+  const admin=isAdmin();
+  const overlay=document.createElement("div");
+  overlay.className="modes-overlay";
+  overlay.innerHTML=`<div class="modes-modal" role="dialog" aria-label="Beheerdershandleiding">
+    <div class="modes-hd">
+      <div class="modes-title">${ICON.info} Handleiding voor ${admin?"admin":"beheerder"}</div>
+      <button class="tetris-close" id="bhClose" aria-label="Sluiten">×</button>
+    </div>
+    <div class="modes-body">
+      <p class="muted">Als <strong>${admin?"admin":"beheerder"}</strong> zie je enkele extra opties in de app. Hieronder vind je waar ze zitten en wat ze doen.</p>
+
+      <h3>Waar vind je je beheerdersfuncties?</h3>
+      <ul>
+        <li><strong>Beheer</strong> (nav-link) — dashboard met alle quizzen, open flags en (voor admin) rollen &amp; instellingen.</li>
+        <li><strong>Bewerk deze vraag</strong> — rechtsboven in het speelscherm bij élke vraag.</li>
+        <li><strong>Detail-icoontjes</strong> — bij statistieken en overzichten kan je op elke rij klikken om ernaartoe te springen.</li>
+        <li><strong>Gebruikers</strong> (nav-link) — statistiek per gebruiker en per PROM-cohort.</li>
+      </ul>
+
+      <h3>Quizzen beheren</h3>
+      <ul>
+        <li><strong>Nieuwe quiz aanmaken</strong> — knop op het Beheer-dashboard. Je geeft enkel een titel; nadien open je de quiz om vragen toe te voegen.</li>
+        <li><strong>Quiz importeren</strong> — via een Markdown-sjabloon (zie <code>quiz-sjabloon.md</code>). Handig om een reeks vragen in één keer aan te maken.</li>
+        <li><strong>Titel &amp; beschrijving bewerken</strong> — bovenaan in de quiz-editor.</li>
+        <li><strong>Publiceren / naar concept</strong> — knop bij elke quiz. Enkel gepubliceerde quizzen zijn zichtbaar voor spelers.</li>
+        <li><strong>Quiz verwijderen</strong> — permanent, inclusief alle vragen, antwoorden en flags. Weet zeker wat je doet.</li>
+      </ul>
+
+      <h3>Vragen bewerken</h3>
+      <p>In de quiz-editor kan je per vraag alles instellen. Nieuwe vragen worden onderaan toegevoegd.</p>
+      <ul>
+        <li><strong>Vraagtekst</strong> — de vraag zelf.</li>
+        <li><strong>Gevalideerd juist antwoord</strong> (vinkje) — uit = geen officieel antwoord, de groep bepaalt het via flags. Krijgt dan de tag "Niet gevalideerd".</li>
+        <li><strong>Meerkeuze</strong> (vinkje) — er kunnen meerdere antwoorden juist zijn. Wordt automatisch aangezet als je meer dan één "J" aankruist.</li>
+        <li><strong>Antwoordopties</strong> — per optie twee vinkjes:
+          <ul>
+            <li><strong>J</strong> = juridisch/officieel juist antwoord.</li>
+            <li><strong>D</strong> = het antwoord dat <em>de docent</em> koos. Enkel invullen als het afwijkt van "J".</li>
+          </ul>
+        </li>
+        <li><strong>Toelichting docent</strong> — korte uitleg waarom de docent afwijkt (wordt getoond in het docent-blok bij de vraag).</li>
+        <li><strong>Wettelijke basis</strong> — één zin of paragraaf met de bron (art. X, wet Y).</li>
+        <li><strong>Wettekst</strong> — de volledige artikeltekst, uitklapbaar getoond onder de uitleg.</li>
+        <li><strong>Uitleg</strong> — de context waarom het antwoord juist is.</li>
+        <li><strong>Herkomst juist antwoord / uitleg</strong> — mens of AI. Wordt zichtbaar als klein icoontje bij de vraag.</li>
+        <li><strong>Vraag verwijderen</strong> — permanent, inclusief alle antwoorden en flags op die vraag.</li>
+      </ul>
+      <p class="tip">💡 Elke bewerking wordt gelogd in de wijzigingshistoriek van de vraag.</p>
+
+      <h3>Flags &amp; opmerkingen afhandelen</h3>
+      <ul>
+        <li>Op het Beheer-dashboard zie je alle <strong>open flags</strong> (fout, twijfel, docent, commentaar) — de reacties waar spelers om input vragen.</li>
+        <li>Klik op een flag om naar de vraag te springen, de discussie te lezen en desnoods de vraag aan te passen.</li>
+        <li><strong>Markeer als afgehandeld</strong> zodra de zaak opgelost is (je kan de vraag aanpassen én de flag laten open of afsluiten).</li>
+        <li>Je kan <strong>reageren op reacties</strong> zoals elke speler (met het "Reageer"-knopje) — jouw commentaar krijgt geen aparte beheerder-badge, alleen de rolpil in de header verklapt het.</li>
+      </ul>
+
+      <h3>Wat mag je verwijderen?</h3>
+      <ul>
+        <li>Als speler kan iedereen zijn <strong>eigen</strong> reacties verwijderen via Mijn account.</li>
+        <li>Als beheerder kan je <strong>alle</strong> flags/reacties verwijderen in de vraag-editor.</li>
+        <li><strong>Wees voorzichtig</strong>: verwijderen is definitief, en je verwijdert vaak ook context voor andere spelers.</li>
+      </ul>
+
+      <h3>Statistiek</h3>
+      <ul>
+        <li><strong>Statistiek</strong> (algemeen) toont KPI's over alle quizzen — publiek zichtbaar.</li>
+        <li><strong>Statistiek per quiz</strong> — moeilijkste vragen, meest geflagd, groeps-curve.</li>
+        <li><strong>Gebruikers</strong> (enkel voor beheerder/admin) — per PROM-cohort en per gebruiker: aantal antwoorden, % juist, bezoeken, aantal reacties.</li>
+      </ul>
+
+      ${admin?`
+      <h3>Enkel voor admin</h3>
+      <ul>
+        <li><strong>Rollen wijzigen</strong> — op Beheer, per gebruiker een dropdown "speler / beheerder / admin". Je kan je eigen rol niet wijzigen om lock-out te vermijden.</li>
+        <li><strong>Registratie open/dicht</strong> — schakelaar op Beheer. Bij dicht: geen nieuwe accounts. Bestaande accounts blijven werken.</li>
+        <li>Alle beheerder-rechten zitten ook in de admin-rol.</li>
+      </ul>`:""}
+
+      <h3>Waar je op moet letten</h3>
+      <ul>
+        <li><strong>Publiek zichtbaar</strong>: de statistieken en collectieve reacties zijn voor alle spelers zichtbaar. Discussie in flags dus best neutraal formuleren.</li>
+        <li><strong>Gevalideerd &amp; niet-gevalideerd</strong>: pas de vlag pas op "gevalideerd" wanneer je zeker bent van het juiste antwoord — dan begint de app pas het antwoord te scoren.</li>
+        <li><strong>Docent-antwoord</strong>: enkel invullen als de docent expliciet iets anders aanduidde dan de wet. Bij overeenstemming laat je "D" leeg.</li>
+        <li><strong>Wijzigingen zijn zichtbaar</strong>: elke bewerking komt in de wijzigingshistoriek van de vraag, ook zichtbaar voor spelers.</li>
+      </ul>
+    </div>
+    <div class="modes-foot"><button class="btn btn-primary btn-sm" id="bhOk">Sluit</button></div>
+  </div>`;
+  document.body.appendChild(overlay);
+  const close=()=>{ overlay.remove(); window.removeEventListener("keydown",onKey); };
+  const onKey=e=>{ if(e.key==="Escape") close(); };
+  overlay.querySelector("#bhClose").onclick=close;
+  overlay.querySelector("#bhOk").onclick=close;
+  overlay.addEventListener("click",e=>{ if(e.target===overlay) close(); });
+  window.addEventListener("keydown",onKey);
 }
 
 /* ============================================================
