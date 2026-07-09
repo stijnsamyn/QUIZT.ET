@@ -1185,9 +1185,18 @@ function renderFlagThread(flags, names, qid){
   const byParent={ null:[] };
   flags.forEach(f=>{ const p=f.parent_id||"null"; (byParent[p]=byParent[p]||[]).push(f); });
   const letterFn = qid ? (idxs=>lettersOfForQ(qid, idxs)) : lettersOf;
+  // Vaste-volgorde referentie: helpt schrijvers om de juiste {X} te kiezen
+  const qObj = (PLAY.all||[]).find(x=>x.id===qid);
+  const refPanel = qObj ? `<details class="ref-order-panel"><summary>${ICON.info} Toon opties in vaste volgorde (om te weten welke {A}, {B}… je moet typen)</summary>
+    <div class="ref-order-body">
+      <p class="muted" style="font-size:.72rem;margin-bottom:.3rem">Bij het spelen worden de opties door elkaar geschud. Dit lijstje toont ze zoals ze in de database staan, zodat je zeker weet welke letter je moet gebruiken.</p>
+      <ol class="ref-order-list">${(qObj.options||[]).map((o,i)=>`<li><code>{${letter(i)}}</code> = <span>${esc(o)}</span></li>`).join("")}</ol>
+    </div>
+  </details>` : "";
   const renderOne=(f, depth)=>{
     const isReply=!!f.parent_id;
     const kids=byParent[f.id]||[];
+    const isMine = ME && f.user_id === ME.id;
     return `<div class="flag-item ${f.type} ${isReply?"is-reply":""}" data-flag-id="${f.id}" style="${depth>0?`margin-left:${Math.min(depth,3)*1.2}rem;`:""}">
       <div class="flag-head">
         ${isReply?`<span class="flag-reply-arrow" title="Antwoord op reactie hierboven">↳</span>`:""}
@@ -1197,14 +1206,29 @@ function renderFlagThread(flags, names, qid){
         ${arr(f.preferred_indexes).length?` <span class="muted">· verkiest <strong>${letterFn(f.preferred_indexes)}</strong></span>`:""}
         <span class="when">${fmtDate(f.created_at)}</span>
         <button class="btn btn-ghost btn-sm flag-reply-btn" data-reply-to="${f.id}" title="Reageer op deze reactie">Reageer</button>
+        ${isMine?`<button class="btn btn-ghost btn-sm flag-edit-btn" data-edit="${f.id}" title="Wijzig je eigen reactie">Bewerken</button>
+          <button class="btn btn-danger btn-sm flag-del-btn" data-del="${f.id}" title="Verwijder je eigen reactie">Verwijder</button>`:""}
       </div>
       ${f.toelichting?`<div class="flag-body">${esc(translateOptRefs(f.toelichting, qid))}</div>`:""}
+      ${isMine?`<div class="flag-edit-form" data-edit-form-for="${f.id}" hidden>
+        <textarea class="flag-edit-text">${esc(f.toelichting||"")}</textarea>
+        <div class="ref-hint">
+          <div><strong>⚠️ Let op:</strong> schrijf <em>niet</em> "antwoord C" — bij een andere speler zit die letter op een andere optie na de shuffle.</div>
+          <div style="margin-top:.3rem">💡 Gebruik <code>{A}</code>, <code>{B}</code>, <code>{juist}</code> of <code>{docent}</code>.</div>
+        </div>
+        ${refPanel}
+        <div class="btnrow">
+          <button class="btn btn-primary btn-sm flag-edit-save" data-edit-save="${f.id}">Opslaan</button>
+          <button class="btn btn-ghost btn-sm flag-edit-cancel" data-edit-cancel="${f.id}">Annuleer</button>
+        </div>
+      </div>`:""}
       <div class="flag-reply-form" data-reply-form-for="${f.id}" hidden>
         <textarea class="flag-reply-text" placeholder="Reageer op ${esc(names[f.user_id]||"deze reactie")}…"></textarea>
         <div class="ref-hint">
           <div><strong>⚠️ Let op:</strong> schrijf <em>niet</em> "antwoord C" — bij een andere speler zit die letter op een andere optie na de shuffle.</div>
           <div style="margin-top:.3rem">💡 Gebruik <code>{A}</code>, <code>{B}</code>, <code>{juist}</code> of <code>{docent}</code> — die worden vertaald naar de juiste letter voor elke lezer.</div>
         </div>
+        ${refPanel}
         <div class="btnrow">
           <button class="btn btn-primary btn-sm flag-reply-send" data-reply-send="${f.id}">Versturen</button>
           <button class="btn btn-ghost btn-sm flag-reply-cancel" data-reply-cancel="${f.id}">Annuleer</button>
@@ -1290,6 +1314,13 @@ async function renderAfterAnswer(q){
             <div><strong>⚠️ Let op:</strong> schrijf <em>niet</em> "antwoord C" of "de derde optie" — bij een andere speler staan de letters in een andere volgorde na de shuffle. "Antwoord C" is voor niemand hetzelfde als voor jou.</div>
             <div style="margin-top:.3rem">💡 <strong>Gebruik in de plaats:</strong> <code>{A}</code>, <code>{B}</code>, <code>{C}</code> … (verwijst naar de optie op die positie in de editor), <code>{juist}</code> (naar het juiste antwoord), <code>{docent}</code> (naar wat de docent koos). De app vertaalt automatisch naar de letter die elke lezer <em>echt</em> ziet.</div>
           </div>
+          <details class="ref-order-panel">
+            <summary>${ICON.info} Toon opties in vaste volgorde (om te weten welke {A}, {B}… je moet typen)</summary>
+            <div class="ref-order-body">
+              <p class="muted" style="font-size:.72rem;margin-bottom:.3rem">Bij het spelen worden de opties door elkaar geschud. Dit lijstje toont ze zoals ze in de database staan, zodat je zeker weet welke letter je moet gebruiken.</p>
+              <ol class="ref-order-list">${(q.options||[]).map((o,i)=>`<li><code>{${letter(i)}}</code> = <span>${esc(o)}</span></li>`).join("")}</ol>
+            </div>
+          </details>
         </div>
         <div class="btnrow" id="reactSubmitRow" hidden><button class="btn btn-primary btn-sm" id="rSubmit">Versturen</button></div>
       </div></details>
@@ -1352,6 +1383,38 @@ async function renderAfterAnswer(q){
     const { error }=await sb.from("flags").insert({ question_id:q.id, user_id:ME.id, type:"commentaar", toelichting:text, parent_id:id, preferred_indexes:[] });
     if(error) return toast(error.message,"err");
     toast("Antwoord verzonden","ok"); renderAfterAnswer(q);
+  });
+  // Eigen reactie bewerken
+  box.querySelectorAll("[data-edit]").forEach(b=>b.onclick=()=>{
+    const id=b.dataset.edit;
+    const form=box.querySelector(`[data-edit-form-for="${id}"]`);
+    if(!form) return;
+    box.querySelectorAll(".flag-edit-form").forEach(f=>{ if(f!==form) f.hidden=true; });
+    form.hidden=!form.hidden;
+    if(!form.hidden){ const ta=form.querySelector("textarea"); if(ta){ ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } }
+  });
+  box.querySelectorAll("[data-edit-cancel]").forEach(b=>b.onclick=()=>{
+    const id=b.dataset.editCancel;
+    const form=box.querySelector(`[data-edit-form-for="${id}"]`);
+    if(form) form.hidden=true;
+  });
+  box.querySelectorAll("[data-edit-save]").forEach(b=>b.onclick=async()=>{
+    const id=b.dataset.editSave;
+    const form=box.querySelector(`[data-edit-form-for="${id}"]`);
+    const ta=form.querySelector("textarea");
+    const text=(ta.value||"").trim();
+    if(!text) return toast("De reactie mag niet leeg zijn","err");
+    const { error }=await sb.from("flags").update({ toelichting:text }).eq("id",id).eq("user_id",ME.id);
+    if(error) return toast(error.message,"err");
+    toast("Reactie bijgewerkt","ok"); renderAfterAnswer(q);
+  });
+  // Eigen reactie verwijderen
+  box.querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{
+    const id=b.dataset.del;
+    if(!confirm("Weet je zeker dat je deze reactie wil verwijderen?")) return;
+    const { error }=await sb.from("flags").delete().eq("id",id).eq("user_id",ME.id);
+    if(error) return toast(error.message,"err");
+    toast("Reactie verwijderd","ok"); renderAfterAnswer(q);
   });
 }
 
