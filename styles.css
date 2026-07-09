@@ -161,6 +161,25 @@ details .body{padding:.3rem .9rem .9rem}
 .hist.fout{border-color:var(--wrong)} .hist.twijfel{border-color:var(--warn)} .hist.juist{border-color:var(--correct)}
 .hist .who{font-weight:600} .hist .when{color:var(--text-muted);font-size:.75rem}
 
+/* flag thread — reacties + replies */
+.flag-item{border-left:3px solid var(--border);padding:.4rem .8rem;margin:.5rem 0;
+  background:var(--surface);border-radius:0 6px 6px 0;font-size:.85rem}
+.flag-item.fout{border-color:var(--wrong)}
+.flag-item.twijfel{border-color:var(--warn)}
+.flag-item.juist{border-color:var(--correct)}
+.flag-item.docent{border-color:#c026d3}
+.flag-item.commentaar{border-color:var(--accent);background:var(--accent-soft)}
+.flag-item.is-reply{background:var(--surface2)}
+.flag-head{display:flex;align-items:center;gap:.35rem;flex-wrap:wrap}
+.flag-head .who{font-weight:600}
+.flag-head .when{color:var(--text-muted);font-size:.72rem}
+.flag-reply-arrow{color:var(--text-muted);font-size:1rem;margin-right:.15rem}
+.flag-reply-btn{margin-left:auto;padding:.15rem .45rem;font-size:.7rem;font-weight:500}
+.flag-body{margin-top:.3rem;line-height:1.45}
+.flag-reply-form{margin-top:.5rem;padding:.5rem;background:var(--surface2);border-radius:6px}
+.flag-reply-form textarea{min-height:50px;font-size:.85rem}
+.flag-reply-form .btnrow{margin-top:.4rem}
+
 /* bars */
 .bar{background:var(--surface2);border-radius:99px;height:22px;position:relative;overflow:hidden;margin:.25rem 0}
 .bar>span{position:absolute;left:0;top:0;bottom:0;background:var(--accent);opacity:.85}

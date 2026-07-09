@@ -841,11 +841,44 @@ function openTetris(){
   overlay.addEventListener("click", e=>{ if(e.target===overlay) close(); });
 }
 
+function renderFlagThread(flags, names){
+  // Bouw thread: roots (parent_id null) chronologisch, met children eronder (chronologisch)
+  const byParent={ null:[] };
+  flags.forEach(f=>{ const p=f.parent_id||"null"; (byParent[p]=byParent[p]||[]).push(f); });
+  const renderOne=(f, depth)=>{
+    const isReply=!!f.parent_id;
+    const kids=byParent[f.id]||[];
+    return `<div class="flag-item ${f.type} ${isReply?"is-reply":""}" data-flag-id="${f.id}" style="${depth>0?`margin-left:${Math.min(depth,3)*1.2}rem;`:""}">
+      <div class="flag-head">
+        ${isReply?`<span class="flag-reply-arrow" title="Antwoord op reactie hierboven">↳</span>`:""}
+        <span class="pill ${f.type}">${f.type}</span>
+        ${f.status==="afgehandeld"?`<span class="pill afgehandeld">afgehandeld</span>`:""}
+        <span class="who">${esc(names[f.user_id]||"?")}</span>
+        ${arr(f.preferred_indexes).length?` <span class="muted">· verkiest <strong>${lettersOf(f.preferred_indexes)}</strong></span>`:""}
+        <span class="when">${fmtDate(f.created_at)}</span>
+        <button class="btn btn-ghost btn-sm flag-reply-btn" data-reply-to="${f.id}" title="Reageer op deze reactie">Reageer</button>
+      </div>
+      ${f.toelichting?`<div class="flag-body">${esc(f.toelichting)}</div>`:""}
+      <div class="flag-reply-form" data-reply-form-for="${f.id}" hidden>
+        <textarea class="flag-reply-text" placeholder="Reageer op ${esc(names[f.user_id]||"deze reactie")}…"></textarea>
+        <div class="btnrow">
+          <button class="btn btn-primary btn-sm flag-reply-send" data-reply-send="${f.id}">Versturen</button>
+          <button class="btn btn-ghost btn-sm flag-reply-cancel" data-reply-cancel="${f.id}">Annuleer</button>
+        </div>
+      </div>
+      ${kids.map(k=>renderOne(k, depth+1)).join("")}
+    </div>`;
+  };
+  const roots=byParent["null"]||[];
+  if(!roots.length && !flags.length) return `<p class="muted">Nog geen reacties.</p>`;
+  return roots.map(r=>renderOne(r,0)).join("");
+}
+
 async function renderAfterAnswer(q){
   const box=document.getElementById("afterAnswer");
   box.innerHTML=`<div class="muted">Laden…</div>`;
   const [{data:flags},{data:edits}] = await Promise.all([
-    sb.from("flags").select("*").eq("question_id",q.id).order("created_at",{ascending:false}),
+    sb.from("flags").select("*").eq("question_id",q.id).order("created_at",{ascending:true}),
     sb.from("question_edits").select("*").eq("question_id",q.id).order("created_at",{ascending:false}),
   ]);
   const names = await namesFor([...(flags||[]).map(f=>f.user_id),...(edits||[]).map(e=>e.edited_by)]);
@@ -912,10 +945,10 @@ async function renderAfterAnswer(q){
         <div class="btnrow" id="reactSubmitRow" hidden><button class="btn btn-primary btn-sm" id="rSubmit">Versturen</button></div>
       </div></details>
 
-    <details ${(flags&&flags.length)?"open":""}><summary>${ICON.flag} Reacties (${(flags||[]).length})</summary>
+    <details ${(flags&&flags.length)?"open":""}><summary>${ICON.flag} Reacties (${(flags||[]).length}) <span class="muted" style="font-size:.72rem;font-weight:400">— oudste eerst</span></summary>
       <div class="body">
         ${totV?`<label>Collectief beeld — ${wrongVotes} van de ${totV} die reageerden verkiest een ander antwoord dan het huidige${totV>=5?` (${pct(wrongVotes,totV)}%)`:""}</label>${bars}<hr>`:""}
-        ${(flags||[]).map(f=>`<div class="hist ${f.type}"><span class="pill ${f.type}">${f.type}</span> ${f.status==="afgehandeld"?`<span class="pill afgehandeld">afgehandeld</span>`:""} <span class="who">${esc(names[f.user_id]||"?")}</span>${arr(f.preferred_indexes).length?` <span class="muted">· verkiest <strong>${lettersOf(f.preferred_indexes)}</strong></span>`:""} <span class="when">${fmtDate(f.created_at)}</span>${f.toelichting?`<div>${esc(f.toelichting)}</div>`:""}</div>`).join("")||`<p class="muted">Nog geen reacties.</p>`}
+        <div id="flagThread">${renderFlagThread(flags||[], names)}</div>
       </div></details>
 
     <details><summary>${ICON.clock} Wijzigingshistoriek (${(edits||[]).length})</summary>
@@ -947,6 +980,30 @@ async function renderAfterAnswer(q){
     if(fe) return toast(fe.message,"err");
     toast("Bedankt voor je reactie","ok"); renderAfterAnswer(q);
   };
+  // Reply-op-reactie: open form, versturen, annuleren
+  box.querySelectorAll("[data-reply-to]").forEach(b=>b.onclick=()=>{
+    const id=b.dataset.replyTo;
+    const form=box.querySelector(`[data-reply-form-for="${id}"]`);
+    if(!form) return;
+    box.querySelectorAll(".flag-reply-form").forEach(f=>{ if(f!==form) f.hidden=true; });
+    form.hidden=!form.hidden;
+    if(!form.hidden){ const ta=form.querySelector("textarea"); if(ta) ta.focus(); }
+  });
+  box.querySelectorAll("[data-reply-cancel]").forEach(b=>b.onclick=()=>{
+    const id=b.dataset.replyCancel;
+    const form=box.querySelector(`[data-reply-form-for="${id}"]`);
+    if(form){ form.hidden=true; const ta=form.querySelector("textarea"); if(ta) ta.value=""; }
+  });
+  box.querySelectorAll("[data-reply-send]").forEach(b=>b.onclick=async()=>{
+    const id=b.dataset.replySend;
+    const form=box.querySelector(`[data-reply-form-for="${id}"]`);
+    const ta=form.querySelector("textarea");
+    const text=(ta.value||"").trim();
+    if(!text) return toast("Schrijf eerst iets","err");
+    const { error }=await sb.from("flags").insert({ question_id:q.id, user_id:ME.id, type:"commentaar", toelichting:text, parent_id:id, preferred_indexes:[] });
+    if(error) return toast(error.message,"err");
+    toast("Antwoord verzonden","ok"); renderAfterAnswer(q);
+  });
 }
 
 /* haal weergavenamen op voor een set user-ids */
