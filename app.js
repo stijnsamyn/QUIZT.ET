@@ -393,10 +393,16 @@ async function viewPlay(quizId){
   const { data:quiz } = await sb.from("quizzes").select("*").eq("id",quizId).single();
   if(!quiz){ app.innerHTML=`<div class="empty">Quiz niet gevonden.</div>`; return; }
   const { data:questions } = await sb.from("questions").select("*").eq("quiz_id",quizId).order("sort_order");
-  PLAY.quiz=quiz; PLAY.all=questions||[]; PLAY.i=0; PLAY.answers={}; PLAY.history={};
+  PLAY.quiz=quiz; PLAY.all=questions||[]; PLAY.i=0; PLAY.answers={}; PLAY.history={}; PLAY.everWrong=new Set();
   const ids=PLAY.all.map(q=>q.id);
-  if(ids.length){ const {data:mine}=await sb.from("answers").select("*").eq("user_id",ME.id).in("question_id",ids);
-    (mine||[]).forEach(a=>{ PLAY.answers[a.question_id]=a.chosen_indexes||[]; PLAY.history[a.question_id]=a.chosen_indexes||[]; }); }
+  if(ids.length){
+    const [{data:mine},{data:wrongEvents}]=await Promise.all([
+      sb.from("answers").select("*").eq("user_id",ME.id).in("question_id",ids),
+      sb.from("answer_events").select("question_id").eq("user_id",ME.id).eq("quiz_id",quizId).eq("is_correct",false),
+    ]);
+    (mine||[]).forEach(a=>{ PLAY.answers[a.question_id]=a.chosen_indexes||[]; PLAY.history[a.question_id]=a.chosen_indexes||[]; });
+    (wrongEvents||[]).forEach(e=>PLAY.everWrong.add(e.question_id));
+  }
   // open flags voor deze quiz (voor iedereen zichtbaar op het startscherm)
   PLAY.openFlags=[]; PLAY.flagNames={};
   if(ids.length){ const {data:of}=await sb.from("flags").select("id,question_id,type,toelichting,created_at,user_id").eq("status","open").neq("type","juist").in("question_id",ids).order("type").order("created_at",{ascending:false});
@@ -415,11 +421,12 @@ function poolFor(focus){
   if(focus==="foute")       return PLAY.all.filter(q=>A[q.id]!=null && isRight(q,A[q.id])===false);
   if(focus==="onbeantwoord")return PLAY.all.filter(q=>A[q.id]==null);
   if(focus==="nietjuist")   return PLAY.all.filter(q=>A[q.id]==null || isRight(q,A[q.id])===false);
+  if(focus==="ooitFout")    return PLAY.all.filter(q=>PLAY.everWrong && PLAY.everWrong.has(q.id));
   return PLAY.all.slice();
 }
 function renderPlaySetup(){
   const total=PLAY.all.length;
-  const wrong=poolFor("foute").length, todo=poolFor("onbeantwoord").length, nietjuist=poolFor("nietjuist").length;
+  const wrong=poolFor("foute").length, todo=poolFor("onbeantwoord").length, nietjuist=poolFor("nietjuist").length, ooitFout=poolFor("ooitFout").length;
   const pr=loadPrefs();
   let size=pr.size||"25", focus=pr.focus||"alle", order=pr.order||"slim";
   PLAY.mode=order;
@@ -432,9 +439,10 @@ function renderPlaySetup(){
   ];
   const focuses=[
     ["alle","Alle vragen","Elke vraag komt in aanmerking, ongeacht of je hem al beantwoord hebt."],
-    ["foute",`Enkel mijn foute (${wrong})`,`Alleen vragen die je ooit fout beantwoord hebt (${wrong} stuks).`],
+    ["foute",`Enkel mijn foute (${wrong})`,`Vragen waar je huidige antwoord fout op is (${wrong} stuks). Als je die later juist beantwoordt, verdwijnen ze hier.`],
     ["onbeantwoord",`Nog niet beantwoord (${todo})`,`Alleen vragen die je in geen enkele sessie al hebt beantwoord (${todo} stuks).`],
     ["nietjuist",`Nog niet juist (${nietjuist})`,`Vragen die je fout had OF nog nooit beantwoordde (${nietjuist} stuks) — combinatie van 'foute' en 'nog niet beantwoord'.`],
+    ["ooitFout",`Historisch fout (${ooitFout})`,`Alle vragen die je in het verleden ooit minstens één keer fout hebt beantwoord (${ooitFout} stuks). Ze blijven hier staan, ook als je ze later juist hebt beantwoord — pas 'Voortgang wissen' verwijdert deze lijst.`],
   ];
   const orders=[
     ["slim","Slim oefenen","Nooit-beantwoorde vragen krijgen voorrang, dan fout beantwoorde, dan overleg, dan juist. Gewogen willekeurig."],
@@ -444,7 +452,7 @@ function renderPlaySetup(){
     ["gemistEerst","Gemiste eerst","Eerst de vragen die je nog nooit beantwoordde, dan de rest."],
   ];
   const chips=(grp,list,cur)=>list.map(([v,l,tip])=>`<button class="chip-toggle ${v===cur?"active":""}" data-${grp}="${v}" title="${esc(tip||"")}">${l}</button>`).join("");
-  const focusLabel=f=>({alle:"alle vragen",foute:"je foute vragen",onbeantwoord:"nog niet beantwoorde vragen",nietjuist:"nog niet juiste vragen"})[f];
+  const focusLabel=f=>({alle:"alle vragen",foute:"je huidig foute vragen",onbeantwoord:"nog niet beantwoorde vragen",nietjuist:"nog niet juiste vragen",ooitFout:"historisch foute vragen"})[f];
   const orderLabel=o=>({slim:"slim geoefend",nummer:"op vraagnummer",willekeurig:"willekeurig",foutEerst:"fouten eerst",gemistEerst:"gemiste eerst"})[o];
   const summaryStr=()=>{
     const custom=parseInt((document.getElementById("sizeCustom")||{}).value,10);
@@ -475,7 +483,7 @@ function renderPlaySetup(){
       </div>
 
       <div class="card setup-step">
-        <div class="setup-hd"><span class="setup-num">2</span> Welke vragen? ${infoTip("Filter uit de hele quiz. 'Foute'/'Onbeantwoord'/'Niet juist' zijn gebaseerd op je antwoordhistoriek — over alle sessies heen.")}</div>
+        <div class="setup-hd"><span class="setup-num">2</span> Welke vragen? ${infoTip("Filter uit de hele quiz. Belangrijk verschil: 'Enkel mijn foute' toont enkel vragen waar je huidig antwoord fout op is — als je die later juist beantwoordt verdwijnen ze. 'Historisch fout' onthoudt élke vraag die je ooit fout had, ook als je ze daarna juist opnieuw beantwoordde. De 'historisch'-lijst blijft groeien tot je op 'Voortgang wissen' klikt.")}</div>
         <div class="btnrow" id="gFocus">${chips("focus",focuses,focus)}</div>
       </div>
 
