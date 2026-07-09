@@ -269,6 +269,7 @@ function renderHeader(){
   const links=[["#/","Quizzen"],["#/stats/vragen","Statistiek"],["#/account","Mijn account"],["#/meldingen","Meldingen "+notifyBadge]];
   if(isEditor()) links.push(["#/stats/gebruikers",usersLabel]);
   if(isEditor()) links.push(["#/beheer","Beheer"]);
+  if(isEditor()) links.push(["__handleiding","Handleiding"]);
   nav.innerHTML = links.map(([h,l])=>`<a data-nav="${h}">${l}</a>`).join("");
   if(isEditor() && USER_COUNT==null) fetchUserCount().then(renderHeader);
   const roleName = ME.role==="admin"?"admin":ME.role==="beheerder"?"beheerder":"speler";
@@ -278,7 +279,12 @@ function renderHeader(){
   document.getElementById("logoutBtn").onclick=doLogout;
   const menuBtn=document.getElementById("navToggle");
   if(menuBtn) menuBtn.onclick=()=>{ h.classList.toggle("nav-open"); };
-  document.querySelectorAll("[data-nav]").forEach(a=>a.onclick=e=>{ h.classList.remove("nav-open"); go(a.dataset.nav); });
+  document.querySelectorAll("[data-nav]").forEach(a=>a.onclick=e=>{
+    h.classList.remove("nav-open");
+    const t=a.dataset.nav;
+    if(t==="__handleiding"){ openBeheerManual(); return; }
+    go(t);
+  });
   const cur = location.hash||"#/";
   nav.querySelectorAll("a").forEach(a=>a.classList.toggle("active", a.dataset.nav===cur || (a.dataset.nav==="#/"&&cur.startsWith("#/quiz"))));
 }
@@ -2216,13 +2222,16 @@ function questionEditor(q){
         <button class="btn btn-ghost btn-sm" data-rmopt="${q.id}">×</button>
       </div>`).join("")}</div>
     <button class="btn btn-ghost btn-sm" data-addopt="${q.id}">+ optie</button>
-    <label>Toelichting docent (optioneel) ${infoTip("Korte uitleg waarom de docent een ander antwoord kiest dan wat wettelijk juist is. Wordt getoond in het docent-blok bij de vraag.")}</label>
-    <textarea data-f="docent_note" data-q="${q.id}" placeholder="bv. De docent noteert antwoord B als praktijk-antwoord…">${esc(q.docent_note||"")}</textarea>
+    <label>Toelichting docent (optioneel) ${infoTip("Korte uitleg waarom de docent een ander antwoord kiest dan wat wettelijk juist is. Wordt getoond in het docent-blok bij de vraag. Verwijs naar antwoordopties met {A} {B} {C} … — die worden vertaald naar de letter die de speler ziet.")}</label>
+    <textarea data-f="docent_note" data-q="${q.id}" placeholder="bv. De docent noteert antwoord {B} als praktijk-antwoord…">${esc(q.docent_note||"")}</textarea>
     <label>Herkomst juist antwoord</label>${srcToggle("as-"+q.id, q.answer_source)}
-    <label>Wettelijke basis</label><textarea data-f="legal_basis" data-q="${q.id}">${esc(q.legal_basis||"")}</textarea>
+    <label>Wettelijke basis ${infoTip("Verwijs naar antwoordopties met {A} {B} {C} … De app vertaalt die naar de letter die de gebruiker in zijn geschudde volgorde ziet.")}</label>
+    <textarea data-f="legal_basis" data-q="${q.id}">${esc(q.legal_basis||"")}</textarea>
     <label>Herkomst wettelijke basis</label>${srcToggle("ls-"+q.id, q.legal_basis_source)}
-    <label>Wettekst (volledige artikels, uitklapbaar bij de vraag)</label><textarea data-f="wettekst" data-q="${q.id}">${esc(q.wettekst||"")}</textarea>
-    <label>Uitleg ${infoTip("Om te verwijzen naar antwoord-opties gebruik je {A} {B} {C} …  De app vertaalt die naar de letter die de gebruiker ziet, zodat je uitleg klopt ook als de antwoorden geschud staan. Bv. 'Antwoord {A} is juist omdat…' — als bij die gebruiker A verschoven is naar C, wordt het automatisch 'Antwoord C is juist omdat…'.")}</label><textarea data-f="explanation" data-q="${q.id}" placeholder="Gebruik {A} {B} {C} … om te verwijzen naar antwoord-opties (de app vertaalt automatisch naar de geschudde letters).">${esc(q.explanation||"")}</textarea>
+    <label>Wettekst (volledige artikels, uitklapbaar bij de vraag) ${infoTip("Volledige artikeltekst. Verwijs naar antwoordopties met {A} {B} {C} … indien nodig.")}</label>
+    <textarea data-f="wettekst" data-q="${q.id}">${esc(q.wettekst||"")}</textarea>
+    <label>Uitleg ${infoTip("Waarom is dit antwoord juist? Verwijs naar antwoordopties met {A} {B} {C} … — de app vertaalt die naar de letter die de gebruiker daadwerkelijk ziet, zodat je uitleg altijd klopt. Bv. 'Antwoord {A} is juist omdat art. 34 Sv. …'.")}</label>
+    <textarea data-f="explanation" data-q="${q.id}">${esc(q.explanation||"")}</textarea>
     <label>Herkomst uitleg</label>${srcToggle("es-"+q.id, q.explanation_source)}
     <div class="btnrow"><button class="btn btn-primary btn-sm" data-saveq="${q.id}">Vraag opslaan</button></div>
   </div>`;
