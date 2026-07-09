@@ -789,11 +789,88 @@ function renderPlayDone(){
           <div class="muted" style="font-size:.82rem;margin-bottom:.4rem">${eligible?"Je hebt een pauze verdiend 🎉":"Speel Tetris na een sessie van minstens 25 vragen met ≥80% juist."}</div>
           <button class="btn btn-ghost btn-sm" id="openTetris" ${eligible?"":"disabled"} title="${eligible?"Speel een rondje Tetris":"Vergrendeld — je moet minstens 25 vragen doen én 80% juist scoren"}">🧱 Speel Tetris ${eligible?"":"🔒"}</button>
         </div>`; })()}
+    </div>
+
+    <div class="done-review">
+      <div class="spread" style="margin-bottom:.5rem">
+        <h2 style="margin:0;font-size:1rem">Overzicht van deze sessie</h2>
+        <div class="btnrow" style="margin:0">
+          <button class="btn btn-ghost btn-sm" id="rvFilterAll" data-rvf="alle">Alle (${qs.length})</button>
+          <button class="btn btn-ghost btn-sm" id="rvFilterWrong" data-rvf="fout">Enkel fout (${wrong})</button>
+        </div>
+      </div>
+      <p class="muted" style="font-size:.8rem;margin-bottom:.6rem">Klik een vraag open om de uitleg, wettelijke basis en het volledige juiste antwoord te zien.</p>
+      <div class="stack" id="rvList">${renderDoneReview(qs, "alle")}</div>
     </div>`;
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
   const aw=document.getElementById("againWrong"); if(aw) aw.onclick=()=>startSession("alle","foute",PLAY.mode||"slim");
   document.getElementById("againNew").onclick=()=>renderPlaySetup();
   const tb=document.getElementById("openTetris"); if(tb && !tb.disabled) tb.onclick=openTetris;
+  app.querySelectorAll("[data-rvf]").forEach(b=>b.onclick=()=>{
+    const f=b.dataset.rvf;
+    app.querySelectorAll("[data-rvf]").forEach(x=>x.classList.toggle("active", x===b));
+    document.getElementById("rvList").innerHTML=renderDoneReview(qs, f);
+    wireDoneReview();
+  });
+  document.getElementById("rvFilterAll").classList.add("active");
+  wireDoneReview();
+}
+
+function renderDoneReview(qs, filter){
+  const rows=qs.filter(q=>{
+    if(filter!=="fout") return true;
+    return PLAY.answers[q.id]!=null && isRight(q,PLAY.answers[q.id])===false;
+  });
+  if(!rows.length) return `<p class="muted">Geen vragen om te tonen.</p>`;
+  return rows.map(q=>{
+    const chosen=PLAY.answers[q.id];
+    const answered=chosen!=null;
+    const correct=arr(q.correct_indexes);
+    const docent=arr(q.docent_indexes);
+    const docentDiffers=docent.length>0 && !setEq(docent,correct);
+    const validated=q.validated!==false;
+    const status = !answered ? "onbeantwoord"
+                  : validated ? (isRight(q,chosen)===true ? "juist" : "fout")
+                  : "overleg";
+    const statusPill = status==="juist"?`<span class="pill juist">juist</span>`
+      : status==="fout"?`<span class="pill fout">fout</span>`
+      : status==="overleg"?`<span class="pill twijfel">overleg</span>`
+      : `<span class="pill" style="background:var(--surface2);color:var(--text-muted)">niet beantwoord</span>`;
+    const correctStr = correct.length ? lettersOf(correct) : "—";
+    const yourStr = answered ? lettersOf(chosen) : "—";
+    return `<details class="rv-item ${status}">
+      <summary>
+        <div class="rv-sum">
+          <span class="q-num">${q.qnum}</span>
+          <span class="rv-text">${esc((q.text||"").slice(0,140))}${(q.text||"").length>140?"…":""}</span>
+          <span class="rv-status">${statusPill}</span>
+        </div>
+        <div class="rv-meta">
+          <span>Juist: <strong>${correctStr}</strong></span>
+          <span>Jij: <strong>${yourStr}</strong></span>
+          ${docentDiffers?`<span>👨‍🏫 Docent: <strong>${lettersOf(docent)}</strong></span>`:""}
+        </div>
+      </summary>
+      <div class="rv-body">
+        <div class="rv-opts">${(q.options||[]).map((o,i)=>{
+          let cls="rv-opt";
+          if(validated && correct.includes(i)) cls+=" correct";
+          if(answered && inSet(chosen,i) && validated && !correct.includes(i)) cls+=" wrong";
+          if(docentDiffers && docent.includes(i)) cls+=" docent";
+          return `<div class="${cls}"><strong>${letter(i)}.</strong> ${esc(o)}${validated&&correct.includes(i)?' <span class="pill juist" style="margin-left:.3rem">juist</span>':""}${docentDiffers&&docent.includes(i)?' <span class="pill" style="margin-left:.3rem;background:rgba(192,38,211,.12);color:#a21caf">docent</span>':""}</div>`;
+        }).join("")}</div>
+        ${q.explanation?`<div class="rv-explain"><strong>Uitleg:</strong> ${html(q.explanation)}</div>`:""}
+        ${q.legal_basis?`<div class="rv-legal"><strong>Wettelijke basis:</strong> ${html(q.legal_basis)}</div>`:""}
+        ${q.docent_note && docentDiffers ? `<div class="rv-docent"><strong>Docent-toelichting:</strong> ${esc(q.docent_note)}</div>`:""}
+        ${q.wettekst?`<details class="rv-wettekst"><summary>${ICON.info} Toon volledige wettekst</summary><div class="wettekst">${html(q.wettekst)}</div></details>`:""}
+        <div class="btnrow" style="margin-top:.6rem"><button class="btn btn-ghost btn-sm" data-goq="${q.id}">Open deze vraag →</button></div>
+      </div>
+    </details>`;
+  }).join("");
+}
+
+function wireDoneReview(){
+  app.querySelectorAll("[data-goq]").forEach(b=>b.onclick=()=>PLAY_goto(PLAY.quiz.id, b.dataset.goq));
 }
 
 /* ============================================================
