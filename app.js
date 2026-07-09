@@ -615,9 +615,11 @@ function renderPlaySetup(){
     <div class="card" style="margin-top:1rem">
       <div class="spread">
         <div><strong>Mijn voortgang</strong><div class="muted" style="font-size:.82rem">Beantwoord: ${total-todo}/${total} · juist: ${PLAY.all.filter(q=>isRight(q,PLAY.answers[q.id])===true).length}</div></div>
-        <button class="btn btn-danger btn-sm" id="wipeBtn">Voortgang wissen</button>
+        <div class="btnrow" style="margin:0;align-items:center">
+          ${infoTip("Wist je huidige antwoordstatus zodat je met een schone lei kan hertesten. De filters 'Enkel mijn foute' en 'Nog niet beantwoord' tonen daarna weer alles, en 'slim oefenen' behandelt elke vraag als nieuw. Je bijdrage aan de statistieken en de lijst 'historisch fout' blijven wél bewaard, net als je flags en opmerkingen.")}
+          <button class="btn btn-danger btn-sm" id="wipeBtn">Voortgang wissen</button>
+        </div>
       </div>
-      <div class="muted" style="font-size:.78rem;margin-top:.4rem">Wist je <strong>huidige</strong> antwoordstatus zodat je met een schone lei kan hertesten. De filters "Enkel mijn foute" en "Nog niet beantwoord" tonen daarna weer alles, en "slim oefenen" behandelt elke vraag als nieuw. Je bijdrage aan de statistieken en de lijst "historisch fout" blijven wél bewaard, net als je flags en opmerkingen.</div>
     </div>
     ${(PLAY.openFlags&&PLAY.openFlags.length)?`
     <h2>Open flags <span class="muted" style="font-weight:400;font-size:.75em">— ${PLAY.openFlags.length} reactie${PLAY.openFlags.length===1?"":"s"} verdeeld over ${new Set(PLAY.openFlags.map(f=>f.question_id)).size} vraag/vragen</span></h2>
@@ -1900,6 +1902,7 @@ function renderBeheerFlagGroups(flags, qmap, quizById, names){
     const byParent={}; g.flags.forEach(f=>{ if(f.parent_id){ (byParent[f.parent_id]=byParent[f.parent_id]||[]).push(f); } });
     const renderFlag = (f, depth) => {
       const kids = byParent[f.id]||[];
+      const bodyPreview = f.toelichting ? (f.toelichting.length>140 ? esc(f.toelichting.slice(0,140))+"…" : esc(f.toelichting)) : "";
       return `<div class="fg-flag ${f.type}" style="margin-left:${Math.min(depth,3)*1.1}rem">
         <div class="fg-flag-head">
           ${depth>0?`<span class="fg-reply-arrow" title="Antwoord op reactie hierboven">↳</span>`:""}
@@ -1908,7 +1911,7 @@ function renderBeheerFlagGroups(flags, qmap, quizById, names){
           <span class="fg-when">${fmtDate(f.created_at)}</span>
           <button class="btn btn-ghost btn-sm fg-resolve-btn" data-resolve="${f.id}" title="Deze reactie afhandelen">${ICON.check}</button>
         </div>
-        ${f.toelichting?`<div class="fg-body">${esc(f.toelichting)}</div>`:""}
+        ${bodyPreview?`<div class="fg-body">${bodyPreview}</div>`:""}
         ${kids.map(k=>renderFlag(k, depth+1)).join("")}
       </div>`;
     };
@@ -1918,7 +1921,7 @@ function renderBeheerFlagGroups(flags, qmap, quizById, names){
     return `<div class="fg-card">
       <div class="fg-card-hd">
         <div class="fg-card-hd-left">
-          ${g.q ? `<a class="ilink fg-qlink" data-q="${g.q.id}" data-quiz="${g.q.quiz_id}"><span class="q-num">${g.q.qnum}</span> ${esc(textPreview)}</a>` : `<span>${esc(textPreview)}</span>`}
+          ${g.q ? `<a class="ilink fg-qlink" data-q="${g.q.id}" data-quiz="${g.q.quiz_id}"><span class="q-num">${g.q.qnum}</span> <span class="fg-qtext">${esc(textPreview)}</span></a>` : `<span>${esc(textPreview)}</span>`}
           <div class="fg-quiz-title">${g.quiz ? esc(g.quiz.title) : ""}</div>
         </div>
         <div class="fg-card-hd-right">
@@ -1945,6 +1948,7 @@ function renderSetupFlagGroups(flags, allQuestions, quiz, flagNames){
     const byParent={}; g.flags.forEach(f=>{ if(f.parent_id){ (byParent[f.parent_id]=byParent[f.parent_id]||[]).push(f); } });
     const renderFlag=(f, depth)=>{
       const kids = byParent[f.id]||[];
+      const bodyPreview = f.toelichting ? (f.toelichting.length>140 ? esc(f.toelichting.slice(0,140))+"…" : esc(f.toelichting)) : "";
       return `<div class="fg-flag ${f.type}" style="margin-left:${Math.min(depth,3)*1.1}rem">
         <div class="fg-flag-head">
           ${depth>0?`<span class="fg-reply-arrow" title="Antwoord op reactie hierboven">↳</span>`:""}
@@ -1952,17 +1956,23 @@ function renderSetupFlagGroups(flags, allQuestions, quiz, flagNames){
           <span class="fg-who">${esc(flagNames[f.user_id]||"?")}</span>
           <span class="fg-when">${fmtDate(f.created_at)}</span>
         </div>
-        ${f.toelichting?`<div class="fg-body">${esc(f.toelichting)}</div>`:""}
+        ${bodyPreview?`<div class="fg-body">${bodyPreview}</div>`:""}
         ${kids.map(k=>renderFlag(k, depth+1)).join("")}
       </div>`;
     };
     const flagsHtml = roots.map(r=>renderFlag(r,0)).join("");
     const textPreview = g.q ? (g.q.text||"").slice(0,110) + ((g.q.text||"").length>110?"…":"") : "(vraag onbekend)";
+    // Snippet van de eerste opmerkier + het begin van hun reactie, zichtbaar op de gesloten summary
+    const firstFlag=g.flags[0];
+    const firstName=firstFlag?esc(flagNames[firstFlag.user_id]||"?"):"";
+    const firstSnippet=firstFlag && firstFlag.toelichting ? esc(firstFlag.toelichting.slice(0,80))+(firstFlag.toelichting.length>80?"…":"") : "";
+    const summaryPreview = firstName ? `<div class="fg-summary-preview"><strong>${firstName}</strong>${firstSnippet?`: ${firstSnippet}`:""}${g.flags.length>1?` <span class="muted">· en ${g.flags.length-1} andere</span>`:""}</div>` : "";
     return `<details class="fg-card">
       <summary>
         <div class="fg-card-hd">
           <div class="fg-card-hd-left">
-            <span class="fg-qlink">${g.q?`<span class="q-num">${g.q.qnum}</span> `:""}${esc(textPreview)}</span>
+            <span class="fg-qlink">${g.q?`<span class="q-num">${g.q.qnum}</span> `:""}<span class="fg-qtext">${esc(textPreview)}</span></span>
+            ${summaryPreview}
           </div>
           <div class="fg-card-hd-right">
             <span class="fg-count-pill">${g.flags.length} reactie${g.flags.length===1?"":"s"}</span>

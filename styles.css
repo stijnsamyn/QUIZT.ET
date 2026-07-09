@@ -247,7 +247,10 @@ details.fg-card>summary::-webkit-details-marker{display:none}
 .fg-qlink{font-weight:600;color:var(--ink);text-decoration:none;
   display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;line-height:1.4;font-size:.9rem}
 .fg-qlink:hover{color:var(--accent-dark)}
+.fg-qtext{color:var(--text);font-weight:500}
 .fg-quiz-title{font-size:.72rem;color:var(--text-muted);letter-spacing:.02em}
+.fg-summary-preview{font-size:.8rem;color:var(--text-muted);margin-top:.3rem;padding-left:1.7rem;line-height:1.4}
+.fg-summary-preview strong{color:var(--ink);font-weight:600}
 .fg-card-hd-right{display:flex;align-items:center;gap:.5rem;flex-shrink:0}
 .fg-count-pill{background:var(--accent-soft);color:var(--accent-dark);
   font-size:.72rem;font-weight:700;padding:.15rem .6rem;border-radius:99px;white-space:nowrap}
