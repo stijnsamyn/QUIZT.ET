@@ -390,6 +390,27 @@ function orderQuestions(all, answers, mode){
 // Speelvoorkeuren per gebruiker onthouden (browser)
 function loadPrefs(){ try{ return JSON.parse(localStorage.getItem("quiztet_play")||"{}"); }catch(e){ return {}; } }
 function savePrefs(p){ try{ localStorage.setItem("quiztet_play", JSON.stringify(p)); }catch(e){} }
+// Sessie-persistentie zodat browser-back / tab-close / crash je niet doet verliezen
+const SESSION_KEY = qid => `quiztet_session_${qid}`;
+function saveSession(){
+  if(!PLAY.quiz || !PLAY.questions) return;
+  try{
+    const state={
+      quizId:PLAY.quiz.id, session:PLAY.session||{}, mode:PLAY.mode||"slim",
+      questionIds:PLAY.questions.map(q=>q.id), i:PLAY.i||0,
+      answers:PLAY.answers||{}, optOrder:PLAY.optOrder||{},
+      ts:Date.now(),
+    };
+    localStorage.setItem(SESSION_KEY(PLAY.quiz.id), JSON.stringify(state));
+  }catch(e){}
+}
+function loadSession(quizId){
+  try{ const raw=localStorage.getItem(SESSION_KEY(quizId)); return raw?JSON.parse(raw):null; }catch(e){ return null; }
+}
+function clearSession(quizId){ try{ localStorage.removeItem(SESSION_KEY(quizId)); }catch(e){} }
+function humanAgo(ms){ const s=Math.round((Date.now()-ms)/1000);
+  if(s<60) return "net"; if(s<3600) return Math.round(s/60)+" min geleden";
+  if(s<86400) return Math.round(s/3600)+" u geleden"; return Math.round(s/86400)+" d geleden"; }
 async function viewPlay(quizId){
   const { data:quiz } = await sb.from("quizzes").select("*").eq("id",quizId).single();
   if(!quiz){ app.innerHTML=`<div class="empty">Quiz niet gevonden.</div>`; return; }
@@ -415,6 +436,22 @@ async function viewPlay(quizId){
     const idx=PLAY.questions.findIndex(x=>x.id===jid);
     PLAY.i=idx>=0?idx:0; renderQuestion();
   } else renderPlaySetup();
+}
+
+// Herstel een eerder onderbroken sessie uit localStorage
+function resumeSavedSession(){
+  const saved=loadSession(PLAY.quiz.id);
+  if(!saved || !saved.questionIds || !saved.questionIds.length){ clearSession(PLAY.quiz.id); return; }
+  const byId={}; PLAY.all.forEach(q=>byId[q.id]=q);
+  const restored=saved.questionIds.map(id=>byId[id]).filter(Boolean);
+  if(!restored.length){ clearSession(PLAY.quiz.id); return; }
+  PLAY.session=saved.session||{size:"alle",focus:"alle",order:saved.mode||"slim"};
+  PLAY.mode=saved.mode||"slim";
+  PLAY.questions=restored;
+  PLAY.answers=saved.answers||{};
+  PLAY.optOrder=saved.optOrder||{};
+  PLAY.i=Math.min(Math.max(0, saved.i||0), restored.length-1);
+  renderQuestion();
 }
 
 function poolFor(focus){
@@ -460,6 +497,18 @@ function renderPlaySetup(){
     const n=custom>0?custom:(size==="alle"?total:parseInt(size,10));
     return `Je start met <strong>${n}</strong> ${focusLabel(focus)}, ${orderLabel(order)}.`;
   };
+  const saved=loadSession(PLAY.quiz.id);
+  const savedValid = saved && saved.questionIds && saved.questionIds.length && (saved.i||0) < saved.questionIds.length;
+  const resumeBanner = savedValid ? `<div class="resume-banner">
+    <div>
+      <strong>${ICON.clock} Je had een sessie aan de gang</strong>
+      <div class="muted" style="font-size:.82rem">Vraag ${(saved.i||0)+1} van ${saved.questionIds.length} · ${humanAgo(saved.ts||Date.now())}</div>
+    </div>
+    <div class="btnrow" style="margin:0">
+      <button class="btn btn-primary btn-sm" id="resumeBtn">Hervat sessie</button>
+      <button class="btn btn-ghost btn-sm" id="discardResumeBtn" title="Wis de opgeslagen sessie">Weggooien</button>
+    </div>
+  </div>`:"";
   app.innerHTML=`
     <a class="muted" data-nav="#/">← Quizzen</a>
     <h1 style="margin:.5rem 0">${esc(PLAY.quiz.title)}</h1>
@@ -467,7 +516,7 @@ function renderPlaySetup(){
     <div class="muted" style="font-size:.82rem;margin:.4rem 0 1.2rem">
       Meer over deze quiz: <a class="ilink" data-nav="#/quiz/${PLAY.quiz.id}/overzicht">Overzicht van alle vragen</a> · <a class="ilink" data-nav="#/quiz/${PLAY.quiz.id}/stats">Statistiek</a>
     </div>
-
+    ${resumeBanner}
     <div class="setup-panel">
       <div class="setup-panel-hd">
         <div class="spread" style="gap:.5rem;align-items:flex-start">
@@ -514,6 +563,8 @@ function renderPlaySetup(){
     <div class="stack">${PLAY.openFlags.map(f=>{ const qn=(PLAY.all.find(q=>q.id===f.question_id)||{}).qnum; return `<div class="card"><a class="ilink" data-q="${f.question_id}" data-quiz="${PLAY.quiz.id}"><span class="pill ${f.type}">${f.type}</span> Vraag ${qn} →</a> <span class="who">${esc(PLAY.flagNames[f.user_id]||"?")}</span>${f.toelichting?`<div class="muted" style="font-size:.85rem">${esc(f.toelichting)}</div>`:""}</div>`; }).join("")}</div>`:""}`;
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
   app.querySelectorAll("[data-q]").forEach(a=>a.onclick=()=>PLAY_goto(a.dataset.quiz, a.dataset.q));
+  const rb=document.getElementById("resumeBtn"); if(rb) rb.onclick=()=>resumeSavedSession();
+  const drb=document.getElementById("discardResumeBtn"); if(drb) drb.onclick=()=>{ if(!confirm("De opgeslagen sessie weggooien?")) return; clearSession(PLAY.quiz.id); renderPlaySetup(); };
   const wire=(id,attr,set)=>app.querySelectorAll(`#${id} [data-${attr}]`).forEach(b=>b.onclick=()=>{
     app.querySelectorAll(`#${id} [data-${attr}]`).forEach(x=>x.classList.toggle("active",x===b)); set(b.dataset[attr]); });
   const paintSummary=()=>{ const el=document.getElementById("setupSummary"); if(el) el.innerHTML=summaryStr(); };
@@ -613,6 +664,7 @@ async function wipeProgress(){
   }catch(e){ toast("Wissen mislukt: "+e.message,"err"); }
 }
 function startSession(size, focus, order){
+  clearSession(PLAY.quiz.id);
   PLAY.session={ size, focus, order }; PLAY.mode=order;
   let pool=orderQuestions(poolFor(focus), PLAY.answers, order);
   if(!pool.length){ toast("Geen vragen voor deze keuze.","err"); return; }
@@ -626,6 +678,7 @@ function startSession(size, focus, order){
 async function renderQuestion(){
   const q=PLAY.questions[PLAY.i];
   if(!q){ app.innerHTML=`<div class="empty">Deze quiz heeft nog geen vragen.</div>`; return; }
+  saveSession();
   const chosen = PLAY.answers[q.id];            // array of undefined
   const answered = chosen!=null;
   const correct = arr(q.correct_indexes);
@@ -751,6 +804,7 @@ async function answerQuestion(q, idxArray){
 }
 
 function renderPlayDone(){
+  clearSession(PLAY.quiz.id);
   const qs=PLAY.questions;
   const correct=qs.filter(x=>PLAY.answers[x.id]!=null && isRight(x,PLAY.answers[x.id])===true).length;
   const wrong=qs.filter(x=>PLAY.answers[x.id]!=null && isRight(x,PLAY.answers[x.id])===false).length;
