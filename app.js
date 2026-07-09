@@ -98,13 +98,23 @@ function translateOptRefs(text, qid, qObj){
     if(!idxs.length) return m;
     return lettersOfForQ(qid, idxs);
   });
-  s = s.replace(/\{([A-Za-z])\}/g, (m, ch)=>{
-    const upper=ch.toUpperCase();
-    const origIdx=upper.charCodeAt(0)-65;
-    if(origIdx<0||origIdx>25) return m;
-    const l=letterForOrig(qid, origIdx);
-    // beheerder mag ook kleine {a} typen → we respecteren de casing
-    return ch===upper ? l : l.toLowerCase();
+  // Multi-verwijzing zoals {A,B,C} of {A, C} of {a,b} → "A, C" enz. Ook enkele letter {A}.
+  s = s.replace(/\{([A-Za-z](?:\s*,\s*[A-Za-z])*)\}/g, (m, group)=>{
+    const parts=group.split(/\s*,\s*/);
+    const idxs=[]; let anyBad=false;
+    for(const p of parts){
+      const upper=p.toUpperCase();
+      const origIdx=upper.charCodeAt(0)-65;
+      if(origIdx<0||origIdx>25){ anyBad=true; break; }
+      idxs.push(origIdx);
+    }
+    if(anyBad) return m;
+    if(idxs.length===1){
+      const l=letterForOrig(qid, idxs[0]);
+      return parts[0]===parts[0].toUpperCase() ? l : l.toLowerCase();
+    }
+    // Meerdere letters: gebruik lettersOfForQ zodat volgorde en scheidingsteken consistent zijn met andere plekken
+    return lettersOfForQ(qid, idxs);
   });
   return s;
 }
@@ -1792,8 +1802,9 @@ function openBeheerManual(){
       <p>De app schudt per gebruiker en per sessie de volgorde van de antwoordopties. Dat traint spelers op de <em>inhoud</em>, niet op de positie. Gevolg: "A" bij jou kan bij een andere gebruiker "C" zijn.</p>
       <p>In je <strong>uitleg</strong>, <strong>wettelijke basis</strong>, <strong>wettekst</strong> of <strong>docent-toelichting</strong> mag je verwijzen met een van deze placeholders:</p>
       <ul>
-        <li><code>{A}</code> <code>{B}</code> <code>{C}</code> … — verwijst naar de <strong>positie in de editor</strong>: <code>{A}</code> = eerste optie in het formulier, <code>{B}</code> = tweede, enz. Klik op de chip naast een optie om die automatisch in te voegen op je cursorpositie.</li>
-        <li><code>{juist}</code> — verwijst <em>altijd</em> naar het juiste antwoord (welke letter dat ook geworden is na shuffle). Handig als je "antwoord {juist} is correct omdat…" wil schrijven zonder over een specifieke optie na te denken.</li>
+        <li><code>{A}</code> <code>{B}</code> <code>{C}</code> … — verwijst naar de <strong>positie in de editor</strong>: <code>{A}</code> = eerste optie in het formulier, <code>{B}</code> = tweede, enz. Klik op de chip naast een optie om die automatisch in te voegen op je cursorpositie. Na de klik toont een toast naar welke optie de verwijzing wijst.</li>
+        <li><code>{A,B}</code> <code>{A,C,D}</code> … — verwijs naar <strong>meerdere</strong> opties tegelijk (bv. bij multi-antwoord). Wordt vertaald naar "A, C" bij die specifieke speler. <strong>Shift+klik</strong> op een letter-chip breidt een lopende <code>{A}</code> groep uit tot <code>{A,B}</code>.</li>
+        <li><code>{juist}</code> — verwijst <em>altijd</em> naar het juiste antwoord (welke letter dat ook geworden is na shuffle). Voor meerkeuze-vragen worden alle juiste letters samen getoond (bv. "A, C"). Handig als je "antwoord {juist} is correct omdat…" wil schrijven zonder over een specifieke optie na te denken.</li>
         <li><code>{docent}</code> — verwijst naar het antwoord dat de docent aanduidde. Enkel zinvol als de docent afwijkt van het juridische antwoord.</li>
       </ul>
       <p class="tip"><strong>Voorbeeld met {A}:</strong> "Antwoord {A} is juist want art. 34 Sv. bepaalt…". Ziet Anke A in haar shuffle staan, blijft "{A}" → "A". Ziet Bart daar "C", vertaalt "{A}" naar "C".</p>
@@ -2241,11 +2252,11 @@ function questionEditor(q){
     <label style="display:flex;align-items:center;gap:.5rem;font-weight:400"><input type="checkbox" data-multi="${q.id}" style="width:auto" ${q.multi?"checked":""}> Meerkeuze (meerdere juiste antwoorden)</label>
     <label>Antwoordopties — vink <strong>J</strong> aan voor het wettelijk juiste antwoord, en <strong>D</strong> voor het antwoord dat de docent koos (indien verschillend) ${infoTip("J = juridisch/officieel juist antwoord. D = wat de docent aanduidde — enkel invullen als die afwijkt van J. Als beide leeg blijven bij één optie, telt die niet mee.")}</label>
     <div data-opts="${q.id}">${(q.options||[]).map((o,i)=>`
-      <div class="spread optrow" style="gap:.4rem;margin:.2rem 0">
+      <div class="spread optrow" style="gap:.4rem;margin:.2rem 0" data-opt-row="${i}">
         <label class="cbxlab" title="Juridisch juist"><input type="checkbox" class="corr" data-q="${q.id}" value="${i}" ${corr.includes(i)?"checked":""} style="width:auto"><span>J</span></label>
         <label class="cbxlab cbxlab-doc" title="Volgens de docent"><input type="checkbox" class="doc" data-q="${q.id}" value="${i}" ${doc.includes(i)?"checked":""} style="width:auto"><span>D</span></label>
         <input data-opt="${q.id}" value="${esc(o)}" style="flex:1">
-        <button type="button" class="opt-ref-chip" data-insert="${letter(i)}" title="Klik om {${letter(i)}} in te voegen op je cursorpositie in het laatst gefocuste tekstvak">{${letter(i)}}</button>
+        <button type="button" class="opt-ref-chip" data-insert="${letter(i)}" data-opt-idx="${i}" title="Klik: voeg {${letter(i)}} in — verwijst naar de tekst hierlinks. Shift+klik: voeg toe aan een lopende {A,B,…} groep.">{${letter(i)}}</button>
         <button class="btn btn-ghost btn-sm" data-rmopt="${q.id}">×</button>
       </div>`).join("")}</div>
     <button class="btn btn-ghost btn-sm" data-addopt="${q.id}">+ optie</button>
@@ -2257,11 +2268,12 @@ function questionEditor(q){
     <label>Herkomst wettelijke basis</label>${srcToggle("ls-"+q.id, q.legal_basis_source)}
     <label>Wettekst (volledige artikels, uitklapbaar bij de vraag) ${infoTip("Volledige artikeltekst. Verwijs naar antwoordopties met {A} {B} {C} … indien nodig.")}</label>
     <textarea data-f="wettekst" data-q="${q.id}">${esc(q.wettekst||"")}</textarea>
-    <label>Uitleg ${infoTip("Waarom is dit antwoord juist? Verwijs naar antwoordopties met {A} {B} {C} … — de app vertaalt die naar de letter die de gebruiker daadwerkelijk ziet, zodat je uitleg altijd klopt. Bv. 'Antwoord {A} is juist omdat art. 34 Sv. …'. Speciale tokens: {juist} = altijd de juiste antwoordletter, {docent} = het antwoord dat de docent koos.")}</label>
+    <label>Uitleg ${infoTip("Waarom is dit antwoord juist? Verwijs naar antwoordopties met {A} {B} {C} … De app vertaalt die naar de letter die de gebruiker daadwerkelijk ziet. Klik op een {A}-chip naast een optie om die op je cursorpositie in te voegen. Shift+klik om aan een lopende {A,B}-groep toe te voegen. Meerdere letters kunnen ook manueel: {A,B} of {A,C}. Speciale tokens: {juist} = altijd de juiste antwoordletter(s), {docent} = het antwoord dat de docent koos.")}</label>
     <div class="ref-chip-row">
-      <span class="muted" style="font-size:.72rem">Invoegen:</span>
+      <span class="muted" style="font-size:.72rem">Snel invoegen:</span>
       <button type="button" class="opt-ref-chip opt-ref-special" data-insert-special="juist" title="Voeg {juist} in — verwijst altijd naar het juiste antwoord, ongeacht shuffle">{juist}</button>
       <button type="button" class="opt-ref-chip opt-ref-special" data-insert-special="docent" title="Voeg {docent} in — verwijst naar het antwoord dat de docent koos">{docent}</button>
+      <span class="muted" style="font-size:.72rem;margin-left:.4rem">Tip: shift+klik op een {A}-chip om een groep {A,B} te maken.</span>
     </div>
     <textarea data-f="explanation" data-q="${q.id}">${esc(q.explanation||"")}</textarea>
     <label>Herkomst uitleg</label>${srcToggle("es-"+q.id, q.explanation_source)}
@@ -2298,15 +2310,47 @@ function wireQuestionEditor(q, quizId){
     chip.onclick=e=>{
       e.preventDefault();
       const raw = chip.dataset.insert || chip.dataset.insertSpecial;
-      const token = `{${raw}}`;
       const ta = lastFocused;
       if(!ta) return;
+      // Shift+klik op een letter-chip: als de cursor direct achter een `{...}`-groep staat,
+      // voeg deze letter dan toe aan die groep (bv. {A} → {A,B}).
+      if(e.shiftKey && chip.dataset.insert){
+        const start = ta.selectionStart;
+        const v = ta.value;
+        const m = v.slice(0,start).match(/\{([A-Za-z](?:\s*,\s*[A-Za-z])*)\}$/);
+        if(m){
+          const existing = m[1].split(/\s*,\s*/).map(s=>s.toUpperCase());
+          if(!existing.includes(raw.toUpperCase())){
+            existing.push(raw.toUpperCase());
+            const newTok = `{${existing.join(",")}}`;
+            const before = v.slice(0, start - m[0].length);
+            ta.value = before + newTok + v.slice(start);
+            ta.focus();
+            const pos = before.length + newTok.length;
+            ta.setSelectionRange(pos, pos);
+            toast(`Uitgebreid naar ${newTok}`,"ok");
+            return;
+          }
+        }
+        // val terug op normale insert
+      }
+      const token = `{${raw}}`;
       const start = ta.selectionStart, end = ta.selectionEnd;
       const v = ta.value;
       ta.value = v.slice(0,start) + token + v.slice(end);
       ta.focus();
       const pos = start + token.length;
       ta.setSelectionRange(pos, pos);
+      // Feedback: toon in een toast naar welke optie deze verwijzing wijst
+      if(chip.dataset.insert){
+        const row = card.querySelector(`[data-opt-row="${chip.dataset.optIdx}"]`);
+        const optInput = row ? row.querySelector(`[data-opt="${q.id}"]`) : null;
+        const optText = optInput ? optInput.value : "";
+        if(optText) toast(`${token} verwijst naar: "${optText.slice(0,60)}${optText.length>60?"…":""}"`,"ok");
+        else toast(`${token} ingevoegd`,"ok");
+      } else if(chip.dataset.insertSpecial){
+        toast(`${token} ingevoegd — vertaalt automatisch naar het ${chip.dataset.insertSpecial==="juist"?"juiste antwoord":"docent-antwoord"}`,"ok");
+      }
     };
   }
   card.querySelectorAll(".opt-ref-chip").forEach(wireRefChip);
