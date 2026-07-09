@@ -1809,7 +1809,8 @@ function questionEditor(q){
     <div class="spread"><span class="q-num">Vraag ${q.qnum}</span>
       <button class="btn btn-danger btn-sm" data-delq="${q.id}">Verwijderen</button></div>
     <label>Vraagtekst</label><textarea data-f="text" data-q="${q.id}">${esc(q.text)}</textarea>
-    <label style="display:flex;align-items:center;gap:.5rem;font-weight:400"><input type="checkbox" data-valid="${q.id}" style="width:auto" ${q.validated!==false?"checked":""}> Gevalideerd juist antwoord ${infoTip("Uit = er is nog geen officieel juist antwoord; de groep bepaalt het via opmerkingen en flags. De vraag krijgt dan de tag 'Niet gevalideerd'.")}</label>
+    <label style="display:flex;align-items:center;gap:.5rem;font-weight:400"><input type="checkbox" data-valid="${q.id}" style="width:auto" ${q.validated!==false?"checked":""}> Gevalideerd juist antwoord ${infoTip("Uit = er is nog geen officieel juist antwoord; de groep bepaalt het via opmerkingen en flags. De vraag krijgt dan de tag 'Niet gevalideerd'. Als J (juridisch) en D (docent) verschillen, staat deze vlag standaard uit tot een beheerder bewust bevestigt.")}</label>
+    <div data-valid-warn="${q.id}" class="valid-mismatch" hidden>⚠️ J en D verschillen — vragen worden standaard <strong>niet-gevalideerd</strong> bewaard tot je hier bewust bevestigt door dit vinkje aan te zetten.</div>
     <label style="display:flex;align-items:center;gap:.5rem;font-weight:400"><input type="checkbox" data-multi="${q.id}" style="width:auto" ${q.multi?"checked":""}> Meerkeuze (meerdere juiste antwoorden)</label>
     <label>Antwoordopties — vink <strong>J</strong> aan voor het wettelijk juiste antwoord, en <strong>D</strong> voor het antwoord dat de docent koos (indien verschillend) ${infoTip("J = juridisch/officieel juist antwoord. D = wat de docent aanduidde — enkel invullen als die afwijkt van J. Als beide leeg blijven bij één optie, telt die niet mee.")}</label>
     <div data-opts="${q.id}">${(q.options||[]).map((o,i)=>`
@@ -1845,6 +1846,17 @@ function wireQuestionEditor(q, quizId){
     wrap.appendChild(div); addRm(div);
   };
   card.querySelectorAll(`[data-opts="${q.id}"] .optrow`).forEach(addRm);
+  // waarschuwing bij J≠D: iedere J- of D-verandering evalueert opnieuw
+  const paintMismatchWarn=()=>{
+    const rows=[...card.querySelectorAll(`[data-opts="${q.id}"] .optrow`)];
+    const jIdxs=[], dIdxs=[];
+    rows.forEach((r,i)=>{ if(r.querySelector(".corr").checked) jIdxs.push(i); if(r.querySelector(".doc").checked) dIdxs.push(i); });
+    const differs = dIdxs.length>0 && !setEq(jIdxs, dIdxs);
+    const warn=card.querySelector(`[data-valid-warn="${q.id}"]`);
+    if(warn) warn.hidden = !differs;
+  };
+  card.addEventListener("change", e=>{ if(e.target.matches(".corr, .doc")) paintMismatchWarn(); });
+  paintMismatchWarn();
   card.querySelector(`[data-delq="${q.id}"]`).onclick=async()=>{
     if(!confirm("Vraag verwijderen?")) return;
     await sb.from("questions").delete().eq("id",q.id); toast("Verwijderd","ok"); viewBeheerQuiz(quizId);
@@ -1927,13 +1939,20 @@ function parseQuizMarkdown(text){
     if(/^#\s*Titel:/i.test(line)){ title=line.replace(/^#\s*Titel:/i,"").trim(); continue; }
     if(/^#\s+/.test(line)&&!title){ title=line.replace(/^#+\s*/,"").trim(); continue; }
     if(/^Beschrijving:/i.test(line)){ desc=line.replace(/^Beschrijving:/i,"").trim(); continue; }
-    if(/^##\s*/.test(line)){ push(); cur={ text:"", options:[], correct_indexes:[], legal_basis:"", wettekst:"", explanation:"", source:"mens", validated:true }; field="text"; continue; }
+    if(/^##\s*/.test(line)){ push(); cur={ text:"", options:[], correct_indexes:[], docent_indexes:[], docent_note:"", legal_basis:"", wettekst:"", explanation:"", source:"mens", validated:true }; field="text"; continue; }
     if(!cur) continue;
     let m;
-    if((m=line.match(/^-\s*\[( |x|X)\]\s*(.+)$/))){ if(m[1].toLowerCase()==="x") cur.correct_indexes.push(cur.options.length); cur.options.push(m[2].trim()); field="opt"; continue; }
+    // Optie: - [x] [d] tekst — [x/X] = juridisch juist (J), [d/D] = docent koos dit (D)
+    if((m=line.match(/^-\s*\[( |x|X)\]\s*(?:\[( |d|D)\]\s*)?(.+)$/))){
+      const idx=cur.options.length;
+      if(m[1].toLowerCase()==="x") cur.correct_indexes.push(idx);
+      if(m[2] && m[2].toLowerCase()==="d") cur.docent_indexes.push(idx);
+      cur.options.push(m[3].trim()); field="opt"; continue;
+    }
     if(/^\*\*Wettelijke basis:\*\*/i.test(line)){ cur.legal_basis=line.replace(/^\*\*Wettelijke basis:\*\*/i,"").trim(); field="legal"; continue; }
     if(/^\*\*Wettekst:\*\*/i.test(line)){ cur.wettekst=line.replace(/^\*\*Wettekst:\*\*/i,"").trim(); field="wettekst"; continue; }
     if(/^\*\*Uitleg:\*\*/i.test(line)){ cur.explanation=line.replace(/^\*\*Uitleg:\*\*/i,"").trim(); field="uitleg"; continue; }
+    if(/^\*\*Docent(-toelichting)?:\*\*/i.test(line)){ cur.docent_note=line.replace(/^\*\*Docent(-toelichting)?:\*\*/i,"").trim(); field="docent"; continue; }
     if(/^\*\*Bron:\*\*/i.test(line)){ cur.source=/ai|robot/i.test(line)?"ai":"mens"; field=null; continue; }
     if(/^\*\*Gevalideerd:\*\*/i.test(line)){ cur.validated=!/nee|neen|geen|no|uit|false/i.test(line); field=null; continue; }
     if(line===""){
@@ -1954,6 +1973,8 @@ function parseQuizMarkdown(text){
     if(!q.text) errors.push(`Vraag ${i+1}: geen vraagtekst.`);
     if(q.options.length<2) errors.push(`Vraag ${i+1}: minder dan 2 opties.`);
     if(!q.correct_indexes.length) q.validated=false;   // geen [x] ⇒ niet gevalideerd
+    // Bij afwijkend docent-antwoord blijft de vraag "niet gevalideerd" tot een beheerder ze bevestigt.
+    if(q.docent_indexes && q.docent_indexes.length && !setEq(q.docent_indexes, q.correct_indexes)) q.validated=false;
     q.multi=q.correct_indexes.length>1;
   });
   if(!title) errors.push("Geen titel gevonden (# Titel: ...).");
@@ -2008,7 +2029,9 @@ async function viewImport(){
       if(error) throw error;
       const rows=parsed.questions.map((q,i)=>{
         const src = q.source==="ai" ? "ai" : (aiAll ? "ai" : "mens");
+        const doc = (q.docent_indexes && q.docent_indexes.length) ? q.docent_indexes : null;
         return { quiz_id:quiz.id, sort_order:i+1, text:q.text, options:q.options, correct_indexes:q.correct_indexes, multi:!!q.multi, validated:q.validated!==false,
+          docent_indexes:doc, docent_note: doc ? (q.docent_note||null) : null,
           legal_basis:q.legal_basis, wettekst:q.wettekst, explanation:q.explanation, answer_source:src, explanation_source:src };
       });
       const CHUNK=40;

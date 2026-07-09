@@ -30,18 +30,29 @@ FORMAATREGELS (de importer leest hierop)
   • Elke vraag begint met "## Vraag" (nummering mag, is niet verplicht).
   • Daaronder de vraagtekst (één of meerdere regels).
   • Dan de antwoordopties, elk op een eigen regel beginnend met "- [ ]".
-    Zet bij ELK juist antwoord een x tussen de haakjes: "- [x]".
+    Zet bij ELK juridisch juist antwoord een x tussen de haakjes: "- [x]".
+    Optioneel volgt een tweede paar haakjes voor het DOCENT-antwoord:
+       "- [x] [ ] tekst"   — juridisch juist, docent volgt niet dit antwoord
+       "- [ ] [d] tekst"   — docent koos dit, maar het is niet juridisch juist
+       "- [x] [d] tekst"   — beide vinden dit juist
+       "- [ ] [ ] tekst"   — niet juist en niet door docent gekozen
+    Enkel invullen als de docent expliciet iets anders koos dan de wet. Vragen waarbij
+    J en D niet overeenstemmen komen binnen als NIET-GEVALIDEERD — je moet ze pas
+    bewust valideren via het vinkje in de vraag-editor.
     Gewone vraag = precies één optie met [x]. Meerkeuzevraag = meerdere opties
     met [x] (dan wordt de vraag automatisch als meerkeuze behandeld). Min. 2 opties.
   • "**Wettelijke basis:**" — de wetsartikelen/grondslag (optioneel, aangeraden).
   • "**Wettekst:**" — de volledige wettekst van de artikels (optioneel; wordt uitklapbaar
     bij de vraag getoond).
   • "**Uitleg:**" — waarom dit antwoord juist is (optioneel, aangeraden).
+  • "**Docent:**" of "**Docent-toelichting:**" — korte uitleg waarom de docent afwijkt
+    van het juridische antwoord (optioneel; enkel zinvol als er ook een [d]-optie is).
   • "**Bron:**" — mens of AI (optioneel; standaard mens).
   • "**Gevalideerd:**" — ja of nee (optioneel; standaard ja). Zet "nee" als er nog
     geen zeker juist antwoord is: de vraag krijgt dan de tag "Niet gevalideerd" en de
     gebruikers bepalen het beste antwoord via opmerkingen en flags. Laat je álle [ ]
-    onaangevinkt, dan wordt de vraag sowieso als niet-gevalideerd ingeladen.
+    onaangevinkt, dan wordt de vraag sowieso als niet-gevalideerd ingeladen. Ook als
+    J en D verschillen wordt de vraag standaard niet-gevalideerd bewaard.
   • Scheid vragen met een lege regel. Laat de labels exact zoals hier geschreven.
 
 Verwijder de twee VOORBEELDVRAGEN voor je uploadt (of laat de AI ze vervangen).

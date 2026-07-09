@@ -422,6 +422,8 @@ summary .ico,button .ico{color:inherit}
 .cbxlab-doc{background:rgba(192,38,211,.08);border-color:rgba(192,38,211,.35);color:#a21caf}
 .cbxlab:has(input:checked){background:var(--correct-soft);border-color:var(--correct);color:var(--correct)}
 .cbxlab-doc:has(input:checked){background:rgba(192,38,211,.18);border-color:#c026d3;color:#a21caf}
+.valid-mismatch{margin:.3rem 0 .5rem;padding:.5rem .7rem;background:var(--warn-soft);
+  border-left:3px solid var(--warn);border-radius:6px;font-size:.82rem;line-height:1.4;color:var(--text)}
 .infotip{position:relative;display:inline-flex;color:inherit;cursor:help;opacity:.8}
 .infotip .ico{width:13px;height:13px}
 .infotip::after{content:attr(data-tip);position:absolute;bottom:135%;left:50%;transform:translateX(-50%);
