@@ -859,8 +859,8 @@ function renderDoneReview(qs, filter){
           if(docentDiffers && docent.includes(i)) cls+=" docent";
           return `<div class="${cls}"><strong>${letter(i)}.</strong> ${esc(o)}${validated&&correct.includes(i)?' <span class="pill juist" style="margin-left:.3rem">juist</span>':""}${docentDiffers&&docent.includes(i)?' <span class="pill" style="margin-left:.3rem;background:rgba(192,38,211,.12);color:#a21caf">docent</span>':""}</div>`;
         }).join("")}</div>
-        ${q.explanation?`<div class="rv-explain"><strong>Uitleg:</strong> ${html(q.explanation)}</div>`:""}
-        ${q.legal_basis?`<div class="rv-legal"><strong>Wettelijke basis:</strong> ${html(q.legal_basis)}</div>`:""}
+        ${q.explanation?`<div class="rv-explain"><strong>Uitleg:</strong> ${srcBadge("Uitleg",q.explanation_source)} ${html(q.explanation)}</div>`:""}
+        ${q.legal_basis?`<div class="rv-legal"><strong>Wettelijke basis:</strong> ${srcBadge("Wettelijke basis",q.legal_basis_source)} ${html(q.legal_basis)}</div>`:""}
         ${q.docent_note && docentDiffers ? `<div class="rv-docent"><strong>Docent-toelichting:</strong> ${esc(q.docent_note)}</div>`:""}
         ${q.wettekst?`<details class="rv-wettekst"><summary>${ICON.info} Toon volledige wettekst</summary><div class="wettekst">${html(q.wettekst)}</div></details>`:""}
         <div class="btnrow" style="margin-top:.6rem"><button class="btn btn-ghost btn-sm" data-goq="${q.id}">Open deze vraag →</button></div>
@@ -1073,7 +1073,7 @@ async function renderAfterAnswer(q){
     ${q.validated===false?`<div class="notice">${ICON.info} <strong>Nog geen gevalideerd juist antwoord.</strong> Bekijk hieronder welk antwoord de groep verkiest, kies zelf je voorkeursantwoord en gebruik de flags om in overleg te gaan.</div>`:""}
     <div class="explain">
       <span class="lbl">Wettelijk juist antwoord ${srcBadge("Uitleg",q.explanation_source)}</span>${html(q.explanation||"— geen uitleg —")}
-      ${q.legal_basis?`<div class="legal-inline"><strong>Wettelijke basis:</strong> ${html(q.legal_basis)}</div>`:""}
+      ${q.legal_basis?`<div class="legal-inline"><strong>Wettelijke basis:</strong> ${srcBadge("Wettelijke basis",q.legal_basis_source)} ${html(q.legal_basis)}</div>`:""}
       ${q.wettekst?`<details class="wettekst-d"><summary>${ICON.info} Toon wettekst</summary><div class="wettekst">${html(q.wettekst)}</div></details>`:""}
     </div>
     ${docentBlock}
@@ -1825,6 +1825,7 @@ function questionEditor(q){
     <textarea data-f="docent_note" data-q="${q.id}" placeholder="bv. De docent noteert antwoord B als praktijk-antwoord…">${esc(q.docent_note||"")}</textarea>
     <label>Herkomst juist antwoord</label>${srcToggle("as-"+q.id, q.answer_source)}
     <label>Wettelijke basis</label><textarea data-f="legal_basis" data-q="${q.id}">${esc(q.legal_basis||"")}</textarea>
+    <label>Herkomst wettelijke basis</label>${srcToggle("ls-"+q.id, q.legal_basis_source)}
     <label>Wettekst (volledige artikels, uitklapbaar bij de vraag)</label><textarea data-f="wettekst" data-q="${q.id}">${esc(q.wettekst||"")}</textarea>
     <label>Uitleg</label><textarea data-f="explanation" data-q="${q.id}">${esc(q.explanation||"")}</textarea>
     <label>Herkomst uitleg</label>${srcToggle("es-"+q.id, q.explanation_source)}
@@ -1833,10 +1834,12 @@ function questionEditor(q){
 }
 function wireQuestionEditor(q, quizId){
   const card=document.querySelector(`[data-qcard="${q.id}"]`);
-  const srcVals={ answer_source:q.answer_source, explanation_source:q.explanation_source };
+  const srcVals={ answer_source:q.answer_source, explanation_source:q.explanation_source, legal_basis_source:q.legal_basis_source };
   card.querySelectorAll("[data-src]").forEach(b=>b.onclick=()=>{
     const grp=b.dataset.src; card.querySelectorAll(`[data-src="${grp}"]`).forEach(x=>x.classList.toggle("active",x===b));
-    if(grp.startsWith("as-")) srcVals.answer_source=b.dataset.val; else srcVals.explanation_source=b.dataset.val;
+    if(grp.startsWith("as-")) srcVals.answer_source=b.dataset.val;
+    else if(grp.startsWith("ls-")) srcVals.legal_basis_source=b.dataset.val;
+    else srcVals.explanation_source=b.dataset.val;
   });
   const addRm=el=>{ el.querySelector("[data-rmopt]").onclick=()=>el.remove(); };
   card.querySelector(`[data-addopt="${q.id}"]`).onclick=()=>{
@@ -1881,7 +1884,7 @@ function wireQuestionEditor(q, quizId){
       legal_basis:card.querySelector(`[data-f="legal_basis"][data-q="${q.id}"]`).value,
       wettekst:card.querySelector(`[data-f="wettekst"][data-q="${q.id}"]`).value,
       explanation:card.querySelector(`[data-f="explanation"][data-q="${q.id}"]`).value,
-      answer_source:srcVals.answer_source, explanation_source:srcVals.explanation_source };
+      answer_source:srcVals.answer_source, explanation_source:srcVals.explanation_source, legal_basis_source:srcVals.legal_basis_source };
     const { error }=await sb.from("questions").update(payload).eq("id",q.id);
     if(error) return toast(error.message,"err");
     toast("Vraag opgeslagen (wijzigingen gelogd)","ok");
@@ -2032,7 +2035,8 @@ async function viewImport(){
         const doc = (q.docent_indexes && q.docent_indexes.length) ? q.docent_indexes : null;
         return { quiz_id:quiz.id, sort_order:i+1, text:q.text, options:q.options, correct_indexes:q.correct_indexes, multi:!!q.multi, validated:q.validated!==false,
           docent_indexes:doc, docent_note: doc ? (q.docent_note||null) : null,
-          legal_basis:q.legal_basis, wettekst:q.wettekst, explanation:q.explanation, answer_source:src, explanation_source:src };
+          legal_basis:q.legal_basis, wettekst:q.wettekst, explanation:q.explanation,
+          answer_source:src, explanation_source:src, legal_basis_source: q.legal_basis ? src : null };
       });
       const CHUNK=40;
       for(let i=0;i<rows.length;i+=CHUNK){
