@@ -967,6 +967,7 @@ function renderPlayDone(){
         <button class="btn btn-ghost" id="againNew">Nieuwe sessie</button>
         <a class="btn btn-ghost" data-nav="#/">Naar quizzen</a>
       </div>
+      <div style="margin-top:1rem"><a class="ilink" id="scrollToReview" style="font-size:.85rem">↓ Bekijk gedetailleerd overzicht van alle vragen</a></div>
       ${(()=>{ const eligible=qs.length>=25 && scored>0 && p>=80;
         return `<div class="brain-break">
           <div class="muted" style="font-size:.82rem;margin-bottom:.4rem">${eligible?"Je hebt een pauze verdiend 🎉":"Speel Tetris na een sessie van minstens 25 vragen met ≥80% juist."}</div>
@@ -975,14 +976,16 @@ function renderPlayDone(){
     </div>
 
     <div class="done-review">
-      <div class="spread" style="margin-bottom:.5rem">
-        <h2 style="margin:0;font-size:1rem">Overzicht van deze sessie</h2>
-        <div class="btnrow" style="margin:0">
+      <div class="spread" style="margin-bottom:.5rem;gap:.6rem;flex-wrap:wrap">
+        <h2 style="margin:0;font-size:1.05rem">📋 Overzicht van deze sessie</h2>
+        <div class="btnrow" style="margin:0;gap:.35rem;flex-wrap:wrap">
           <button class="btn btn-ghost btn-sm" id="rvFilterAll" data-rvf="alle">Alle (${qs.length})</button>
           <button class="btn btn-ghost btn-sm" id="rvFilterWrong" data-rvf="fout">Enkel fout (${wrong})</button>
+          <button class="btn btn-ghost btn-sm" id="rvExpandAll" title="Klap alle vragen open">↧ Alles open</button>
+          <button class="btn btn-ghost btn-sm" id="rvCollapseAll" title="Klap alle vragen dicht">↥ Alles dicht</button>
         </div>
       </div>
-      <p class="muted" style="font-size:.8rem;margin-bottom:.6rem">Klik een vraag open om de uitleg, wettelijke basis en het volledige juiste antwoord te zien.</p>
+      <p class="muted" style="font-size:.8rem;margin-bottom:.6rem">Foute antwoorden staan meteen open zodat je meteen kan bijsturen. Klik een andere vraag open om de uitleg en het juiste antwoord te bekijken.</p>
       <div class="stack" id="rvList">${renderDoneReview(qs, "alle")}</div>
     </div>`;
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
@@ -996,6 +999,16 @@ function renderPlayDone(){
     wireDoneReview();
   });
   document.getElementById("rvFilterAll").classList.add("active");
+  const expandAll=document.getElementById("rvExpandAll");
+  const collapseAll=document.getElementById("rvCollapseAll");
+  if(expandAll) expandAll.onclick=()=>document.querySelectorAll("#rvList details.rv-item").forEach(d=>d.open=true);
+  if(collapseAll) collapseAll.onclick=()=>document.querySelectorAll("#rvList details.rv-item").forEach(d=>d.open=false);
+  const scrollBtn=document.getElementById("scrollToReview");
+  if(scrollBtn) scrollBtn.onclick=e=>{
+    e.preventDefault();
+    const el=document.querySelector(".done-review");
+    if(el) el.scrollIntoView({behavior:"smooth", block:"start"});
+  };
   wireDoneReview();
 }
 
@@ -1021,7 +1034,7 @@ function renderDoneReview(qs, filter){
       : `<span class="pill" style="background:var(--surface2);color:var(--text-muted)">niet beantwoord</span>`;
     const correctStr = correct.length ? lettersOf(correct) : "—";
     const yourStr = answered ? lettersOf(chosen) : "—";
-    return `<details class="rv-item ${status}">
+    return `<details class="rv-item ${status}" ${status==="fout"?"open":""}>
       <summary>
         <div class="rv-sum">
           <span class="q-num">${q.qnum}</span>
