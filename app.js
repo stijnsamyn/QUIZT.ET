@@ -491,11 +491,6 @@ function renderPlaySetup(){
       <div class="card setup-step">
         <div class="setup-hd"><span class="setup-num">2</span> Welke vragen?</div>
         <div class="btnrow" id="gFocus">${chips("focus",focuses,focus)}</div>
-        <div class="focus-hint">
-          <div class="focus-hint-row"><span class="focus-hint-lbl">Enkel mijn foute</span> — vragen waarvan je <strong>huidige</strong> antwoord fout is. Antwoord je die later juist? Dan verdwijnen ze hier.</div>
-          <div class="focus-hint-row"><span class="focus-hint-lbl">Historisch fout</span> — vragen die je <strong>ooit</strong> minstens één keer fout hebt beantwoord, ook al is je huidige antwoord juist. Blijft in de lijst tot je op "Voortgang wissen" klikt.</div>
-          <div class="focus-hint-ex">Voorbeeld: vraag 12 had je eerst fout, later juist. Dan staat vraag 12 <strong>niet</strong> in "Enkel mijn foute" (want huidig juist), maar <strong>wel</strong> in "Historisch fout" (ooit fout geweest).</div>
-        </div>
       </div>
 
       <div class="card setup-step">
