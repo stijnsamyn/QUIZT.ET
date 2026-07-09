@@ -2223,6 +2223,7 @@ function questionEditor(q){
         <label class="cbxlab" title="Juridisch juist"><input type="checkbox" class="corr" data-q="${q.id}" value="${i}" ${corr.includes(i)?"checked":""} style="width:auto"><span>J</span></label>
         <label class="cbxlab cbxlab-doc" title="Volgens de docent"><input type="checkbox" class="doc" data-q="${q.id}" value="${i}" ${doc.includes(i)?"checked":""} style="width:auto"><span>D</span></label>
         <input data-opt="${q.id}" value="${esc(o)}" style="flex:1">
+        <button type="button" class="opt-ref-chip" data-insert="${letter(i)}" title="Klik om {${letter(i)}} in te voegen op je cursorpositie in het laatst gefocuste tekstvak">{${letter(i)}}</button>
         <button class="btn btn-ghost btn-sm" data-rmopt="${q.id}">×</button>
       </div>`).join("")}</div>
     <button class="btn btn-ghost btn-sm" data-addopt="${q.id}">+ optie</button>
@@ -2252,10 +2253,35 @@ function wireQuestionEditor(q, quizId){
   const addRm=el=>{ el.querySelector("[data-rmopt]").onclick=()=>el.remove(); };
   card.querySelector(`[data-addopt="${q.id}"]`).onclick=()=>{
     const wrap=card.querySelector(`[data-opts="${q.id}"]`);
+    const nextIdx=wrap.querySelectorAll(".optrow").length;
     const div=document.createElement("div"); div.className="spread optrow"; div.style="gap:.4rem;margin:.2rem 0";
-    div.innerHTML=`<label class="cbxlab" title="Juridisch juist"><input type="checkbox" class="corr" data-q="${q.id}" style="width:auto"><span>J</span></label><label class="cbxlab cbxlab-doc" title="Volgens de docent"><input type="checkbox" class="doc" data-q="${q.id}" style="width:auto"><span>D</span></label><input data-opt="${q.id}" value="" style="flex:1"><button class="btn btn-ghost btn-sm" data-rmopt="${q.id}">×</button>`;
+    const l=letter(nextIdx);
+    div.innerHTML=`<label class="cbxlab" title="Juridisch juist"><input type="checkbox" class="corr" data-q="${q.id}" style="width:auto"><span>J</span></label><label class="cbxlab cbxlab-doc" title="Volgens de docent"><input type="checkbox" class="doc" data-q="${q.id}" style="width:auto"><span>D</span></label><input data-opt="${q.id}" value="" style="flex:1"><button type="button" class="opt-ref-chip" data-insert="${l}" title="Klik om {${l}} in te voegen op je cursorpositie in het laatst gefocuste tekstvak">{${l}}</button><button class="btn btn-ghost btn-sm" data-rmopt="${q.id}">×</button>`;
     wrap.appendChild(div); addRm(div);
+    wireRefChip(div.querySelector(".opt-ref-chip"));
   };
+  // Bijhouden welk rich-text vak (uitleg/wettelijke basis/wettekst/docent) laatst focus had
+  const richFields = ["explanation","legal_basis","wettekst","docent_note"];
+  let lastFocused = card.querySelector(`[data-f="explanation"][data-q="${q.id}"]`); // default = Uitleg
+  richFields.forEach(f=>{
+    const ta = card.querySelector(`[data-f="${f}"][data-q="${q.id}"]`);
+    if(ta) ta.addEventListener("focus", ()=>{ lastFocused=ta; });
+  });
+  function wireRefChip(chip){
+    chip.onclick=e=>{
+      e.preventDefault();
+      const token = `{${chip.dataset.insert}}`;
+      const ta = lastFocused;
+      if(!ta) return;
+      const start = ta.selectionStart, end = ta.selectionEnd;
+      const v = ta.value;
+      ta.value = v.slice(0,start) + token + v.slice(end);
+      ta.focus();
+      const pos = start + token.length;
+      ta.setSelectionRange(pos, pos);
+    };
+  }
+  card.querySelectorAll(".opt-ref-chip").forEach(wireRefChip);
   card.querySelectorAll(`[data-opts="${q.id}"] .optrow`).forEach(addRm);
   // waarschuwing bij J≠D: iedere J- of D-verandering evalueert opnieuw
   const paintMismatchWarn=()=>{
