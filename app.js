@@ -12,6 +12,7 @@ const sb = configOk ? window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABAS
 /* ---------- State ---------- */
 let ME = null;            // profiel {id, display_name, role}
 let EDIT_FOCUS = null;    // {id, quiz} — vraag om naar te scrollen in de editor
+let NOTIFY_COUNT = 0;     // nieuwe reacties bij vragen waar jij op reageerde
 const app = document.getElementById("app");
 
 /* ---------- Line-icons (subtiel, currentColor) ---------- */
@@ -264,7 +265,8 @@ function renderHeader(){
   h.hidden=false;
   const nav=document.getElementById("topnav");
   const usersLabel = isEditor() ? `Gebruikers${USER_COUNT!=null?` (${USER_COUNT})`:""}` : null;
-  const links=[["#/","Quizzen"],["#/stats/vragen","Statistiek"],["#/account","Mijn account"]];
+  const notifyBadge = `<span id="notifyBadge" class="notify-badge" ${NOTIFY_COUNT>0?"":"hidden"}>${NOTIFY_COUNT}</span>`;
+  const links=[["#/","Quizzen"],["#/stats/vragen","Statistiek"],["#/account","Mijn account"],["#/meldingen","Meldingen "+notifyBadge]];
   if(isEditor()) links.push(["#/stats/gebruikers",usersLabel]);
   if(isEditor()) links.push(["#/beheer","Beheer"]);
   nav.innerHTML = links.map(([h,l])=>`<a data-nav="${h}">${l}</a>`).join("");
@@ -296,6 +298,7 @@ async function route(){
     if(p[0]==="stats" && p[1]==="vragen") return viewStatsVragen();
     if(p[0]==="stats" && p[1]==="gebruikers") return viewStatsGebruikers();
     if(p[0]==="tetris") return viewTetris();
+    if(p[0]==="meldingen") return viewMeldingen();
     if(p[0]==="account") return viewAccount();
     if(p[0]==="beheer" && p[1]==="vraag") return viewEditQuestion(p[2]);
     if(p[0]==="beheer" && p[1]==="quiz") return viewBeheerQuiz(p[2]);
@@ -472,6 +475,36 @@ function clearSession(quizId){
 function humanAgo(ms){ const s=Math.round((Date.now()-ms)/1000);
   if(s<60) return "net"; if(s<3600) return Math.round(s/60)+" min geleden";
   if(s<86400) return Math.round(s/3600)+" u geleden"; return Math.round(s/86400)+" d geleden"; }
+
+/* ---------- Notifications ---------- */
+// Melding wanneer iemand reageert op een vraag waar jij ook al op reageerde.
+const NOTIFY_KEY = () => `quiztet_notify_seen_${(ME&&ME.id)||""}`;
+function getLastNotifySeen(){
+  try{ return localStorage.getItem(NOTIFY_KEY()) || "1970-01-01T00:00:00Z"; }catch(e){ return "1970-01-01T00:00:00Z"; }
+}
+function markNotifySeen(){
+  try{ localStorage.setItem(NOTIFY_KEY(), new Date().toISOString()); }catch(e){}
+}
+// Vragen waar de gebruiker al een flag/reactie op heeft (elk type, ook commentaar)
+async function fetchNewNotifications(){
+  if(!ME) return [];
+  const { data:myFlags } = await sb.from("flags").select("question_id").eq("user_id",ME.id).range(0,4999);
+  const qids = [...new Set((myFlags||[]).map(f=>f.question_id))];
+  if(!qids.length) return [];
+  const since = getLastNotifySeen();
+  const { data:newFlags } = await sb.from("flags").select("id,question_id,user_id,type,toelichting,created_at,parent_id")
+    .in("question_id", qids).gt("created_at", since).neq("user_id", ME.id)
+    .order("created_at",{ascending:false}).range(0,199);
+  return newFlags || [];
+}
+async function refreshNotifyBadge(){
+  try{
+    const items = await fetchNewNotifications();
+    NOTIFY_COUNT = items.length;
+    const el = document.getElementById("notifyBadge");
+    if(el){ el.textContent = NOTIFY_COUNT; el.hidden = NOTIFY_COUNT===0; }
+  }catch(e){}
+}
 async function viewPlay(quizId){
   const { data:quiz } = await sb.from("quizzes").select("*").eq("id",quizId).single();
   if(!quiz){ app.innerHTML=`<div class="empty">Quiz niet gevonden.</div>`; return; }
@@ -1792,6 +1825,94 @@ function openBeheerManual(){
 }
 
 /* ============================================================
+   MELDINGEN — nieuwe reacties bij vragen waar jij op reageerde
+   ============================================================ */
+async function viewMeldingen(){
+  app.innerHTML=`<div class="loading">Meldingen laden…</div>`;
+  const since = getLastNotifySeen();
+  const items = await fetchNewNotifications();
+  // Ook oudere activiteit tonen ter context — laatste 30 dagen aan reacties op mijn vragen
+  const { data:myFlags } = await sb.from("flags").select("question_id").eq("user_id",ME.id).range(0,4999);
+  const qids = [...new Set((myFlags||[]).map(f=>f.question_id))];
+  let recent = [];
+  if(qids.length){
+    const cutoff = new Date(Date.now() - 30*24*3600*1000).toISOString();
+    const { data } = await sb.from("flags").select("id,question_id,user_id,type,toelichting,created_at,parent_id")
+      .in("question_id", qids).gt("created_at", cutoff).neq("user_id", ME.id)
+      .order("created_at",{ascending:false}).range(0,199);
+    recent = data || [];
+  }
+  const allIds = [...new Set([...items, ...recent].map(f=>f.question_id))];
+  let qmap={};
+  if(allIds.length){
+    const { data:qq } = await sb.from("questions").select("id,qnum,quiz_id,text").in("id", allIds);
+    (qq||[]).forEach(q=>qmap[q.id]=q);
+  }
+  const quizIds = [...new Set(Object.values(qmap).map(q=>q.quiz_id))];
+  let quizMap={};
+  if(quizIds.length){
+    const { data:qq } = await sb.from("quizzes").select("id,title").in("id", quizIds);
+    (qq||[]).forEach(q=>quizMap[q.id]=q);
+  }
+  const names = await namesFor(recent.map(f=>f.user_id));
+
+  const renderList = (list, isNew) => {
+    if(!list.length) return `<p class="muted">${isNew?"Geen nieuwe meldingen — je bent up-to-date. 🎉":"Nog geen activiteit."}</p>`;
+    // Groepeer per vraag
+    const byQ={}; list.forEach(f=>{ (byQ[f.question_id]=byQ[f.question_id]||[]).push(f); });
+    const groups=Object.entries(byQ).map(([qid,fs])=>({ qid, q:qmap[qid], flags:fs, latest:fs[0]?.created_at }))
+      .sort((a,b)=>(b.latest||"")<(a.latest||"")?-1:1);
+    return groups.map(g=>{
+      const q=g.q; const quiz=q?quizMap[q.quiz_id]:null;
+      const qtext = q ? (q.text||"").slice(0,110)+((q.text||"").length>110?"…":"") : "(vraag verwijderd)";
+      const flagList=g.flags.map(f=>{
+        const snippet = f.toelichting ? (f.toelichting.length>140 ? esc(f.toelichting.slice(0,140))+"…" : esc(f.toelichting)) : "";
+        return `<div class="notify-flag ${f.type}">
+          <div class="notify-flag-head">
+            <span class="fg-type">${f.type}</span>
+            <span class="fg-who">${esc(names[f.user_id]||"?")}</span>
+            <span class="fg-when">${fmtDate(f.created_at)} <span class="muted">(${humanAgo(new Date(f.created_at).getTime())})</span></span>
+          </div>
+          ${snippet?`<div class="fg-body">${snippet}</div>`:""}
+        </div>`;
+      }).join("");
+      return `<div class="fg-card ${isNew?'notify-new':''}">
+        <div class="fg-card-hd">
+          <div class="fg-card-hd-left">
+            ${q?`<a class="ilink fg-qlink" data-q="${q.id}" data-quiz="${q.quiz_id}"><span class="q-num">${q.qnum}</span> <span class="fg-qtext">${esc(qtext)}</span></a>`:`<span>${esc(qtext)}</span>`}
+            ${quiz?`<div class="fg-quiz-title">${esc(quiz.title)}</div>`:""}
+          </div>
+          <div class="fg-card-hd-right">
+            <span class="fg-count-pill">${g.flags.length} nieuw${g.flags.length===1?"":"e"}</span>
+          </div>
+        </div>
+        <div class="fg-flags">${flagList}</div>
+      </div>`;
+    }).join("");
+  };
+
+  app.innerHTML=`
+    <h1>Meldingen</h1>
+    <p class="muted" style="font-size:.85rem">Elke reactie van een andere speler op een vraag waar jij <em>ook al</em> een flag of opmerking op hebt geplaatst.</p>
+    <div class="btnrow" style="margin-top:.8rem">
+      <button class="btn btn-ghost btn-sm" id="markSeenBtn" ${items.length?"":"disabled"}>${ICON.check} Markeer alles als gelezen</button>
+    </div>
+    <h2>Nieuw${items.length?` (${items.length})`:""}</h2>
+    <div class="flag-groups">${renderList(items, true)}</div>
+    ${recent.length ? `
+      <h2>Recent (laatste 30 dagen)</h2>
+      <div class="flag-groups">${renderList(recent.filter(r=>!items.find(i=>i.id===r.id)), false)}</div>
+    ` : ""}
+  `;
+  app.querySelectorAll("[data-q]").forEach(a=>a.onclick=()=>PLAY_goto(a.dataset.quiz, a.dataset.q));
+  document.getElementById("markSeenBtn").onclick=()=>{
+    markNotifySeen(); NOTIFY_COUNT=0;
+    const b=document.getElementById("notifyBadge"); if(b){ b.hidden=true; b.textContent="0"; }
+    toast("Alle meldingen gemarkeerd als gelezen","ok"); viewMeldingen();
+  };
+}
+
+/* ============================================================
    BEHEER-dashboard
    ============================================================ */
 async function viewBeheer(tab){
@@ -2358,6 +2479,7 @@ async function boot(){
   if(ME && !visitLogged && shouldLogVisit()){ visitLogged=true; sb.from("visits").insert({ user_id:ME.id }).then(()=>{},()=>{}); }
   if(ME) renderHeader();
   route();
+  if(ME) refreshNotifyBadge();
 }
 if(sb){ sb.auth.onAuthStateChange((_e,_s)=>{ /* sessiewissels */ }); }
 boot();
