@@ -312,6 +312,28 @@ summary .ico,button .ico{color:inherit}
 .tag-ok{background:var(--correct-soft);color:var(--correct)}
 .tag-warn{background:var(--warn-soft);color:var(--warn)}
 .opt.chosen{background:var(--accent-soft);border-color:var(--accent)}
+.opt.docent{border-color:#c026d3;box-shadow:inset 3px 0 0 #c026d3}
+.opt.docent.correct{border-color:var(--correct);box-shadow:inset 3px 0 0 #c026d3}
+.opt-doc{font-size:.95em;margin-left:.3rem;vertical-align:-1px}
+.tag-doc{background:rgba(192,38,211,.12);color:#a21caf}
+.docent-block{margin-top:.6rem;border-radius:var(--radius);border:1px solid rgba(192,38,211,.35);padding:.75rem .9rem;
+  background:linear-gradient(180deg, rgba(192,38,211,.06), rgba(192,38,211,.02))}
+.docent-block.agrees{border-color:var(--correct);background:linear-gradient(180deg, var(--correct-soft), transparent)}
+.docent-hd{display:flex;align-items:center;gap:.5rem;font-size:.92rem;color:var(--ink);margin-bottom:.4rem;flex-wrap:wrap}
+.docent-items{margin:.2rem 0 .5rem 1.1rem;padding:0;font-size:.9rem;line-height:1.5;color:var(--text)}
+.docent-items li{margin:.15rem 0}
+.docent-note{background:var(--surface);border-left:3px solid #c026d3;padding:.45rem .6rem;border-radius:6px;
+  font-size:.85rem;font-style:italic;color:var(--text);margin:.4rem 0}
+.docent-src{display:block;font-size:.72rem;color:var(--text-muted);font-style:italic;margin-top:.3rem}
+
+/* J/D checkbox labels in de vraag-editor */
+.cbxlab{display:inline-flex;align-items:center;gap:.2rem;background:var(--surface2);border:1px solid var(--border);
+  border-radius:6px;padding:.2rem .4rem;cursor:pointer;font-size:.72rem;font-weight:700;color:var(--text-muted);
+  margin:0;min-width:auto;user-select:none}
+.cbxlab input{margin:0}
+.cbxlab-doc{background:rgba(192,38,211,.08);border-color:rgba(192,38,211,.35);color:#a21caf}
+.cbxlab:has(input:checked){background:var(--correct-soft);border-color:var(--correct);color:var(--correct)}
+.cbxlab-doc:has(input:checked){background:rgba(192,38,211,.18);border-color:#c026d3;color:#a21caf}
 .infotip{position:relative;display:inline-flex;color:inherit;cursor:help;opacity:.8}
 .infotip .ico{width:13px;height:13px}
 .infotip::after{content:attr(data-tip);position:absolute;bottom:135%;left:50%;transform:translateX(-50%);

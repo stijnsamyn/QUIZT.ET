@@ -32,6 +32,7 @@ function questionTags(q){
   if(q.validated===false) t.push(`<span class="tag tag-warn">Niet gevalideerd ${infoTip("Er is nog geen officieel juist antwoord. Kies via de opmerkingen wat volgens jou het juiste antwoord is, en gebruik de flags om erover in overleg te gaan.")}</span>`);
   else t.push(`<span class="tag tag-ok">Gevalideerd ${infoTip("Het juiste antwoord is nagekeken en bevestigd door een beheerder.")}</span>`);
   if(q.multi || arr(q.correct_indexes).length>1) t.push(`<span class="tag">Meerkeuze ${infoTip("Er kunnen meerdere antwoorden juist zijn — kruis alle juiste aan.")}</span>`);
+  if(arr(q.docent_indexes).length && !setEq(q.docent_indexes, q.correct_indexes)) t.push(`<span class="tag tag-doc">👨‍🏫 Docent wijkt af ${infoTip("De docent koos een ander antwoord dan het wettelijk juiste. Beide worden getoond na je antwoord.")}</span>`);
   return t.join(" ");
 }
 function isRight(q, chosen){ return q.validated===false ? null : setEq(chosen, q.correct_indexes); }
@@ -562,14 +563,19 @@ async function renderQuestion(){
   PLAY.optOrder=PLAY.optOrder||{};
   if(!PLAY.optOrder[q.id]) PLAY.optOrder[q.id]=shuffle((q.options||[]).map((_,i)=>i));
   const order=PLAY.optOrder[q.id];
+  const docent=arr(q.docent_indexes);
+  const docentDiffers=docent.length>0 && !setEq(docent, correct);
   const opts=order.map((origIdx,pos)=>{
     const o=(q.options||[])[origIdx];
     let cls="opt"; let box="";
     if(answered){ cls+=" disabled";
       if(validated){ if(correct.includes(origIdx)) cls+=" correct"; else if(inSet(chosen,origIdx)) cls+=" wrong"; }
-      else if(inSet(chosen,origIdx)) cls+=" chosen"; }
+      else if(inSet(chosen,origIdx)) cls+=" chosen";
+      if(docentDiffers && docent.includes(origIdx)) cls+=" docent";
+    }
     else if(multi){ box=`<input type="checkbox" class="mopt" value="${origIdx}" style="width:auto;margin-top:.15rem">`; }
-    return `<div class="${cls}" data-opt="${origIdx}">${box}<span class="letter">${letter(pos)}</span><span>${esc(o)} ${answered&&validated&&correct.includes(origIdx)?srcBadge("Juist antwoord",q.answer_source):""}</span></div>`;
+    const docentBadge = answered && docentDiffers && docent.includes(origIdx) ? `<span class="opt-doc" title="Volgens de docent">👨‍🏫</span>` : "";
+    return `<div class="${cls}" data-opt="${origIdx}">${box}<span class="letter">${letter(pos)}</span><span>${esc(o)} ${answered&&validated&&correct.includes(origIdx)?srcBadge("Juist antwoord",q.answer_source):""}${docentBadge}</span></div>`;
   }).join("");
   // voortgang
   const total=PLAY.questions.length;
@@ -853,23 +859,48 @@ async function renderAfterAnswer(q){
     <div class="spread" style="gap:.5rem"><div class="bar ${correct.includes(i)?"correct":""}" style="flex:1">
       <span style="width:${pct(dist[i],totV)}%"></span><div class="lab">${letter(i)} — ${pct(dist[i],totV)}% (${dist[i]})</div></div></div>`).join("");
 
+  // docent-consensus uit flags met type=docent (voor als er nog geen officieel docent_indexes is)
+  const docentFlags=(flags||[]).filter(f=>f.type==="docent" && arr(f.preferred_indexes).length);
+  const docentVotes={};   // idx → aantal
+  const docentUsers=new Set();
+  docentFlags.forEach(f=>{ if(docentUsers.has(f.user_id)) return; docentUsers.add(f.user_id); arr(f.preferred_indexes).forEach(i=>docentVotes[i]=(docentVotes[i]||0)+1); });
+  const officialDocent=arr(q.docent_indexes);
+  const hasOfficialDocent=officialDocent.length>0;
+  const hasDocentConsensus=!hasOfficialDocent && docentUsers.size>=1;
+  const docentBlock=(hasOfficialDocent || hasDocentConsensus) ? (()=>{
+    const idxs = hasOfficialDocent ? officialDocent : Object.keys(docentVotes).map(Number).sort((a,b)=>docentVotes[b]-docentVotes[a]);
+    const differs = !setEq(idxs, arr(q.correct_indexes));
+    const items=idxs.map(i=>`<li><strong>${letter(i)}.</strong> ${esc((q.options||[])[i]||"")}</li>`).join("");
+    const src = hasOfficialDocent
+      ? `<span class="docent-src">Officieel genoteerd door beheerder</span>`
+      : `<span class="docent-src">Op basis van ${docentUsers.size} melding${docentUsers.size===1?"":"en"} door spelers — nog niet officieel bevestigd</span>`;
+    return `<div class="docent-block ${differs?"differs":"agrees"}">
+      <div class="docent-hd">👨‍🏫 <strong>Volgens de docent</strong> ${differs?`<span class="pill" style="background:var(--warn-soft);color:var(--warn)">wijkt af van wettelijk antwoord</span>`:`<span class="pill juist">stemt overeen</span>`}</div>
+      <ul class="docent-items">${items}</ul>
+      ${hasOfficialDocent && q.docent_note ? `<div class="docent-note">${esc(q.docent_note)}</div>` : ""}
+      ${src}
+    </div>`;
+  })() : "";
+
   box.innerHTML=`
     ${q.validated===false?`<div class="notice">${ICON.info} <strong>Nog geen gevalideerd juist antwoord.</strong> Bekijk hieronder welk antwoord de groep verkiest, kies zelf je voorkeursantwoord en gebruik de flags om in overleg te gaan.</div>`:""}
     <div class="explain">
-      <span class="lbl">Uitleg ${srcBadge("Uitleg",q.explanation_source)}</span>${html(q.explanation||"— geen uitleg —")}
+      <span class="lbl">Wettelijk juist antwoord ${srcBadge("Uitleg",q.explanation_source)}</span>${html(q.explanation||"— geen uitleg —")}
       ${q.legal_basis?`<div class="legal-inline"><strong>Wettelijke basis:</strong> ${html(q.legal_basis)}</div>`:""}
       ${q.wettekst?`<details class="wettekst-d"><summary>${ICON.info} Toon wettekst</summary><div class="wettekst">${html(q.wettekst)}</div></details>`:""}
     </div>
+    ${docentBlock}
 
     <details><summary>${ICON.chat} Reageer op deze vraag</summary>
       <div class="body">
         <div class="btnrow" id="reactBtns">
-          <button class="chip-toggle" data-ftype="twijfel">Ik twijfel aan het antwoord</button>
-          <button class="chip-toggle" data-ftype="fout">Het antwoord is fout</button>
-          <button class="chip-toggle" data-ftype="juist">Het antwoord is juist</button>
+          <button class="chip-toggle" data-ftype="twijfel">Ik twijfel</button>
+          <button class="chip-toggle" data-ftype="fout">Antwoord is fout</button>
+          <button class="chip-toggle" data-ftype="juist">Antwoord is juist</button>
+          <button class="chip-toggle" data-ftype="docent">👨‍🏫 Onze docent koos…</button>
         </div>
         <div id="reactPref" hidden>
-          <label>Welk antwoord vind jij dan juist?</label>
+          <label id="rPrefLabel">Welk antwoord vind jij dan juist?</label>
           <div class="opref-list">
             ${(q.options||[]).map((o,i)=>`<label class="opref-item"><input type="checkbox" class="opref" value="${i}" ${myVote&&inSet(myVote,i)?"checked":""}><span><strong>${letter(i)}.</strong> ${esc(o)}</span></label>`).join("")}
           </div>
@@ -890,25 +921,28 @@ async function renderAfterAnswer(q){
     <details><summary>${ICON.clock} Wijzigingshistoriek (${(edits||[]).length})</summary>
       <div class="body">${(edits||[]).map(e=>`<div class="hist"><span class="who">${esc(names[e.edited_by]||"?")}</span> <span class="when">${fmtDate(e.created_at)}</span><div>${esc(e.summary)}</div></div>`).join("")||`<p class="muted">Nog geen wijzigingen.</p>`}</div></details>`;
 
-  // reactie: flag + (bij twijfel/fout) voorkeursantwoord — één geheel
+  // reactie: flag + (bij twijfel/fout/docent) voorkeursantwoord — één geheel
   let ftype=null;
   box.querySelectorAll("#reactBtns [data-ftype]").forEach(b=>b.onclick=()=>{
     ftype=b.dataset.ftype;
     box.querySelectorAll("#reactBtns [data-ftype]").forEach(x=>x.classList.toggle("active",x===b));
-    const disagree=(ftype==="twijfel"||ftype==="fout");
-    document.getElementById("reactPref").hidden=!disagree;
+    const needsPref=(ftype==="twijfel"||ftype==="fout"||ftype==="docent");
+    document.getElementById("reactPref").hidden=!needsPref;
     document.getElementById("reactComment").hidden=false;
     document.getElementById("reactSubmitRow").hidden=false;
-    document.getElementById("rMotLabel").textContent=disagree?"Waarom denk je dat?":"Commentaar (optioneel)";
-    document.getElementById("rMot").placeholder=disagree?"Leg uit waarom…":"Optionele opmerking…";
+    const prefLabel = ftype==="docent" ? "Welk antwoord duidde de docent aan?" : "Welk antwoord vind jij dan juist?";
+    document.getElementById("rPrefLabel").textContent = prefLabel;
+    document.getElementById("rMotLabel").textContent = ftype==="docent" ? "Wat zei de docent (optioneel)" : (needsPref?"Waarom denk je dat?":"Commentaar (optioneel)");
+    document.getElementById("rMot").placeholder = ftype==="docent" ? "bv. 'Docent Peeters zei tijdens de les van 3/3 dat B correcter is in de praktijk'" : (needsPref?"Leg uit waarom…":"Optionele opmerking…");
   });
   const rs=document.getElementById("rSubmit");
   if(rs) rs.onclick=async()=>{
-    if(!ftype) return toast("Kies eerst één van de drie opties","err");
+    if(!ftype) return toast("Kies eerst één van de opties","err");
     const mot=(document.getElementById("rMot").value||"").trim();
     const pref=[...box.querySelectorAll(".opref:checked")].map(c=>+c.value).sort((a,b)=>a-b);
-    const disagree=(ftype==="twijfel"||ftype==="fout");
-    if(disagree && !mot) return toast("Leg kort uit waarom","err");
+    const needsPref=(ftype==="twijfel"||ftype==="fout"||ftype==="docent");
+    if(ftype==="docent" && !pref.length) return toast("Duid aan welk antwoord de docent koos","err");
+    if((ftype==="twijfel"||ftype==="fout") && !mot) return toast("Leg kort uit waarom","err");
     const { error:fe }=await sb.from("flags").insert({ question_id:q.id, user_id:ME.id, type:ftype, toelichting:mot, preferred_indexes:pref });
     if(fe) return toast(fe.message,"err");
     toast("Bedankt voor je reactie","ok"); renderAfterAnswer(q);
@@ -1453,20 +1487,24 @@ function srcToggle(id, val){
 }
 function questionEditor(q){
   const corr=arr(q.correct_indexes);
+  const doc=arr(q.docent_indexes);
   return `<div class="card" data-qcard="${q.id}">
     <div class="spread"><span class="q-num">Vraag ${q.qnum}</span>
       <button class="btn btn-danger btn-sm" data-delq="${q.id}">Verwijderen</button></div>
     <label>Vraagtekst</label><textarea data-f="text" data-q="${q.id}">${esc(q.text)}</textarea>
     <label style="display:flex;align-items:center;gap:.5rem;font-weight:400"><input type="checkbox" data-valid="${q.id}" style="width:auto" ${q.validated!==false?"checked":""}> Gevalideerd juist antwoord ${infoTip("Uit = er is nog geen officieel juist antwoord; de groep bepaalt het via opmerkingen en flags. De vraag krijgt dan de tag 'Niet gevalideerd'.")}</label>
     <label style="display:flex;align-items:center;gap:.5rem;font-weight:400"><input type="checkbox" data-multi="${q.id}" style="width:auto" ${q.multi?"checked":""}> Meerkeuze (meerdere juiste antwoorden)</label>
-    <label>Antwoordopties — vink de juiste aan (mag leeg blijven als niet gevalideerd)</label>
+    <label>Antwoordopties — vink <strong>J</strong> aan voor het wettelijk juiste antwoord, en <strong>D</strong> voor het antwoord dat de docent koos (indien verschillend) ${infoTip("J = juridisch/officieel juist antwoord. D = wat de docent aanduidde — enkel invullen als die afwijkt van J. Als beide leeg blijven bij één optie, telt die niet mee.")}</label>
     <div data-opts="${q.id}">${(q.options||[]).map((o,i)=>`
-      <div class="spread optrow" style="gap:.5rem;margin:.2rem 0">
-        <input type="checkbox" class="corr" data-q="${q.id}" value="${i}" ${corr.includes(i)?"checked":""} style="width:auto">
+      <div class="spread optrow" style="gap:.4rem;margin:.2rem 0">
+        <label class="cbxlab" title="Juridisch juist"><input type="checkbox" class="corr" data-q="${q.id}" value="${i}" ${corr.includes(i)?"checked":""} style="width:auto"><span>J</span></label>
+        <label class="cbxlab cbxlab-doc" title="Volgens de docent"><input type="checkbox" class="doc" data-q="${q.id}" value="${i}" ${doc.includes(i)?"checked":""} style="width:auto"><span>D</span></label>
         <input data-opt="${q.id}" value="${esc(o)}" style="flex:1">
         <button class="btn btn-ghost btn-sm" data-rmopt="${q.id}">×</button>
       </div>`).join("")}</div>
     <button class="btn btn-ghost btn-sm" data-addopt="${q.id}">+ optie</button>
+    <label>Toelichting docent (optioneel) ${infoTip("Korte uitleg waarom de docent een ander antwoord kiest dan wat wettelijk juist is. Wordt getoond in het docent-blok bij de vraag.")}</label>
+    <textarea data-f="docent_note" data-q="${q.id}" placeholder="bv. De docent noteert antwoord B als praktijk-antwoord…">${esc(q.docent_note||"")}</textarea>
     <label>Herkomst juist antwoord</label>${srcToggle("as-"+q.id, q.answer_source)}
     <label>Wettelijke basis</label><textarea data-f="legal_basis" data-q="${q.id}">${esc(q.legal_basis||"")}</textarea>
     <label>Wettekst (volledige artikels, uitklapbaar bij de vraag)</label><textarea data-f="wettekst" data-q="${q.id}">${esc(q.wettekst||"")}</textarea>
@@ -1485,8 +1523,8 @@ function wireQuestionEditor(q, quizId){
   const addRm=el=>{ el.querySelector("[data-rmopt]").onclick=()=>el.remove(); };
   card.querySelector(`[data-addopt="${q.id}"]`).onclick=()=>{
     const wrap=card.querySelector(`[data-opts="${q.id}"]`);
-    const div=document.createElement("div"); div.className="spread optrow"; div.style="gap:.5rem;margin:.2rem 0";
-    div.innerHTML=`<input type="checkbox" class="corr" data-q="${q.id}" style="width:auto"><input data-opt="${q.id}" value="" style="flex:1"><button class="btn btn-ghost btn-sm" data-rmopt="${q.id}">×</button>`;
+    const div=document.createElement("div"); div.className="spread optrow"; div.style="gap:.4rem;margin:.2rem 0";
+    div.innerHTML=`<label class="cbxlab" title="Juridisch juist"><input type="checkbox" class="corr" data-q="${q.id}" style="width:auto"><span>J</span></label><label class="cbxlab cbxlab-doc" title="Volgens de docent"><input type="checkbox" class="doc" data-q="${q.id}" style="width:auto"><span>D</span></label><input data-opt="${q.id}" value="" style="flex:1"><button class="btn btn-ghost btn-sm" data-rmopt="${q.id}">×</button>`;
     wrap.appendChild(div); addRm(div);
   };
   card.querySelectorAll(`[data-opts="${q.id}"] .optrow`).forEach(addRm);
@@ -1497,14 +1535,20 @@ function wireQuestionEditor(q, quizId){
   card.querySelector(`[data-saveq="${q.id}"]`).onclick=async()=>{
     const text=card.querySelector(`[data-f="text"][data-q="${q.id}"]`).value.trim();
     const rows=[...card.querySelectorAll(`[data-opts="${q.id}"] .optrow`)];
-    const opts=[]; const correct=[];
+    const opts=[]; const correct=[]; const docent=[];
     rows.forEach(r=>{ const v=r.querySelector(`[data-opt="${q.id}"]`).value.trim(); if(!v) return;
-      const idx=opts.length; opts.push(v); if(r.querySelector(".corr").checked) correct.push(idx); });
+      const idx=opts.length; opts.push(v);
+      if(r.querySelector(".corr").checked) correct.push(idx);
+      if(r.querySelector(".doc").checked) docent.push(idx);
+    });
     if(opts.length<2) return toast("Minstens 2 opties","err");
     const validated=card.querySelector(`[data-valid="${q.id}"]`).checked;
     if(validated && !correct.length) return toast("Vink een juist antwoord aan, of zet 'Gevalideerd' uit.","err");
     const multi=card.querySelector(`[data-multi="${q.id}"]`).checked || correct.length>1;
+    const docent_note=card.querySelector(`[data-f="docent_note"][data-q="${q.id}"]`).value;
     const payload={ text, options:opts, correct_indexes:correct, multi, validated,
+      docent_indexes: docent.length? docent : null,
+      docent_note: docent.length? docent_note : null,
       legal_basis:card.querySelector(`[data-f="legal_basis"][data-q="${q.id}"]`).value,
       wettekst:card.querySelector(`[data-f="wettekst"][data-q="${q.id}"]`).value,
       explanation:card.querySelector(`[data-f="explanation"][data-q="${q.id}"]`).value,
