@@ -452,7 +452,7 @@ function renderPlaySetup(){
     ["foutEerst","Fouten eerst","Eerst de vragen die je fout had, dan de rest."],
     ["gemistEerst","Gemiste eerst","Eerst de vragen die je nog nooit beantwoordde, dan de rest."],
   ];
-  const chips=(grp,list,cur)=>list.map(([v,l,tip])=>`<button class="chip-toggle ${v===cur?"active":""}" data-${grp}="${v}" title="${esc(tip||"")}">${l}</button>`).join("");
+  const chips=(grp,list,cur)=>list.map(([v,l,tip])=>`<button class="chip-toggle ${v===cur?"active":""}" data-${grp}="${v}" title="${esc(tip||"")}">${l}${tip?` <span class="infotip chip-i" tabindex="0" data-tip="${esc(tip)}" onclick="event.stopPropagation();">${ICON.info}</span>`:""}</button>`).join("");
   const focusLabel=f=>({alle:"alle vragen",foute:"je huidig foute vragen",onbeantwoord:"nog niet beantwoorde vragen",nietjuist:"nog niet juiste vragen",ooitFout:"historisch foute vragen"})[f];
   const orderLabel=o=>({slim:"slim geoefend",nummer:"op vraagnummer",willekeurig:"willekeurig",foutEerst:"fouten eerst",gemistEerst:"gemiste eerst"})[o];
   const summaryStr=()=>{
@@ -470,8 +470,13 @@ function renderPlaySetup(){
 
     <div class="setup-panel">
       <div class="setup-panel-hd">
-        <div class="setup-panel-title">Nieuwe oefensessie</div>
-        <div class="muted" style="font-size:.8rem">Kies hoeveel vragen, welke selectie en in welke volgorde.</div>
+        <div class="spread" style="gap:.5rem;align-items:flex-start">
+          <div>
+            <div class="setup-panel-title">Nieuwe oefensessie</div>
+            <div class="muted" style="font-size:.8rem">Kies hoeveel vragen, welke selectie en in welke volgorde.</div>
+          </div>
+          <button class="btn btn-ghost btn-sm" id="modesHelpBtn" title="Uitgebreide uitleg over alle modi">${ICON.info} Uitleg over alle modi</button>
+        </div>
       </div>
 
       <div class="card setup-step">
@@ -517,6 +522,7 @@ function renderPlaySetup(){
   const wire=(id,attr,set)=>app.querySelectorAll(`#${id} [data-${attr}]`).forEach(b=>b.onclick=()=>{
     app.querySelectorAll(`#${id} [data-${attr}]`).forEach(x=>x.classList.toggle("active",x===b)); set(b.dataset[attr]); });
   const paintSummary=()=>{ const el=document.getElementById("setupSummary"); if(el) el.innerHTML=summaryStr(); };
+  document.getElementById("modesHelpBtn").onclick=openModesHelp;
   wire("gSize","size",v=>{ size=v; document.getElementById("sizeCustom").value=""; savePrefs({size, focus, order, customSize:""}); paintSummary(); });
   wire("gFocus","focus",v=>{ focus=v; paintSummary(); });
   wire("gOrder","order",v=>{ order=v; PLAY.mode=v; paintSummary(); });
@@ -530,6 +536,77 @@ function renderPlaySetup(){
   };
   document.getElementById("wipeBtn").onclick=wipeProgress;
 }
+
+function openModesHelp(){
+  const overlay=document.createElement("div");
+  overlay.className="modes-overlay";
+  overlay.innerHTML=`<div class="modes-modal" role="dialog" aria-label="Uitleg over quiz-modi">
+    <div class="modes-hd">
+      <div class="modes-title">${ICON.info} Uitleg over alle quiz-modi</div>
+      <button class="tetris-close" id="mhClose" aria-label="Sluiten">×</button>
+    </div>
+    <div class="modes-body">
+      <p class="muted">Elke sessie bestaat uit drie keuzes. Hieronder alle mogelijkheden, wanneer je ze best kiest, en hoe ze onderling verschillen.</p>
+
+      <h3>1. Hoeveel vragen?</h3>
+      <p>Bepaalt hoe lang je sessie is. Kies een chip (10, 25, 50, 100, alle) of typ zelf een aantal. Meer vragen = langere sessie, maar meer leerkansen.</p>
+      <ul>
+        <li><strong>10</strong> — korte flashcard-achtige sessie, ideaal in een pauze.</li>
+        <li><strong>25</strong> — ± een halfuurtje, sweet spot voor dagelijkse oefening.</li>
+        <li><strong>50</strong> — flinke sessie, dieper leerwerk.</li>
+        <li><strong>100</strong> — grondige zittings-doorloop.</li>
+        <li><strong>Alle</strong> — de volledige quiz in één keer.</li>
+        <li><strong>Zelf typen</strong> — voor als je een specifiek aantal wil (bv. 40).</li>
+      </ul>
+      <p class="tip">💡 Tetris ontgrendel je pas na een sessie van ≥25 vragen én ≥80% juist.</p>
+
+      <h3>2. Welke vragen (focus)?</h3>
+      <p>Filtert de vragen op basis van je antwoordhistoriek over álle sessies heen.</p>
+      <table class="modes-table">
+        <thead><tr><th>Modus</th><th>Wat zit erin</th><th>Wanneer kiezen</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Alle vragen</strong></td><td>Elke vraag uit de quiz, ongeacht of je hem al zag.</td><td>Voor een frisse doorloop of test op alles.</td></tr>
+          <tr><td><strong>Enkel mijn foute</strong></td><td>Vragen waar je huidige antwoord fout op is. Verdwijnen zodra je ze juist beantwoordt.</td><td>Als je snel je foute wil bijwerken tot alles juist staat.</td></tr>
+          <tr><td><strong>Nog niet beantwoord</strong></td><td>Vragen die je nog nooit hebt beantwoord in geen enkele sessie.</td><td>Om nieuw materiaal aan te snijden.</td></tr>
+          <tr><td><strong>Nog niet juist</strong></td><td>Vragen die je fout had OF nog nooit beantwoordde.</td><td>Als je alles wil zien behalve wat je al juist beheerst.</td></tr>
+          <tr><td><strong>Historisch fout</strong></td><td>Élke vraag die je <em>ooit</em> minstens één keer fout beantwoordde — ook als je later juist scoorde. Blijft in de lijst tot 'Voortgang wissen'.</td><td>Om je zwakke plekken te blijven onderhouden.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>3. In welke volgorde?</h3>
+      <p>Bepaalt in welke volgorde de gefilterde vragen aan bod komen.</p>
+      <table class="modes-table">
+        <thead><tr><th>Modus</th><th>Volgorde</th><th>Waarom kiezen</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Slim oefenen</strong> <span class="pill juist">aanbevolen</span></td><td>Gewogen willekeur: nog-niet-beantwoord (4×) &gt; fout (3×) &gt; overleg (2×) &gt; juist (1×)</td><td>Optimale mix van nieuw leren en herhaling. Wat je nog niet kent komt vaker, maar juiste vragen blijven af en toe terugkomen tegen vergeten.</td></tr>
+          <tr><td><strong>Op nummer</strong></td><td>Vraag 1, 2, 3, … volgens hun nummer in de quiz.</td><td>Als de vragen op een logische leerorde zijn geordend en je die orde wil volgen.</td></tr>
+          <tr><td><strong>Willekeurig</strong></td><td>Volledig geschud — élke vraag heeft gelijke kans.</td><td>Om examen-omstandigheden te simuleren waar je vragen in willekeurige volgorde krijgt.</td></tr>
+          <tr><td><strong>Fouten eerst</strong></td><td>Deterministisch: eerst alle vragen die je fout had, daarna de rest.</td><td>Als je gefocust je fouten wil bijwerken en er zeker van wil zijn dat ze allemaal aan bod komen.</td></tr>
+          <tr><td><strong>Gemiste eerst</strong></td><td>Deterministisch: eerst alle vragen die je nog nooit beantwoordde, daarna de rest.</td><td>Om systematisch nieuwe stof af te werken vóór je terugkeert naar wat je al zag.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Slim vs Willekeurig — waarom is Slim beter?</h3>
+      <p><strong>Willekeurig</strong> geeft élke vraag exact gelijke kans. Juist beantwoorde vragen komen dus even vaak terug als vragen die je nog niet kent — veel tijd verspild aan wat je al beheerst.</p>
+      <p><strong>Slim</strong> stopt dat: nieuwe en foute vragen krijgen 3× tot 4× meer kans, terwijl juist beantwoorde vragen zeldzamer terugkomen (spaced-repetition light). Zo optimaliseer je je oefentijd naar wat je nog moet leren.</p>
+
+      <h3>Antwoordvolgorde binnen een vraag</h3>
+      <p>De opties (A/B/C/D) worden per vraag <strong>eenmalig willekeurig geschud</strong> bij de eerste weergave in de sessie. Zo train je jezelf op de <em>inhoud</em> van het antwoord, niet op de positie. Bij een nieuwe sessie schudt het opnieuw.</p>
+
+      <h3>Historiek wissen</h3>
+      <p>Onder "Voortgang wissen" verwijder je álle antwoorden voor deze quiz uit de database (over alle sessies). Daarna telt élke vraag als "nog nooit beantwoord" en zijn alle historische lijsten (foute, historisch fout, ooit fout) weer leeg. Je flags en opmerkingen blijven bewaard.</p>
+    </div>
+    <div class="modes-foot"><button class="btn btn-primary btn-sm" id="mhOk">Begrepen, sluit</button></div>
+  </div>`;
+  document.body.appendChild(overlay);
+  const close=()=>overlay.remove();
+  overlay.querySelector("#mhClose").onclick=close;
+  overlay.querySelector("#mhOk").onclick=close;
+  overlay.addEventListener("click",e=>{ if(e.target===overlay) close(); });
+  const onKey=e=>{ if(e.key==="Escape"){ close(); window.removeEventListener("keydown",onKey); } };
+  window.addEventListener("keydown",onKey);
+}
+
 async function wipeProgress(){
   if(!confirm("Weet je zeker dat je AL je antwoorden op deze quiz wil wissen? Dit gaat over alle sessies heen — daarna telt elke vraag weer als 'nog nooit beantwoord'. Je flags en opmerkingen blijven behouden.")) return;
   const ids=PLAY.all.map(q=>q.id);

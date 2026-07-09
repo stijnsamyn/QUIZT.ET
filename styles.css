@@ -227,6 +227,34 @@ tr:hover td{background:var(--surface2)}
 .focus-hint-ex{padding-top:.4rem;border-top:1px dashed var(--warn);color:var(--text-muted);font-style:italic;font-size:.8rem}
 .btn-start{padding:.75rem 1.2rem;font-size:.95rem;justify-content:center;width:100%}
 
+/* Modi-uitleg modal */
+.modes-overlay{position:fixed;inset:0;background:rgba(15,23,42,.75);z-index:250;
+  display:flex;align-items:flex-start;justify-content:center;padding:1rem;overflow-y:auto}
+.modes-modal{background:var(--surface);border-radius:14px;max-width:720px;width:100%;
+  box-shadow:0 20px 60px rgba(0,0,0,.35);margin:2rem auto;overflow:hidden}
+.modes-hd{display:flex;justify-content:space-between;align-items:center;padding:1rem 1.2rem;
+  background:var(--accent-soft);border-bottom:1px solid var(--accent-soft-2);position:sticky;top:0;z-index:2}
+.modes-title{font-weight:800;color:var(--accent-dark);font-size:1rem;display:flex;align-items:center;gap:.4rem}
+.modes-body{padding:1rem 1.2rem;line-height:1.55;font-size:.9rem;color:var(--text)}
+.modes-body h3{font-size:1rem;color:var(--ink);margin:1.2rem 0 .4rem;padding-bottom:.3rem;border-bottom:1px solid var(--border)}
+.modes-body h3:first-of-type{margin-top:.4rem}
+.modes-body p{margin:.4rem 0}
+.modes-body ul{margin:.4rem 0 .6rem 1.2rem;padding:0}
+.modes-body ul li{margin:.15rem 0}
+.modes-body .tip{background:var(--warn-soft);border-left:3px solid var(--warn);padding:.4rem .7rem;border-radius:6px;font-size:.85rem}
+.modes-table{width:100%;border-collapse:collapse;margin:.5rem 0;font-size:.85rem}
+.modes-table th,.modes-table td{text-align:left;padding:.45rem .55rem;border-bottom:1px solid var(--border);vertical-align:top}
+.modes-table th{background:var(--surface2);color:var(--text-muted);font-size:.72rem;text-transform:uppercase;letter-spacing:.03em}
+.modes-table td:first-child{white-space:nowrap;color:var(--ink)}
+.modes-foot{padding:.7rem 1.2rem;border-top:1px solid var(--border);text-align:right;background:var(--surface2)}
+@media(max-width:640px){
+  .modes-modal{margin:.5rem auto;border-radius:10px}
+  .modes-body{padding:.8rem}
+  .modes-hd{padding:.7rem .8rem}
+  .modes-table{font-size:.78rem}
+  .modes-table td:first-child{white-space:normal}
+}
+
 /* Brain break — Tetris */
 .brain-break{margin-top:1.4rem;padding-top:1rem;border-top:1px dashed var(--border);text-align:center}
 .brain-break button[disabled]{opacity:.5;cursor:not-allowed}
@@ -283,8 +311,12 @@ tr:hover td{background:var(--surface2)}
 .filterbar{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-bottom:1rem}
 .filterbar select,.filterbar input{width:auto}
 .chip-toggle{padding:.35rem .7rem;border:1px solid var(--border);border-radius:99px;background:var(--surface);
-  cursor:pointer;font-size:.8rem;font-weight:600;color:var(--text-muted)}
+  cursor:pointer;font-size:.8rem;font-weight:600;color:var(--text-muted);display:inline-flex;align-items:center;gap:.25rem}
 .chip-toggle.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.chip-i{opacity:.55;padding:0 .05rem;line-height:0}
+.chip-i:hover{opacity:1}
+.chip-toggle.active .chip-i{opacity:.85}
+.chip-i .ico{width:12px;height:12px}
 .empty{text-align:center;color:var(--text-muted);padding:2.5rem}
 .inline-edit{display:flex;flex-direction:column;gap:.3rem}
 
