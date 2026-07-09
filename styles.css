@@ -507,6 +507,11 @@ hr{border:none;border-top:1px solid var(--border);margin:1rem 0}
 .src{display:inline-flex;color:var(--text-muted);opacity:.75;cursor:help;margin-left:.15rem}
 summary .ico,button .ico{color:inherit}
 
+/* Onderzoeken-banner (geen sessie) */
+.investigate-banner{margin:.4rem 0 1rem;padding:.55rem .85rem;background:var(--warn-soft);
+  border-left:3px solid var(--warn);border-radius:6px;font-size:.85rem;color:var(--text);line-height:1.4}
+.investigate-banner strong{color:var(--warn)}
+
 /* voortgang */
 .progress{margin:.4rem 0 1rem}
 .progress .bar{height:24px}

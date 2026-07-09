@@ -589,10 +589,11 @@ async function viewPlay(quizId){
   if(PLAY.pendingJump){
     const jid=PLAY.pendingJump; PLAY.pendingJump=null;
     PLAY.session={size:"alle",focus:"alle",order:"nummer"}; PLAY.mode="nummer";
+    PLAY.investigating=true;   // Ge-jumpt vanuit een flag/overzicht — geen echte sessie
     PLAY.questions=orderQuestions(PLAY.all, PLAY.answers, "nummer");
     const idx=PLAY.questions.findIndex(x=>x.id===jid);
     PLAY.i=idx>=0?idx:0; renderQuestion();
-  } else renderPlaySetup();
+  } else { PLAY.investigating=false; renderPlaySetup(); }
 }
 
 // Herstel een eerder onderbroken sessie (uit cache van viewPlay)
@@ -879,7 +880,9 @@ async function renderQuestion(){
       <div class="muted">Vraag ${PLAY.i+1} / ${total}</div>
     </div>
     <h1 style="font-size:1.2rem;margin:.6rem 0 .4rem">${esc(PLAY.quiz.title)}</h1>
-    <div class="progress">
+    ${PLAY.investigating ? `<div class="investigate-banner">
+      🔍 <strong>Je onderzoekt een enkele vraag</strong> <span class="muted">— geen sessie, geen scoring. Klik "Nieuwe sessie" om echt te oefenen.</span>
+    </div>` : `<div class="progress">
       <div class="muted" style="font-size:.75rem;margin-bottom:.15rem">Voortgang in deze sessie</div>
       <div class="progress-line">
         <div class="bar" style="flex:1"><span style="width:${pct(answeredN,total)}%"></span><div class="lab">Beantwoord ${answeredN}/${total}</div></div>
@@ -891,11 +894,11 @@ async function renderQuestion(){
         </div>
         ${allDone?`<span class="pill" style="background:var(--correct-soft);color:var(--correct);white-space:nowrap">${ICON.check} Sessie voltooid</span>`:""}
       </div>
-    </div>
+    </div>`}
     <div class="btnrow" style="margin-bottom:.8rem">
       <button class="btn btn-ghost btn-sm" id="prevBtn" ${PLAY.i===0?"disabled":""}>← Vorige</button>
       <button class="btn btn-ghost btn-sm" id="nextBtn" ${PLAY.i>=total-1?"disabled":""}>Volgende →</button>
-      ${unanswered?`<button class="btn btn-primary btn-sm" id="nextUnans">Volgende in deze sessie →</button>`:`<button class="btn btn-primary btn-sm" id="doneBtn">Bekijk resultaat →</button>`}
+      ${PLAY.investigating ? "" : (unanswered?`<button class="btn btn-primary btn-sm" id="nextUnans">Volgende in deze sessie →</button>`:`<button class="btn btn-primary btn-sm" id="doneBtn">Bekijk resultaat →</button>`)}
       ${isEditor()?`<button class="btn btn-ghost btn-sm" id="editQ" style="margin-left:auto">Bewerk deze vraag</button>`:""}
     </div>
     <div class="card">
