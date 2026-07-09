@@ -237,10 +237,12 @@ function renderHeader(){
   if(isEditor() && USER_COUNT==null) fetchUserCount().then(renderHeader);
   const roleName = ME.role==="admin"?"admin":ME.role==="beheerder"?"beheerder":"speler";
   document.getElementById("userbox").innerHTML =
-    `<span class="role ${ME.role}">${roleName}</span><span>${esc(ME.display_name)}</span>`+
-    `<button class="btn btn-ghost btn-sm" id="logoutBtn">Uitloggen</button>`;
+    `<span class="role ${ME.role}">${roleName}</span><span class="uname">${esc(ME.display_name)}</span>`+
+    `<button class="btn btn-ghost btn-sm" id="logoutBtn" title="Uitloggen" aria-label="Uitloggen"><span class="hide-sm">Uitloggen</span><span class="only-sm">⎋</span></button>`;
   document.getElementById("logoutBtn").onclick=doLogout;
-  document.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
+  const menuBtn=document.getElementById("navToggle");
+  if(menuBtn) menuBtn.onclick=()=>{ h.classList.toggle("nav-open"); };
+  document.querySelectorAll("[data-nav]").forEach(a=>a.onclick=e=>{ h.classList.remove("nav-open"); go(a.dataset.nav); });
   const cur = location.hash||"#/";
   nav.querySelectorAll("a").forEach(a=>a.classList.toggle("active", a.dataset.nav===cur || (a.dataset.nav==="#/"&&cur.startsWith("#/quiz"))));
 }

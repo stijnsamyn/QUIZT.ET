@@ -14,19 +14,44 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
 
 /* Header */
 .app-header{background:var(--surface);border-bottom:1px solid var(--border);
-  padding:.8rem 1.5rem;display:flex;align-items:center;gap:1.5rem;
+  padding:.7rem 1.2rem;display:flex;align-items:center;gap:1rem;
   position:sticky;top:0;z-index:100;box-shadow:var(--shadow-sm)}
 .brand{font-weight:800;color:var(--ink);cursor:pointer;white-space:nowrap}
-.topnav{display:flex;gap:.3rem;flex-wrap:wrap;flex:1}
+.nav-toggle{display:none;background:none;border:none;font-size:1.4rem;line-height:1;
+  padding:.3rem .5rem;cursor:pointer;color:var(--text);border-radius:6px}
+.nav-toggle:hover{background:var(--surface2)}
+.topnav{display:flex;gap:.25rem;flex-wrap:wrap;flex:1}
 .topnav a{padding:.4rem .7rem;border-radius:8px;color:var(--text-muted);
   text-decoration:none;font-size:.85rem;font-weight:600;cursor:pointer}
 .topnav a:hover{background:var(--surface2);color:var(--text)}
 .topnav a.active{background:var(--accent-soft);color:var(--accent-dark)}
-.userbox{display:flex;align-items:center;gap:.6rem;font-size:.82rem;color:var(--text-muted);white-space:nowrap}
+.userbox{display:flex;align-items:center;gap:.55rem;font-size:.82rem;color:var(--text-muted);white-space:nowrap}
 .userbox .role{font-size:.68rem;text-transform:uppercase;letter-spacing:.04em;
   padding:.1rem .45rem;border-radius:99px;background:var(--accent-soft);color:var(--accent-dark);font-weight:700}
 .userbox .role.admin{background:rgba(180,83,9,.14);color:var(--warn)}
 .userbox .role.beheerder{background:var(--correct-soft);color:var(--correct)}
+.userbox .only-sm{display:none}
+
+@media(max-width:720px){
+  .app-header{padding:.55rem .8rem;gap:.5rem}
+  .brand{font-size:.95rem}
+  .nav-toggle{display:inline-flex;align-items:center;justify-content:center}
+  .topnav{display:none;position:absolute;top:100%;left:0;right:0;flex-direction:column;
+    background:var(--surface);border-bottom:1px solid var(--border);
+    box-shadow:var(--shadow-md);padding:.5rem;gap:.15rem;z-index:99}
+  .app-header.nav-open .topnav{display:flex}
+  .topnav a{padding:.65rem .8rem;font-size:.92rem;border-radius:6px}
+  .userbox{gap:.4rem;font-size:.75rem;margin-left:auto}
+  .userbox .uname{max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .userbox .hide-sm{display:none}
+  .userbox .only-sm{display:inline;font-size:1.1rem;line-height:1}
+  #logoutBtn{padding:.3rem .55rem}
+}
+@media(max-width:400px){
+  .brand{font-size:.85rem}
+  .userbox .uname{max-width:60px}
+  .userbox .role{font-size:.6rem;padding:.08rem .35rem}
+}
 
 /* Layout */
 .app-main{max-width:900px;margin:0 auto;padding:1.5rem}
@@ -35,6 +60,22 @@ h1{font-size:1.5rem;margin-bottom:.3rem;color:var(--ink)}
 h2{font-size:1.1rem;margin:1.2rem 0 .6rem;color:var(--ink)}
 .muted{color:var(--text-muted);font-size:.88rem}
 .stack{display:flex;flex-direction:column;gap:1rem}
+@media(max-width:720px){
+  .app-main{padding:1rem .8rem 3rem}
+  h1{font-size:1.25rem}
+  h2{font-size:1rem;margin:1rem 0 .5rem}
+  .card{padding:.85rem}
+  .kpis{grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:.5rem}
+  .kpi{padding:.55rem .65rem}
+  .kpi-val{font-size:1.2rem}
+  /* tabellen krijgen horizontale scroll ipv de pagina te breken */
+  .card>table{display:block;overflow-x:auto;white-space:nowrap}
+  table{font-size:.8rem}
+  th,td{padding:.4rem .5rem}
+  /* zetup-panel iets compacter */
+  .setup-step{padding:.7rem .8rem}
+  .setup-hd{font-size:.88rem}
+}
 
 /* Cards */
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
