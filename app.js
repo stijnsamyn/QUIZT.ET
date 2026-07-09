@@ -561,7 +561,8 @@ async function fetchNewNotifications(){
 async function refreshNotifyBadge(){
   try{
     const items = await fetchNewNotifications();
-    NOTIFY_COUNT = items.length;
+    // Toon aantal geïmpacteerde VRAGEN (niet totaal aantal comments) — spreekt beter uit hoeveel discussies je moet bekijken
+    NOTIFY_COUNT = new Set(items.map(i=>i.question_id)).size;
     const el = document.getElementById("notifyBadge");
     if(el){ el.textContent = NOTIFY_COUNT; el.hidden = NOTIFY_COUNT===0; }
   }catch(e){}
@@ -2136,6 +2137,7 @@ async function viewBeheer(tab){
     sb.from("flags").select("id,question_id,type,toelichting,created_at,user_id,parent_id,status").eq("status","open").neq("type","juist").order("created_at",{ascending:true}).range(0,4999),
   ]);
   const flagCount=(openFlags||[]).length;
+  const impactedQuestionCount = new Set((openFlags||[]).map(f=>f.question_id)).size;
   // Vragen ophalen voor de flags (voor labeling en groepering)
   let qmap={};
   if(flagCount){ const {data:qq}=await sb.from("questions").select("id,qnum,quiz_id,text").in("id",[...new Set((openFlags||[]).map(f=>f.question_id))]); (qq||[]).forEach(q=>qmap[q.id]=q); }
@@ -2144,7 +2146,7 @@ async function viewBeheer(tab){
 
   const tabs=[
     { key:"quizzen", label:"Quizzen", count:(quizzes||[]).length, always:true },
-    { key:"flags",   label:"Open flags", count:flagCount, always:true },
+    { key:"flags",   label:"Vragen met open flags", count:impactedQuestionCount, always:true, title:`${impactedQuestionCount} vraag/vragen met in totaal ${flagCount} open reactie(s)` },
     { key:"gebruikers", label:"Gebruikers", count:USER_COUNT!=null?USER_COUNT:null, admin:true },
     { key:"instellingen", label:"Instellingen", count:null, admin:true },
   ].filter(t=>t.always || (t.admin && isAdmin()));
@@ -2155,7 +2157,7 @@ async function viewBeheer(tab){
         <button class="btn btn-ghost btn-sm" id="newQuiz">+ Nieuwe quiz</button>
         <button class="btn btn-ghost btn-sm" data-nav="#/beheer/import">Quiz importeren</button>
       </div></div>
-    <div class="beheer-tabs">${tabs.map(t=>`<a class="beheer-tab ${t.key===tab?"active":""}" data-nav="#/beheer${t.key==="quizzen"?"":"/"+t.key}">${t.label}${t.count!=null?` <span class="beheer-tab-count">${t.count}</span>`:""}</a>`).join("")}</div>
+    <div class="beheer-tabs">${tabs.map(t=>`<a class="beheer-tab ${t.key===tab?"active":""}" data-nav="#/beheer${t.key==="quizzen"?"":"/"+t.key}"${t.title?` title="${esc(t.title)}"`:""}>${t.label}${t.count!=null?` <span class="beheer-tab-count">${t.count}</span>`:""}</a>`).join("")}</div>
     <div id="beheerContent"></div>
   `;
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
@@ -2187,7 +2189,7 @@ async function viewBeheer(tab){
   }
   else if(tab==="flags"){
     content.innerHTML=`
-      <p class="muted" style="font-size:.85rem;margin-top:.8rem">Reacties zijn per vraag gegroepeerd. Klik op de vraagtitel om naar de vraag te gaan; markeer flags per stuk of alles voor deze vraag ineens af.</p>
+      <p class="muted" style="font-size:.85rem;margin-top:.8rem"><strong>${impactedQuestionCount}</strong> vraag/vragen met open reactie(s) — in totaal <strong>${flagCount}</strong> nog te bekijken. Reacties zijn per vraag gegroepeerd; klik op de vraagtitel om naar de vraag te gaan.</p>
       ${flagCount ? renderBeheerFlagGroups(openFlags||[], qmap, quizById, names) : `<div class="empty">Geen open flags — alles is afgehandeld! 🎉</div>`}
     `;
     content.querySelectorAll("[data-q]").forEach(a=>a.onclick=()=>PLAY_goto(a.dataset.quiz, a.dataset.q));
