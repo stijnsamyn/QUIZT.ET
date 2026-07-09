@@ -1171,9 +1171,10 @@ function renderFlagThread(flags, names, qid){
         <span class="when">${fmtDate(f.created_at)}</span>
         <button class="btn btn-ghost btn-sm flag-reply-btn" data-reply-to="${f.id}" title="Reageer op deze reactie">Reageer</button>
       </div>
-      ${f.toelichting?`<div class="flag-body">${esc(f.toelichting)}</div>`:""}
+      ${f.toelichting?`<div class="flag-body">${esc(translateOptRefs(f.toelichting, qid))}</div>`:""}
       <div class="flag-reply-form" data-reply-form-for="${f.id}" hidden>
         <textarea class="flag-reply-text" placeholder="Reageer op ${esc(names[f.user_id]||"deze reactie")}…"></textarea>
+        <div class="ref-hint">💡 <strong>Tip:</strong> gebruik <code>{A}</code>, <code>{B}</code>, <code>{C}</code> … om te verwijzen naar antwoordopties — dat wordt vertaald naar de letter die iedereen in zijn eigen shuffle ziet.</div>
         <div class="btnrow">
           <button class="btn btn-primary btn-sm flag-reply-send" data-reply-send="${f.id}">Versturen</button>
           <button class="btn btn-ghost btn-sm flag-reply-cancel" data-reply-cancel="${f.id}">Annuleer</button>
@@ -1255,6 +1256,7 @@ async function renderAfterAnswer(q){
         <div id="reactComment" hidden>
           <label id="rMotLabel">Commentaar</label>
           <textarea id="rMot" placeholder="Leg uit waarom…"></textarea>
+          <div class="ref-hint">💡 <strong>Tip:</strong> verwijs naar een antwoordoptie met <code>{A}</code>, <code>{B}</code>, <code>{C}</code> … De app vertaalt die naar de letter die de andere spelers in hun eigen shuffle zien, zodat je opmerking bij iedereen klopt.</div>
         </div>
         <div class="btnrow" id="reactSubmitRow" hidden><button class="btn btn-primary btn-sm" id="rSubmit">Versturen</button></div>
       </div></details>
