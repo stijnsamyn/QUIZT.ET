@@ -1201,7 +1201,10 @@ function renderFlagThread(flags, names, qid){
       ${f.toelichting?`<div class="flag-body">${esc(translateOptRefs(f.toelichting, qid))}</div>`:""}
       <div class="flag-reply-form" data-reply-form-for="${f.id}" hidden>
         <textarea class="flag-reply-text" placeholder="Reageer op ${esc(names[f.user_id]||"deze reactie")}…"></textarea>
-        <div class="ref-hint">💡 <strong>Tip:</strong> gebruik <code>{A}</code>, <code>{B}</code>, <code>{C}</code> … om te verwijzen naar antwoordopties — dat wordt vertaald naar de letter die iedereen in zijn eigen shuffle ziet.</div>
+        <div class="ref-hint">
+          <div><strong>⚠️ Let op:</strong> schrijf <em>niet</em> "antwoord C" — bij een andere speler zit die letter op een andere optie na de shuffle.</div>
+          <div style="margin-top:.3rem">💡 Gebruik <code>{A}</code>, <code>{B}</code>, <code>{juist}</code> of <code>{docent}</code> — die worden vertaald naar de juiste letter voor elke lezer.</div>
+        </div>
         <div class="btnrow">
           <button class="btn btn-primary btn-sm flag-reply-send" data-reply-send="${f.id}">Versturen</button>
           <button class="btn btn-ghost btn-sm flag-reply-cancel" data-reply-cancel="${f.id}">Annuleer</button>
@@ -1283,7 +1286,10 @@ async function renderAfterAnswer(q){
         <div id="reactComment" hidden>
           <label id="rMotLabel">Commentaar</label>
           <textarea id="rMot" placeholder="Leg uit waarom…"></textarea>
-          <div class="ref-hint">💡 <strong>Tip:</strong> verwijs naar een antwoordoptie met <code>{A}</code>, <code>{B}</code>, <code>{C}</code> … De app vertaalt die naar de letter die de andere spelers in hun eigen shuffle zien, zodat je opmerking bij iedereen klopt.</div>
+          <div class="ref-hint">
+            <div><strong>⚠️ Let op:</strong> schrijf <em>niet</em> "antwoord C" of "de derde optie" — bij een andere speler staan de letters in een andere volgorde na de shuffle. "Antwoord C" is voor niemand hetzelfde als voor jou.</div>
+            <div style="margin-top:.3rem">💡 <strong>Gebruik in de plaats:</strong> <code>{A}</code>, <code>{B}</code>, <code>{C}</code> … (verwijst naar de optie op die positie in de editor), <code>{juist}</code> (naar het juiste antwoord), <code>{docent}</code> (naar wat de docent koos). De app vertaalt automatisch naar de letter die elke lezer <em>echt</em> ziet.</div>
+          </div>
         </div>
         <div class="btnrow" id="reactSubmitRow" hidden><button class="btn btn-primary btn-sm" id="rSubmit">Versturen</button></div>
       </div></details>

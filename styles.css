@@ -190,9 +190,10 @@ details .body{padding:.3rem .9rem .9rem}
 .flag-body{margin-top:.3rem;line-height:1.45}
 .flag-reply-form{margin-top:.5rem;padding:.5rem;background:var(--surface2);border-radius:6px}
 .flag-reply-form textarea{min-height:50px;font-size:.85rem}
-.ref-hint{margin:.4rem 0;padding:.45rem .65rem;background:var(--accent-soft);
-  border-left:3px solid var(--accent);border-radius:6px;font-size:.78rem;line-height:1.5;color:var(--text)}
-.ref-hint code{background:var(--surface);padding:.05rem .3rem;border-radius:3px;font-size:.8em;font-weight:700}
+.ref-hint{margin:.4rem 0;padding:.5rem .7rem;background:var(--warn-soft);
+  border-left:3px solid var(--warn);border-radius:6px;font-size:.78rem;line-height:1.5;color:var(--text)}
+.ref-hint code{background:var(--surface);padding:.05rem .3rem;border-radius:3px;font-size:.8em;font-weight:700;color:var(--accent-dark)}
+.ref-hint strong{color:var(--warn)}
 .flag-reply-form .btnrow{margin-top:.4rem}
 
 /* bars */
