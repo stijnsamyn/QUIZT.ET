@@ -923,7 +923,7 @@ async function renderQuestion(){
     if(j>=0){ PLAY.i=j; renderQuestion(); } else toast("Alle vragen beantwoord","ok");
   };
   const nsBtn=document.getElementById("newSession");
-  if(nsBtn) nsBtn.onclick=()=>renderPlaySetup();
+  if(nsBtn) nsBtn.onclick=()=>viewPlay(PLAY.quiz.id);
   const eqBtn=document.getElementById("editQ");
   if(eqBtn) eqBtn.onclick=()=>go("#/beheer/vraag/"+q.id);
   const dBtn=document.getElementById("doneBtn");
@@ -1025,7 +1025,7 @@ function renderPlayDone(){
     </div>`;
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
   const aw=document.getElementById("againWrong"); if(aw) aw.onclick=()=>startSession("alle","foute",PLAY.mode||"slim");
-  document.getElementById("againNew").onclick=()=>renderPlaySetup();
+  document.getElementById("againNew").onclick=()=>viewPlay(PLAY.quiz.id);
   const tb=document.getElementById("openTetris"); if(tb && !tb.disabled) tb.onclick=openTetris;
   app.querySelectorAll("[data-rvf]").forEach(b=>b.onclick=()=>{
     const f=b.dataset.rvf;
