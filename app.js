@@ -443,7 +443,7 @@ function renderPlaySetup(){
     ["foute",`Enkel mijn foute (${wrong})`,`Vragen waar je huidige antwoord fout op is (${wrong} stuks). Als je die later juist beantwoordt, verdwijnen ze hier.`],
     ["onbeantwoord",`Nog niet beantwoord (${todo})`,`Alleen vragen die je in geen enkele sessie al hebt beantwoord (${todo} stuks).`],
     ["nietjuist",`Nog niet juist (${nietjuist})`,`Vragen die je fout had OF nog nooit beantwoordde (${nietjuist} stuks) — combinatie van 'foute' en 'nog niet beantwoord'.`],
-    ["ooitFout",`Historisch fout (${ooitFout})`,`Alle vragen die je in het verleden ooit minstens één keer fout hebt beantwoord (${ooitFout} stuks). Ze blijven hier staan, ook als je ze later juist hebt beantwoord — pas 'Voortgang wissen' verwijdert deze lijst.`],
+    ["ooitFout",`Historisch fout (${ooitFout})`,`Alle vragen die je in het verleden ooit minstens één keer fout hebt beantwoord (${ooitFout} stuks). Ze blijven hier staan, ook als je ze later juist hebt beantwoord. "Voortgang wissen" laat deze lijst intact — enkel een beheerder kan de historiek uit de database halen.`],
   ];
   const orders=[
     ["slim","Slim oefenen","Nooit-beantwoorde vragen krijgen voorrang, dan fout beantwoorde, dan overleg, dan juist. Gewogen willekeurig."],
@@ -506,7 +506,7 @@ function renderPlaySetup(){
         <div><strong>Mijn voortgang</strong><div class="muted" style="font-size:.82rem">Beantwoord: ${total-todo}/${total} · juist: ${PLAY.all.filter(q=>isRight(q,PLAY.answers[q.id])===true).length}</div></div>
         <button class="btn btn-danger btn-sm" id="wipeBtn">Voortgang wissen</button>
       </div>
-      <div class="muted" style="font-size:.78rem;margin-top:.4rem">Wist <strong>al</strong> jouw antwoorden op deze quiz (over alle sessies heen). Daarna telt elke vraag weer als "nog nooit beantwoord" voor "slim oefenen" en de focus-filters. Je flags en opmerkingen blijven bewaard.</div>
+      <div class="muted" style="font-size:.78rem;margin-top:.4rem">Wist je <strong>huidige</strong> antwoordstatus zodat je met een schone lei kan hertesten. De filters "Enkel mijn foute" en "Nog niet beantwoord" tonen daarna weer alles, en "slim oefenen" behandelt elke vraag als nieuw. Je bijdrage aan de statistieken en de lijst "historisch fout" blijven wél bewaard, net als je flags en opmerkingen.</div>
     </div>
     ${(PLAY.openFlags&&PLAY.openFlags.length)?`
     <h2>Open flags (${PLAY.openFlags.length})</h2>
@@ -588,8 +588,9 @@ function openModesHelp(){
       <h3>Antwoordvolgorde binnen een vraag</h3>
       <p>De opties (A/B/C/D) worden per vraag <strong>eenmalig willekeurig geschud</strong> bij de eerste weergave in de sessie. Zo train je jezelf op de <em>inhoud</em> van het antwoord, niet op de positie. Bij een nieuwe sessie schudt het opnieuw.</p>
 
-      <h3>Historiek wissen</h3>
-      <p>Onder "Voortgang wissen" verwijder je álle antwoorden voor deze quiz uit de database (over alle sessies). Daarna telt élke vraag als "nog nooit beantwoord" en zijn alle historische lijsten (foute, historisch fout, ooit fout) weer leeg. Je flags en opmerkingen blijven bewaard.</p>
+      <h3>Voortgang wissen</h3>
+      <p>Onder "Voortgang wissen" reset je enkel je <strong>huidige</strong> antwoordstatus voor deze quiz. Daarna toont "Enkel mijn foute" niets meer, "Nog niet beantwoord" toont weer alles, en "slim oefenen" behandelt élke vraag als nieuw.</p>
+      <p>Wat <strong>blijft</strong>: je bijdrage aan de statistieken, de lijst "historisch fout" (je zwakke plekken over alle sessies), je flags en je opmerkingen. Zo verlies je nooit waardevolle data door opnieuw te willen beginnen.</p>
     </div>
     <div class="modes-foot"><button class="btn btn-primary btn-sm" id="mhOk">Begrepen, sluit</button></div>
   </div>`;
@@ -603,12 +604,11 @@ function openModesHelp(){
 }
 
 async function wipeProgress(){
-  if(!confirm("Weet je zeker dat je AL je antwoorden op deze quiz wil wissen? Dit gaat over alle sessies heen — daarna telt elke vraag weer als 'nog nooit beantwoord'. Je flags en opmerkingen blijven behouden.")) return;
+  if(!confirm("Je huidige antwoordstatus voor deze quiz wissen? Je krijgt een schone lei om alles opnieuw te beantwoorden. Je bijdrage aan de statistieken en de lijst 'historisch fout' blijven bewaard, net als je flags en opmerkingen.")) return;
   const ids=PLAY.all.map(q=>q.id);
   try{
     if(ids.length) await sb.from("answers").delete().eq("user_id",ME.id).in("question_id",ids);
-    await sb.from("answer_events").delete().eq("user_id",ME.id).eq("quiz_id",PLAY.quiz.id);
-    toast("Voortgang gewist","ok");
+    toast("Voortgang gewist — statistieken blijven bewaard","ok");
     viewPlay(PLAY.quiz.id);
   }catch(e){ toast("Wissen mislukt: "+e.message,"err"); }
 }
