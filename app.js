@@ -2171,11 +2171,20 @@ function renderLastUpdate(){
   el.textContent="laatste update "+d.toLocaleDateString("nl-BE",{day:"2-digit",month:"short",year:"numeric"})+" "+d.toLocaleTimeString("nl-BE",{hour:"2-digit",minute:"2-digit"});
 }
 let visitLogged=false;
+function shouldLogVisit(){
+  try{
+    const key="quiztet_last_visit_"+(ME&&ME.id||"");
+    const today=new Date().toISOString().slice(0,10);
+    if(localStorage.getItem(key)===today) return false;
+    localStorage.setItem(key, today);
+    return true;
+  }catch(e){ return true; }
+}
 async function boot(){
   renderLastUpdate();
   if(!sb){ document.getElementById("appHeader").hidden=true; route(); return; }
   await loadProfile();
-  if(ME && !visitLogged){ visitLogged=true; sb.from("visits").insert({ user_id:ME.id }).then(()=>{},()=>{}); }
+  if(ME && !visitLogged && shouldLogVisit()){ visitLogged=true; sb.from("visits").insert({ user_id:ME.id }).then(()=>{},()=>{}); }
   if(ME) renderHeader();
   route();
 }
