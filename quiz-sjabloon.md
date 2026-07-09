@@ -50,6 +50,10 @@ FORMAATREGELS (de importer leest hierop)
     Gebruik in de plaats {A} {B} {C} … — die worden op runtime vertaald naar de
     letter die de speler écht ziet.
     Bv.  "Antwoord {A} is juist omdat art. 34 Sv. bepaalt dat…"
+    Tip: gebruik {juist} om altijd naar het juiste antwoord te verwijzen — dan
+    hoef je zelfs niet na te denken over welke letter dat is.
+    Bv.  "Antwoord {juist} klopt: art. 34 Sv. …"
+    Analoog werkt {docent} — verwijst naar het antwoord dat de docent koos.
   • "**Docent:**" of "**Docent-toelichting:**" — korte uitleg waarom de docent afwijkt
     van het juridische antwoord (optioneel; enkel zinvol als er ook een [d]-optie is).
     Ook hier mag je {A} {B} … gebruiken.

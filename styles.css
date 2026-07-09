@@ -499,6 +499,9 @@ summary .ico,button .ico{color:inherit}
   font-size:.75rem;font-weight:700;flex-shrink:0}
 .opt-ref-chip:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
 .opt-ref-chip:active{transform:scale(.96)}
+.opt-ref-special{background:var(--correct-soft);color:var(--correct);border-color:var(--correct)}
+.opt-ref-special:hover{background:var(--correct);color:#fff}
+.ref-chip-row{display:flex;gap:.35rem;align-items:center;flex-wrap:wrap;margin:.3rem 0 .1rem}
 .valid-mismatch{margin:.3rem 0 .5rem;padding:.5rem .7rem;background:var(--warn-soft);
   border-left:3px solid var(--warn);border-radius:6px;font-size:.82rem;line-height:1.4;color:var(--text)}
 .infotip{position:relative;display:inline-flex;color:inherit;cursor:help;opacity:.8}

@@ -77,12 +77,28 @@ function lettersOfForQ(qid, idxs){
     .sort((a,b)=> (a.pos>=0?a.pos:999) - (b.pos>=0?b.pos:999))
     .map(x=>letter(x.pos>=0?x.pos:x.i)).join(", ");
 }
-// Vertaal {A}..{Z} in rijke tekst naar de LETTER die de gebruiker in de huidige shuffle ziet.
-// Beheerders gebruiken {A} om te verwijzen naar "de eerste optie in de DB" — zo blijft
-// de uitleg correct wanneer de opties door elkaar geschud getoond worden.
-function translateOptRefs(text, qid){
+// Vertaal placeholders in rijke tekst naar de LETTER(S) die de gebruiker in de huidige shuffle ziet.
+//   {A}..{Z}   → verwijzing naar een specifieke optie op editor-positie (A = eerste optie enz.)
+//   {juist}    → verwijzing naar het juiste antwoord van deze vraag (elke shuffle, elke gebruiker klopt)
+//   {docent}   → verwijzing naar het antwoord dat de docent koos (indien ingevuld)
+function translateOptRefs(text, qid, qObj){
   if(text==null) return text;
-  return String(text).replace(/\{([A-Za-z])\}/g, (m, ch)=>{
+  let s = String(text);
+  // Zoek de vraag in PLAY.all (indien beschikbaar) om {juist} en {docent} te kunnen resolven
+  const q = qObj || (PLAY.all||[]).find(x=>x.id===qid);
+  s = s.replace(/\{juist\}/gi, (m)=>{
+    if(!q) return m;
+    const idxs = arr(q.correct_indexes);
+    if(!idxs.length) return m;
+    return lettersOfForQ(qid, idxs);
+  });
+  s = s.replace(/\{docent\}/gi, (m)=>{
+    if(!q) return m;
+    const idxs = arr(q.docent_indexes);
+    if(!idxs.length) return m;
+    return lettersOfForQ(qid, idxs);
+  });
+  s = s.replace(/\{([A-Za-z])\}/g, (m, ch)=>{
     const upper=ch.toUpperCase();
     const origIdx=upper.charCodeAt(0)-65;
     if(origIdx<0||origIdx>25) return m;
@@ -90,6 +106,7 @@ function translateOptRefs(text, qid){
     // beheerder mag ook kleine {a} typen → we respecteren de casing
     return ch===upper ? l : l.toLowerCase();
   });
+  return s;
 }
 
 /* ---------- Statistiek-hulpjes ---------- */
@@ -846,8 +863,8 @@ async function renderQuestion(){
       <div class="q-text">${esc(q.text)}</div>
       ${(!answered && (q.wettekst || q.legal_basis)) ? `<details class="prehelp"><summary>${ICON.info} Raadpleeg wettekst voor je antwoordt</summary>
         <div class="prehelp-body">
-          ${q.legal_basis?`<div class="prehelp-legal"><strong>Wettelijke basis:</strong> ${html(translateOptRefs(q.legal_basis, q.id))}</div>`:""}
-          ${q.wettekst?`<div class="wettekst">${html(translateOptRefs(q.wettekst, q.id))}</div>`:""}
+          ${q.legal_basis?`<div class="prehelp-legal"><strong>Wettelijke basis:</strong> ${html(translateOptRefs(q.legal_basis, q.id, q))}</div>`:""}
+          ${q.wettekst?`<div class="wettekst">${html(translateOptRefs(q.wettekst, q.id, q))}</div>`:""}
         </div></details>`:""}
       <div id="opts">${opts}</div>
       ${(multi&&!answered)?`<div class="btnrow"><button class="btn btn-primary btn-sm" id="checkMulti">Nakijken</button></div>`:""}
@@ -1017,10 +1034,10 @@ function renderDoneReview(qs, filter){
           if(docentDiffers && docent.includes(i)) cls+=" docent";
           return `<div class="${cls}"><strong>${letter(i)}.</strong> ${esc(o)}${validated&&correct.includes(i)?' <span class="pill juist" style="margin-left:.3rem">juist</span>':""}${docentDiffers&&docent.includes(i)?' <span class="pill" style="margin-left:.3rem;background:rgba(192,38,211,.12);color:#a21caf">docent</span>':""}</div>`;
         }).join("")}</div>
-        ${q.explanation?`<div class="rv-explain"><strong>Uitleg:</strong> ${srcBadge("Uitleg",q.explanation_source)} ${html(translateOptRefs(q.explanation, q.id))}</div>`:""}
-        ${q.legal_basis?`<div class="rv-legal"><strong>Wettelijke basis:</strong> ${srcBadge("Wettelijke basis",q.legal_basis_source)} ${html(translateOptRefs(q.legal_basis, q.id))}</div>`:""}
-        ${q.docent_note && docentDiffers ? `<div class="rv-docent"><strong>Docent-toelichting:</strong> ${esc(translateOptRefs(q.docent_note, q.id))}</div>`:""}
-        ${q.wettekst?`<details class="rv-wettekst"><summary>${ICON.info} Toon volledige wettekst</summary><div class="wettekst">${html(translateOptRefs(q.wettekst, q.id))}</div></details>`:""}
+        ${q.explanation?`<div class="rv-explain"><strong>Uitleg:</strong> ${srcBadge("Uitleg",q.explanation_source)} ${html(translateOptRefs(q.explanation, q.id, q))}</div>`:""}
+        ${q.legal_basis?`<div class="rv-legal"><strong>Wettelijke basis:</strong> ${srcBadge("Wettelijke basis",q.legal_basis_source)} ${html(translateOptRefs(q.legal_basis, q.id, q))}</div>`:""}
+        ${q.docent_note && docentDiffers ? `<div class="rv-docent"><strong>Docent-toelichting:</strong> ${esc(translateOptRefs(q.docent_note, q.id, q))}</div>`:""}
+        ${q.wettekst?`<details class="rv-wettekst"><summary>${ICON.info} Toon volledige wettekst</summary><div class="wettekst">${html(translateOptRefs(q.wettekst, q.id, q))}</div></details>`:""}
         <div class="btnrow" style="margin-top:.6rem"><button class="btn btn-ghost btn-sm" data-goq="${q.id}">Open deze vraag →</button></div>
       </div>
     </details>`;
@@ -1773,9 +1790,14 @@ function openBeheerManual(){
 
       <h3>Antwoorden worden geschud — hoe verwijs je ernaar?</h3>
       <p>De app schudt per gebruiker en per sessie de volgorde van de antwoordopties. Dat traint spelers op de <em>inhoud</em>, niet op de positie. Gevolg: "A" bij jou kan bij een andere gebruiker "C" zijn.</p>
-      <p>In je <strong>uitleg</strong>, <strong>wettelijke basis</strong>, <strong>wettekst</strong> of <strong>docent-toelichting</strong> mag je verwijzen met <code>{A}</code>, <code>{B}</code>, <code>{C}</code>, … De app vertaalt die automatisch naar de letter die de speler <em>daadwerkelijk ziet</em>.</p>
-      <p class="tip">Voorbeeld: schrijf "Antwoord {A} is juist want art. 34 Sv. bepaalt…". Ziet Anke bij "A" in haar shuffle staan, blijft "{A}" → "A". Ziet Bart daar "C", vertaalt "{A}" naar "C". Zo blijft je uitleg altijd kloppen.</p>
-      <p>De letters tussen <code>{ }</code> verwijzen naar de <strong>volgorde in de editor</strong>: <code>{A}</code> = eerste optie in het formulier, <code>{B}</code> = tweede, enz. Ook <code>{a}</code> (klein) werkt.</p>
+      <p>In je <strong>uitleg</strong>, <strong>wettelijke basis</strong>, <strong>wettekst</strong> of <strong>docent-toelichting</strong> mag je verwijzen met een van deze placeholders:</p>
+      <ul>
+        <li><code>{A}</code> <code>{B}</code> <code>{C}</code> … — verwijst naar de <strong>positie in de editor</strong>: <code>{A}</code> = eerste optie in het formulier, <code>{B}</code> = tweede, enz. Klik op de chip naast een optie om die automatisch in te voegen op je cursorpositie.</li>
+        <li><code>{juist}</code> — verwijst <em>altijd</em> naar het juiste antwoord (welke letter dat ook geworden is na shuffle). Handig als je "antwoord {juist} is correct omdat…" wil schrijven zonder over een specifieke optie na te denken.</li>
+        <li><code>{docent}</code> — verwijst naar het antwoord dat de docent aanduidde. Enkel zinvol als de docent afwijkt van het juridische antwoord.</li>
+      </ul>
+      <p class="tip"><strong>Voorbeeld met {A}:</strong> "Antwoord {A} is juist want art. 34 Sv. bepaalt…". Ziet Anke A in haar shuffle staan, blijft "{A}" → "A". Ziet Bart daar "C", vertaalt "{A}" naar "C".</p>
+      <p class="tip"><strong>Voorbeeld met {juist}:</strong> "Antwoord {juist} klopt: de wettelijke basis is art. 34 Sv." — geen risico op verkeerde referentie, want de app vertaalt naar wat écht juist is bij die speler.</p>
 
       <h3>Flags en reacties (Beheer → tab "Open flags")</h3>
       <ul>
@@ -2235,7 +2257,12 @@ function questionEditor(q){
     <label>Herkomst wettelijke basis</label>${srcToggle("ls-"+q.id, q.legal_basis_source)}
     <label>Wettekst (volledige artikels, uitklapbaar bij de vraag) ${infoTip("Volledige artikeltekst. Verwijs naar antwoordopties met {A} {B} {C} … indien nodig.")}</label>
     <textarea data-f="wettekst" data-q="${q.id}">${esc(q.wettekst||"")}</textarea>
-    <label>Uitleg ${infoTip("Waarom is dit antwoord juist? Verwijs naar antwoordopties met {A} {B} {C} … — de app vertaalt die naar de letter die de gebruiker daadwerkelijk ziet, zodat je uitleg altijd klopt. Bv. 'Antwoord {A} is juist omdat art. 34 Sv. …'.")}</label>
+    <label>Uitleg ${infoTip("Waarom is dit antwoord juist? Verwijs naar antwoordopties met {A} {B} {C} … — de app vertaalt die naar de letter die de gebruiker daadwerkelijk ziet, zodat je uitleg altijd klopt. Bv. 'Antwoord {A} is juist omdat art. 34 Sv. …'. Speciale tokens: {juist} = altijd de juiste antwoordletter, {docent} = het antwoord dat de docent koos.")}</label>
+    <div class="ref-chip-row">
+      <span class="muted" style="font-size:.72rem">Invoegen:</span>
+      <button type="button" class="opt-ref-chip opt-ref-special" data-insert-special="juist" title="Voeg {juist} in — verwijst altijd naar het juiste antwoord, ongeacht shuffle">{juist}</button>
+      <button type="button" class="opt-ref-chip opt-ref-special" data-insert-special="docent" title="Voeg {docent} in — verwijst naar het antwoord dat de docent koos">{docent}</button>
+    </div>
     <textarea data-f="explanation" data-q="${q.id}">${esc(q.explanation||"")}</textarea>
     <label>Herkomst uitleg</label>${srcToggle("es-"+q.id, q.explanation_source)}
     <div class="btnrow"><button class="btn btn-primary btn-sm" data-saveq="${q.id}">Vraag opslaan</button></div>
@@ -2270,7 +2297,8 @@ function wireQuestionEditor(q, quizId){
   function wireRefChip(chip){
     chip.onclick=e=>{
       e.preventDefault();
-      const token = `{${chip.dataset.insert}}`;
+      const raw = chip.dataset.insert || chip.dataset.insertSpecial;
+      const token = `{${raw}}`;
       const ta = lastFocused;
       if(!ta) return;
       const start = ta.selectionStart, end = ta.selectionEnd;
