@@ -1282,47 +1282,56 @@ function learningBlock(myEvents, title){
    STATISTIEK — algemeen (alle quizzen)
    ============================================================ */
 async function viewStatsVragen(){
-  const [{data:questions},{data:answers},{data:flags},{data:quizzes},{data:allEvents},{data:visits}] = await Promise.all([
-    sb.from("questions").select("id,qnum,quiz_id,text,correct_indexes,options"),
-    sb.from("answers").select("question_id,is_correct"),
-    sb.from("flags").select("question_id,type,user_id,preferred_indexes,created_at"),
+  const [{data:questions},{data:answers},{data:flags},{data:quizzes},
+    {data:global},{data:perQuizStats},{data:dailyAns},{data:dailyVis},{data:hourly48}] = await Promise.all([
+    sb.from("questions").select("id,qnum,quiz_id,text,correct_indexes,options").range(0,4999),
+    sb.from("answers").select("question_id,is_correct").range(0,99999),
+    sb.from("flags").select("question_id,type,user_id,preferred_indexes,created_at").range(0,49999),
     sb.from("quizzes").select("id,title,status"),
-    sb.from("answer_events").select("is_correct,quiz_id,user_id,created_at"),
-    sb.from("visits").select("user_id,created_at"),
+    sb.from("global_stats_public").select("*").single(),
+    sb.from("quiz_stats_public").select("*"),
+    sb.from("daily_answers_public").select("*"),
+    sb.from("daily_visits_public").select("*"),
+    sb.from("hourly_answers_48h_public").select("*"),
   ]);
   const qtitle={}; (quizzes||[]).forEach(q=>qtitle[q.id]=q.title);
   const agg=aggregateQuestions(questions, answers, flags);
-  // per-quiz vergelijking
-  const perQuiz={}; (quizzes||[]).forEach(q=>perQuiz[q.id]={q,vragen:0,antw:0,correct:0,flags:0,spelers:new Set()});
-  (questions||[]).forEach(q=>{ if(perQuiz[q.quiz_id])perQuiz[q.quiz_id].vragen++; });
-  (allEvents||[]).forEach(e=>{ const x=perQuiz[e.quiz_id]; if(x){x.antw++; if(e.is_correct)x.correct++; x.spelers.add(e.user_id);} });
-  (flags||[]).forEach(f=>{ const qq=(questions||[]).find(q=>q.id===f.question_id); if(qq&&perQuiz[qq.quiz_id])perQuiz[qq.quiz_id].flags++; });
-  const totAntw=(allEvents||[]).length;
-  const totSpelers=new Set((allEvents||[]).map(e=>e.user_id)).size;
+  const perQuizMap={}; (perQuizStats||[]).forEach(r=>perQuizMap[r.quiz_id]=r);
+  const perQuiz=(quizzes||[]).map(q=>({ q, s: perQuizMap[q.id] || {n_questions:0,total_answers:0,correct_answers:0,n_players:0,n_flags:0} }));
+  // Grafiek-hulpjes: converteer view-rijen naar {label,value}
+  const dailyToPoints=rows=>(rows||[]).map(r=>({label:(r.day||"").slice(5), value:Number(r.n)||0}));
+  // vul 48u met nullen zodat lege uren zichtbaar zijn
+  const hourly48Points=(()=>{
+    const now=new Date(); now.setMinutes(0,0,0);
+    const idx={};
+    for(let i=47;i>=0;i--){ const d=new Date(now.getTime()-i*3600000); const k=d.toISOString().slice(0,13); idx[k]={label:d.getHours().toString().padStart(2,"0")+"u", value:0}; }
+    (hourly48||[]).forEach(r=>{ const k=(r.hour||"").slice(0,13); if(idx[k]) idx[k].value=Number(r.n)||0; });
+    return Object.values(idx);
+  })();
 
   app.innerHTML=`
     <h1>Statistiek — algemeen</h1>
     <p class="muted">Over alle quizzen heen. Publiek zichtbaar.</p>
     <div class="kpis">
-      ${kpi("Quizzen",(quizzes||[]).length)}
-      ${kpi("Vragen",(questions||[]).length)}
-      ${kpi("Antwoorden gegeven",totAntw)}
-      ${kpi("Actieve gebruikers",totSpelers)}
-      ${kpi("Bezoeken",(visits||[]).length)}
+      ${kpi("Quizzen",(global&&global.n_quizzes)||0)}
+      ${kpi("Vragen",(global&&global.n_questions)||0)}
+      ${kpi("Antwoorden gegeven",(global&&global.total_answers)||0)}
+      ${kpi("Actieve gebruikers",(global&&global.n_players)||0)}
+      ${kpi("Bezoeken",(global&&global.n_visits)||0)}
     </div>
     <h2>Laatste 48 uur — beantwoorde vragen per uur</h2>
-    <div class="card">${barChartSVG(hourlyCounts(allEvents||[],48),{color:"#16803d"})}</div>
+    <div class="card">${barChartSVG(hourly48Points,{color:"#16803d"})}</div>
     <h2>Bezoeken per dag</h2>
-    <div class="card">${barChartSVG(dailyCounts(visits||[]),{color:"#1d3a99"})}</div>
+    <div class="card">${barChartSVG(dailyToPoints(dailyVis),{color:"#1d3a99"})}</div>
     <h2>Antwoorden per dag</h2>
-    <div class="card">${barChartSVG(dailyCounts(allEvents||[]),{color:"#2952cc"})}</div>
+    <div class="card">${barChartSVG(dailyToPoints(dailyAns),{color:"#2952cc"})}</div>
     <h2>Per quiz</h2>
     <div class="card" style="padding:.3rem"><table>
       <thead><tr><th>Quiz</th><th>Vragen</th><th>Antwoorden</th><th>Gem. % juist</th><th>Spelers</th><th>Flags</th><th></th></tr></thead>
-      <tbody>${Object.values(perQuiz).map(x=>`<tr>
+      <tbody>${perQuiz.map(x=>`<tr>
         <td>${esc(x.q.title)} ${x.q.status!=="gepubliceerd"?`<span class="badge concept">concept</span>`:""}</td>
-        <td>${x.vragen}</td><td>${x.antw}</td><td>${x.antw?pct(x.correct,x.antw)+"%":"—"}</td>
-        <td>${x.spelers.size}</td><td>${x.flags||"—"}</td>
+        <td>${x.s.n_questions}</td><td>${x.s.total_answers}</td><td>${x.s.total_answers?pct(x.s.correct_answers,x.s.total_answers)+"%":"—"}</td>
+        <td>${x.s.n_players}</td><td>${x.s.n_flags||"—"}</td>
         <td><a class="btn btn-ghost btn-sm" data-nav="#/quiz/${x.q.id}/stats">Details</a></td></tr>`).join("")}</tbody>
     </table></div>
     <h2>Alle vragen</h2>
