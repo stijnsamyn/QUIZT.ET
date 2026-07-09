@@ -854,13 +854,16 @@ async function renderQuestion(){
     const o=(q.options||[])[origIdx];
     let cls="opt"; let box="";
     if(answered){ cls+=" disabled";
-      if(validated){ if(correct.includes(origIdx)) cls+=" correct"; else if(inSet(chosen,origIdx)) cls+=" wrong"; }
-      else if(inSet(chosen,origIdx)) cls+=" chosen";
+      // Toon altijd het juiste antwoord (groen) en de foute keuze (rood) — ook bij niet-gevalideerde
+      // vragen zien spelers zo wat er als juist bedoeld is, met het pill "in overleg" als vlag.
+      if(correct.includes(origIdx)) cls+=" correct";
+      else if(inSet(chosen,origIdx)) cls+=" wrong";
       if(docentDiffers && docent.includes(origIdx)) cls+=" docent";
     }
     else if(multi){ box=`<input type="checkbox" class="mopt" value="${origIdx}" style="width:auto;margin-top:.15rem">`; }
     const docentBadge = answered && docentDiffers && docent.includes(origIdx) ? `<span class="opt-doc" title="Volgens de docent">👨‍🏫</span>` : "";
-    return `<div class="${cls}" data-opt="${origIdx}">${box}<span class="letter">${letter(pos)}</span><span>${esc(o)} ${answered&&validated&&correct.includes(origIdx)?srcBadge("Juist antwoord",q.answer_source):""}${docentBadge}</span></div>`;
+    const correctBadge = answered && correct.includes(origIdx) ? srcBadge(validated?"Juist antwoord":"Bedoeld als juist — nog in overleg", q.answer_source) : "";
+    return `<div class="${cls}" data-opt="${origIdx}">${box}<span class="letter">${letter(pos)}</span><span>${esc(o)} ${correctBadge}${docentBadge}</span></div>`;
   }).join("");
   // voortgang
   const total=PLAY.questions.length;
@@ -1079,10 +1082,11 @@ function renderDoneReview(qs, filter){
       <div class="rv-body">
         <div class="rv-opts">${(q.options||[]).map((o,i)=>{
           let cls="rv-opt";
-          if(validated && correct.includes(i)) cls+=" correct";
-          if(answered && inSet(chosen,i) && validated && !correct.includes(i)) cls+=" wrong";
+          if(correct.includes(i)) cls+=" correct";
+          if(answered && inSet(chosen,i) && !correct.includes(i)) cls+=" wrong";
           if(docentDiffers && docent.includes(i)) cls+=" docent";
-          return `<div class="${cls}"><strong>${letter(i)}.</strong> ${esc(o)}${validated&&correct.includes(i)?' <span class="pill juist" style="margin-left:.3rem">juist</span>':""}${docentDiffers&&docent.includes(i)?' <span class="pill" style="margin-left:.3rem;background:rgba(192,38,211,.12);color:#a21caf">docent</span>':""}</div>`;
+          const juistPill = correct.includes(i) ? `<span class="pill ${validated?"juist":"twijfel"}" style="margin-left:.3rem">${validated?"juist":"bedoeld — in overleg"}</span>` : "";
+          return `<div class="${cls}"><strong>${letter(i)}.</strong> ${esc(o)}${juistPill}${docentDiffers&&docent.includes(i)?' <span class="pill" style="margin-left:.3rem;background:rgba(192,38,211,.12);color:#a21caf">docent</span>':""}</div>`;
         }).join("")}</div>
         ${q.explanation?`<div class="rv-explain"><strong>Uitleg:</strong> ${srcBadge("Uitleg",q.explanation_source)} ${html(translateOptRefs(q.explanation, q.id, q))}</div>`:""}
         ${q.legal_basis?`<div class="rv-legal"><strong>Wettelijke basis:</strong> ${srcBadge("Wettelijke basis",q.legal_basis_source)} ${html(translateOptRefs(q.legal_basis, q.id, q))}</div>`:""}
