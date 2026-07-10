@@ -573,3 +573,12 @@ summary .ico,button .ico{color:inherit}
   background:var(--ink);color:#fff;padding:.5rem .65rem;border-radius:8px;font-size:.75rem;font-weight:400;
   text-align:left;width:220px;line-height:1.4;box-shadow:var(--shadow-md);opacity:0;pointer-events:none;transition:opacity .12s;z-index:60}
 .infotip:hover::after,.infotip:focus::after{opacity:1}
+
+.games-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:.7rem;margin-top:.4rem}
+.game-card{display:flex;flex-direction:column;justify-content:space-between;min-height:130px}
+.game-card.locked{opacity:.75}
+.game-card-top{display:flex;align-items:center;gap:.5rem}
+.game-card-top h3{font-size:1rem;font-weight:700;color:var(--ink)}
+.game-icon{font-size:1.5rem;line-height:1}
+.game-lock{font-size:.78rem;color:var(--text-muted);padding:.4rem .55rem;background:var(--surface2);
+  border-radius:8px;border:1px dashed var(--border)}

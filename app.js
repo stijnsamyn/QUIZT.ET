@@ -402,13 +402,18 @@ async function viewHome(){
         <div class="progress-thin"><span style="width:${p}%"></span></div>
       </div>
     </div>`;}).join("");
+  await loadGamesConfig();
   app.innerHTML=`
     <div class="spread"><h1>Quizzen</h1>${isEditor()?`<button class="btn btn-primary btn-sm" data-nav="#/beheer">Beheer</button>`:""}</div>
     <div class="dev-note">${ICON.info} QUIZT.ET wordt nog volop ontwikkeld — vernieuw af en toe eens de pagina om de laatste functies te hebben. <button class="btn btn-ghost btn-sm" id="hardRefresh" style="margin-left:.5rem">Nu vernieuwen</button></div>
     ${quizzes&&quizzes.length?`<div class="grid" style="margin-top:1rem">${cards}</div>`:`<div class="empty">Nog geen quizzen.</div>`}
+    ${renderGamesSection()}
     <div id="tetrisTop"></div>`;
   app.querySelectorAll("[data-open]").forEach(c=>c.onclick=()=>go("#/quiz/"+c.dataset.open));
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
+  app.querySelectorAll("[data-play]").forEach(b=>b.onclick=()=>{
+    const g=GAMES.find(x=>x.id===b.dataset.play); if(g && typeof g.open==="function") g.open();
+  });
   const hr=document.getElementById("hardRefresh");
   if(hr) hr.onclick=()=>{ const base=location.href.split("?")[0].split("#")[0]; location.href=base+"?_="+Date.now()+location.hash; };
   renderTetrisTop3();
@@ -1003,9 +1008,10 @@ function renderPlayDone(){
         <a class="btn btn-ghost" data-nav="#/">Naar quizzen</a>
       </div>
       <div style="margin-top:1rem"><a class="ilink" id="scrollToReview" style="font-size:.85rem">↓ Bekijk gedetailleerd overzicht van alle vragen</a></div>
-      ${(()=>{ const eligible=qs.length>=25 && scored>0 && p>=80;
+      ${(()=>{ const tetrisFree=!!(GAMES_CFG && GAMES_CFG.tetris && GAMES_CFG.tetris.free);
+        const eligible=tetrisFree || (qs.length>=25 && scored>0 && p>=80);
         return `<div class="brain-break">
-          <div class="muted" style="font-size:.82rem;margin-bottom:.4rem">${eligible?"Je hebt een pauze verdiend 🎉":"Speel Tetris na een sessie van minstens 25 vragen met ≥80% juist."}</div>
+          <div class="muted" style="font-size:.82rem;margin-bottom:.4rem">${eligible?(tetrisFree?"Zin in een rondje?":"Je hebt een pauze verdiend 🎉"):"Speel Tetris na een sessie van minstens 25 vragen met ≥80% juist."}</div>
           <button class="btn btn-ghost btn-sm" id="openTetris" ${eligible?"":"disabled"} title="${eligible?"Speel een rondje Tetris":"Vergrendeld — je moet minstens 25 vragen doen én 80% juist scoren"}">🧱 Speel Tetris ${eligible?"":"🔒"}</button>
         </div>`; })()}
     </div>
@@ -1225,6 +1231,308 @@ function openTetris(){
   const close=()=>{ cancelAnimationFrame(rafId); window.removeEventListener("keydown", keyHandler); overlay.remove(); };
   overlay.querySelector("#txClose").onclick=close;
   overlay.addEventListener("click", e=>{ if(e.target===overlay) close(); });
+}
+
+/* ============================================================
+   SNAKE — pauzegame
+   ============================================================ */
+function openSnake(){
+  const HS_KEY="quiztet_snake_hs";
+  const COLS=20, ROWS=20, CELL=20;
+  const overlay=document.createElement("div");
+  overlay.className="tetris-overlay";
+  overlay.innerHTML=`
+    <div class="tetris-modal" role="dialog" aria-label="Snake">
+      <div class="tetris-hd">
+        <div class="tetris-title">🐍 Snake</div>
+        <button class="tetris-close" id="skClose" aria-label="Sluiten">×</button>
+      </div>
+      <div class="tetris-body">
+        <canvas id="skCanvas" width="${COLS*CELL}" height="${ROWS*CELL}"></canvas>
+        <div class="tetris-side">
+          <div class="tetris-stats">
+            <div class="tetris-stat"><label>Score</label><div id="skScore">0</div></div>
+            <div class="tetris-stat"><label>Highscore</label><div id="skHi">0</div></div>
+          </div>
+          <div class="tetris-help muted">
+            <div>← → ↑ ↓ sturen</div>
+            <div>P pauze · Enter opnieuw</div>
+            <div>Esc sluiten</div>
+          </div>
+        </div>
+      </div>
+      <div class="tetris-touch">
+        <button data-dir="L" aria-label="Links">←</button>
+        <button data-dir="U" aria-label="Omhoog">↑</button>
+        <button data-dir="D" aria-label="Omlaag">↓</button>
+        <button data-dir="R" aria-label="Rechts">→</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const ctx=overlay.querySelector("#skCanvas").getContext("2d");
+  let snake, dir, nextDir, food, score, over, paused, tickMs, tickAcc, lastT, rafId;
+  let hi=parseInt(localStorage.getItem(HS_KEY)||"0",10);
+  const randCell=()=>({x:Math.floor(Math.random()*COLS), y:Math.floor(Math.random()*ROWS)});
+  const placeFood=()=>{ while(true){ const c=randCell(); if(!snake.some(s=>s.x===c.x&&s.y===c.y)){ food=c; return; } } };
+  const reset=()=>{
+    snake=[{x:10,y:10},{x:9,y:10},{x:8,y:10}];
+    dir={x:1,y:0}; nextDir=dir; score=0; over=false; paused=false;
+    tickMs=140; tickAcc=0; lastT=0; placeFood();
+  };
+  const step=()=>{
+    dir=nextDir;
+    const head={x:snake[0].x+dir.x, y:snake[0].y+dir.y};
+    if(head.x<0||head.x>=COLS||head.y<0||head.y>=ROWS){ over=true; return; }
+    if(snake.some(s=>s.x===head.x&&s.y===head.y)){ over=true; return; }
+    snake.unshift(head);
+    if(head.x===food.x&&head.y===food.y){
+      score+=10;
+      if(score>hi){ hi=score; try{ localStorage.setItem(HS_KEY,String(hi)); }catch(e){} }
+      tickMs=Math.max(60, tickMs-3);
+      placeFood();
+    } else {
+      snake.pop();
+    }
+  };
+  const draw=()=>{
+    ctx.fillStyle="#0f172a"; ctx.fillRect(0,0,COLS*CELL,ROWS*CELL);
+    ctx.fillStyle="#ef4444"; ctx.fillRect(food.x*CELL+2, food.y*CELL+2, CELL-4, CELL-4);
+    snake.forEach((s,i)=>{
+      ctx.fillStyle = i===0 ? "#22c55e" : "#16a34a";
+      ctx.fillRect(s.x*CELL+1, s.y*CELL+1, CELL-2, CELL-2);
+    });
+    overlay.querySelector("#skScore").textContent=score;
+    overlay.querySelector("#skHi").textContent=hi;
+    if(over){
+      ctx.fillStyle="rgba(0,0,0,.72)"; ctx.fillRect(0,0,COLS*CELL,ROWS*CELL);
+      ctx.fillStyle="#fff"; ctx.textAlign="center";
+      ctx.font="bold 22px Inter,sans-serif"; ctx.fillText("Game over", COLS*CELL/2, ROWS*CELL/2-10);
+      ctx.font="12px Inter,sans-serif"; ctx.fillText("Enter = opnieuw · Esc = sluiten", COLS*CELL/2, ROWS*CELL/2+15);
+    } else if(paused){
+      ctx.fillStyle="rgba(0,0,0,.6)"; ctx.fillRect(0,0,COLS*CELL,ROWS*CELL);
+      ctx.fillStyle="#fff"; ctx.textAlign="center"; ctx.font="bold 20px Inter,sans-serif";
+      ctx.fillText("PAUZE (P)", COLS*CELL/2, ROWS*CELL/2);
+    }
+  };
+  const setDir=(d)=>{
+    const map={L:{x:-1,y:0}, R:{x:1,y:0}, U:{x:0,y:-1}, D:{x:0,y:1}};
+    const nd=map[d]; if(!nd) return;
+    if(nd.x===-dir.x && nd.y===-dir.y) return;
+    nextDir=nd;
+  };
+  reset();
+  rafId=requestAnimationFrame(function loop(t){
+    if(!lastT) lastT=t; const dt=t-lastT; lastT=t;
+    if(!paused && !over){ tickAcc+=dt; if(tickAcc>=tickMs){ tickAcc=0; step(); } }
+    draw(); rafId=requestAnimationFrame(loop);
+  });
+  const keyHandler=e=>{
+    if(e.key==="Escape"){ close(); return; }
+    if(over){ if(e.key==="Enter"){ lastT=0; reset(); } return; }
+    if(e.key==="p"||e.key==="P"){ paused=!paused; return; }
+    if(paused) return;
+    if(e.key==="ArrowLeft"){ e.preventDefault(); setDir("L"); }
+    else if(e.key==="ArrowRight"){ e.preventDefault(); setDir("R"); }
+    else if(e.key==="ArrowUp"){ e.preventDefault(); setDir("U"); }
+    else if(e.key==="ArrowDown"){ e.preventDefault(); setDir("D"); }
+  };
+  window.addEventListener("keydown", keyHandler);
+  overlay.querySelectorAll("[data-dir]").forEach(b=>b.onclick=()=>{
+    if(over){ lastT=0; reset(); return; }
+    setDir(b.dataset.dir);
+  });
+  const close=()=>{ cancelAnimationFrame(rafId); window.removeEventListener("keydown", keyHandler); overlay.remove(); };
+  overlay.querySelector("#skClose").onclick=close;
+  overlay.addEventListener("click", e=>{ if(e.target===overlay) close(); });
+}
+
+/* ============================================================
+   PONG — pauzegame (speler vs CPU)
+   ============================================================ */
+function openPong(){
+  const W=480, H=320, PAD_W=10, PAD_H=64, BALL=8, WIN_SCORE=7;
+  const overlay=document.createElement("div");
+  overlay.className="tetris-overlay";
+  overlay.innerHTML=`
+    <div class="tetris-modal" role="dialog" aria-label="Pong">
+      <div class="tetris-hd">
+        <div class="tetris-title">🏓 Pong</div>
+        <button class="tetris-close" id="pgClose" aria-label="Sluiten">×</button>
+      </div>
+      <div class="tetris-body">
+        <canvas id="pgCanvas" width="${W}" height="${H}"></canvas>
+        <div class="tetris-side">
+          <div class="tetris-stats">
+            <div class="tetris-stat"><label>Jij</label><div id="pgYou">0</div></div>
+            <div class="tetris-stat"><label>CPU</label><div id="pgCpu">0</div></div>
+          </div>
+          <div class="tetris-help muted">
+            <div>↑ ↓ of W / S</div>
+            <div>Spatie = starten</div>
+            <div>P pauze · Esc sluiten</div>
+            <div>Eerst tot ${WIN_SCORE}</div>
+          </div>
+        </div>
+      </div>
+      <div class="tetris-touch">
+        <button data-pdir="U" aria-label="Omhoog">↑</button>
+        <button data-pdir="S" aria-label="Serveren">▶</button>
+        <button data-pdir="D" aria-label="Omlaag">↓</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const ctx=overlay.querySelector("#pgCanvas").getContext("2d");
+  let py, cy, ball, ballV, scoreYou, scoreCpu, over, paused, waiting, rafId, lastT;
+  const keys={up:false,down:false};
+  const reset=(serveTo)=>{
+    py=(H-PAD_H)/2; cy=(H-PAD_H)/2;
+    ball={x:W/2, y:H/2};
+    const dx = serveTo==="cpu" ? -1 : 1;
+    const dy = (Math.random()*2-1)*0.6;
+    const speed=3.2;
+    ballV={x:dx*speed, y:dy*speed};
+    waiting=true; over=false; paused=false;
+  };
+  const resetAll=()=>{ scoreYou=0; scoreCpu=0; reset("cpu"); };
+  resetAll();
+  const step=(dt)=>{
+    const paddleSpeed=4.5;
+    if(keys.up) py-=paddleSpeed;
+    if(keys.down) py+=paddleSpeed;
+    py=Math.max(0, Math.min(H-PAD_H, py));
+    if(!waiting){
+      const cpuC = cy+PAD_H/2, target=ball.y;
+      const cpuSpeed=3.2;
+      if(target < cpuC-6) cy-=cpuSpeed;
+      else if(target > cpuC+6) cy+=cpuSpeed;
+      cy=Math.max(0, Math.min(H-PAD_H, cy));
+      ball.x+=ballV.x; ball.y+=ballV.y;
+      if(ball.y<BALL/2){ ball.y=BALL/2; ballV.y*=-1; }
+      if(ball.y>H-BALL/2){ ball.y=H-BALL/2; ballV.y*=-1; }
+      // Speler-paddle
+      if(ball.x-BALL/2 <= PAD_W && ball.y>=py && ball.y<=py+PAD_H && ballV.x<0){
+        ball.x=PAD_W+BALL/2; ballV.x*=-1.05;
+        ballV.y += ((ball.y-(py+PAD_H/2))/PAD_H)*3;
+      }
+      // CPU-paddle
+      if(ball.x+BALL/2 >= W-PAD_W && ball.y>=cy && ball.y<=cy+PAD_H && ballV.x>0){
+        ball.x=W-PAD_W-BALL/2; ballV.x*=-1.05;
+        ballV.y += ((ball.y-(cy+PAD_H/2))/PAD_H)*3;
+      }
+      if(ball.x<0){ scoreCpu++; if(scoreCpu>=WIN_SCORE){ over=true; } else reset("you"); }
+      else if(ball.x>W){ scoreYou++; if(scoreYou>=WIN_SCORE){ over=true; } else reset("cpu"); }
+    }
+  };
+  const draw=()=>{
+    ctx.fillStyle="#0f172a"; ctx.fillRect(0,0,W,H);
+    ctx.strokeStyle="rgba(255,255,255,.25)"; ctx.setLineDash([6,6]);
+    ctx.beginPath(); ctx.moveTo(W/2,0); ctx.lineTo(W/2,H); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle="#fff";
+    ctx.fillRect(0, py, PAD_W, PAD_H);
+    ctx.fillRect(W-PAD_W, cy, PAD_W, PAD_H);
+    ctx.beginPath(); ctx.arc(ball.x, ball.y, BALL/2, 0, Math.PI*2); ctx.fill();
+    overlay.querySelector("#pgYou").textContent=scoreYou;
+    overlay.querySelector("#pgCpu").textContent=scoreCpu;
+    if(over){
+      ctx.fillStyle="rgba(0,0,0,.72)"; ctx.fillRect(0,0,W,H);
+      ctx.fillStyle="#fff"; ctx.textAlign="center";
+      ctx.font="bold 24px Inter,sans-serif";
+      ctx.fillText(scoreYou>scoreCpu?"Gewonnen! 🏆":"Verloren", W/2, H/2-10);
+      ctx.font="12px Inter,sans-serif"; ctx.fillText("Enter = opnieuw · Esc = sluiten", W/2, H/2+15);
+    } else if(paused){
+      ctx.fillStyle="rgba(0,0,0,.55)"; ctx.fillRect(0,0,W,H);
+      ctx.fillStyle="#fff"; ctx.textAlign="center"; ctx.font="bold 20px Inter,sans-serif";
+      ctx.fillText("PAUZE (P)", W/2, H/2);
+    } else if(waiting){
+      ctx.fillStyle="rgba(0,0,0,.45)"; ctx.fillRect(0,0,W,H);
+      ctx.fillStyle="#fff"; ctx.textAlign="center"; ctx.font="14px Inter,sans-serif";
+      ctx.fillText("Druk op spatie om te serveren", W/2, H/2);
+    }
+  };
+  lastT=0;
+  rafId=requestAnimationFrame(function loop(t){
+    if(!lastT) lastT=t; const dt=t-lastT; lastT=t;
+    if(!paused && !over) step(dt);
+    draw(); rafId=requestAnimationFrame(loop);
+  });
+  const keyHandler=e=>{
+    if(e.key==="Escape"){ close(); return; }
+    if(over){ if(e.key==="Enter"){ resetAll(); } return; }
+    if(e.key==="p"||e.key==="P"){ paused=!paused; return; }
+    if(paused) return;
+    if(e.key==="ArrowUp"||e.key==="w"||e.key==="W"){ e.preventDefault(); keys.up=true; }
+    else if(e.key==="ArrowDown"||e.key==="s"||e.key==="S"){ e.preventDefault(); keys.down=true; }
+    else if(e.key===" "){ e.preventDefault(); if(waiting) waiting=false; }
+  };
+  const keyUp=e=>{
+    if(e.key==="ArrowUp"||e.key==="w"||e.key==="W") keys.up=false;
+    else if(e.key==="ArrowDown"||e.key==="s"||e.key==="S") keys.down=false;
+  };
+  window.addEventListener("keydown", keyHandler);
+  window.addEventListener("keyup", keyUp);
+  overlay.querySelectorAll("[data-pdir]").forEach(b=>{
+    let iv=null;
+    const act=b.dataset.pdir;
+    const start=()=>{ if(over){ resetAll(); return; }
+      if(act==="S"){ if(waiting) waiting=false; return; }
+      if(act==="U") keys.up=true; else if(act==="D") keys.down=true;
+      iv=setInterval(()=>{},50);
+    };
+    const stop=()=>{ keys.up=false; keys.down=false; if(iv){ clearInterval(iv); iv=null; } };
+    b.addEventListener("mousedown", start); b.addEventListener("touchstart", e=>{ e.preventDefault(); start(); });
+    b.addEventListener("mouseup", stop); b.addEventListener("mouseleave", stop);
+    b.addEventListener("touchend", stop); b.addEventListener("touchcancel", stop);
+  });
+  const close=()=>{ cancelAnimationFrame(rafId); window.removeEventListener("keydown", keyHandler); window.removeEventListener("keyup", keyUp); overlay.remove(); };
+  overlay.querySelector("#pgClose").onclick=close;
+  overlay.addEventListener("click", e=>{ if(e.target===overlay) close(); });
+}
+
+/* ============================================================
+   GAMES-REGISTER + INSTELLINGEN
+   Configuratie per game: `free` = altijd speelbaar via home?
+   Anders is de game "beloningsgame" (bv. tetris: pas na oefensessie).
+   Wordt bewaard in app_settings.games_config (jsonb).
+   ============================================================ */
+const GAMES = [
+  { id:"tetris", name:"Tetris", icon:"🧱", desc:"Klassieke blokjes-pauze.", defaultFree:false, lockedHint:"Ontgrendel na een oefensessie van ≥25 vragen én ≥80% juist.", open:openTetris },
+  { id:"snake",  name:"Snake",  icon:"🐍", desc:"Blijf leven, eet, groei.",  defaultFree:true,  lockedHint:"Vergrendeld door een beheerder.", open:openSnake },
+  { id:"pong",   name:"Pong",   icon:"🏓", desc:"Retro paddle vs CPU.",       defaultFree:true,  lockedHint:"Vergrendeld door een beheerder.", open:openPong  },
+];
+let GAMES_CFG=null;
+function gamesDefaults(){ const d={}; GAMES.forEach(g=>d[g.id]={free:!!g.defaultFree}); return d; }
+async function loadGamesConfig(){
+  const defaults=gamesDefaults();
+  try{
+    const { data, error }=await sb.from("app_settings").select("games_config").eq("id",1).single();
+    if(error) throw error;
+    const stored=(data&&data.games_config)||{};
+    GAMES_CFG={}; GAMES.forEach(g=>{ GAMES_CFG[g.id]={ free: stored[g.id]&&typeof stored[g.id].free==="boolean" ? stored[g.id].free : defaults[g.id].free }; });
+  }catch(e){ GAMES_CFG=defaults; }
+  return GAMES_CFG;
+}
+async function saveGamesConfig(cfg){
+  const clean={}; GAMES.forEach(g=>{ clean[g.id]={ free: !!(cfg[g.id]&&cfg[g.id].free) }; });
+  const { error }=await sb.from("app_settings").update({ games_config: clean }).eq("id",1);
+  if(error) throw error;
+  GAMES_CFG=clean;
+}
+function renderGamesSection(){
+  if(!GAMES_CFG) return "";
+  const cards=GAMES.map(g=>{
+    const free=!!(GAMES_CFG[g.id]&&GAMES_CFG[g.id].free);
+    return `<div class="card game-card ${free?"":"locked"}">
+      <div class="game-card-top"><span class="game-icon">${g.icon}</span><h3 style="margin:0">${esc(g.name)}</h3></div>
+      <p class="muted" style="font-size:.85rem;margin:.3rem 0 .6rem 0">${esc(g.desc)}</p>
+      ${free
+        ? `<button class="btn btn-primary btn-sm" data-play="${g.id}">Speel</button>`
+        : `<div class="game-lock">🔒 ${esc(g.lockedHint||"Vergrendeld.")}</div>`
+      }
+    </div>`;
+  }).join("");
+  return `<div class="spread" style="margin-top:2.2rem"><h2 style="margin:0">🎮 Games</h2></div>
+    <p class="muted" style="font-size:.85rem;margin:.2rem 0 .8rem 0">Even pauze — of speel gewoon voor de fun.</p>
+    <div class="grid games-grid">${cards}</div>`;
 }
 
 // Popup waarin een schrijver een antwoord aanklikt om {X}, {juist} of {docent} in te voegen
@@ -2353,13 +2661,37 @@ async function renderUsers(){
 async function renderSettings(){
   const box=document.getElementById("settingsBox");
   const { data } = await sb.from("app_settings").select("*").eq("id",1).single();
+  await loadGamesConfig();
+  const cfg=GAMES_CFG||{};
   box.innerHTML=`<label style="display:flex;align-items:center;gap:.6rem;margin:0">
-    <input type="checkbox" id="regOpen" style="width:auto" ${data&&data.registration_open?"checked":""}> Registratie open (nieuwe accounts toegestaan)</label>`;
+    <input type="checkbox" id="regOpen" style="width:auto" ${data&&data.registration_open?"checked":""}> Registratie open (nieuwe accounts toegestaan)</label>
+    <hr style="margin:1rem 0;border:none;border-top:1px solid var(--border)">
+    <div style="font-weight:700;color:var(--ink);margin-bottom:.3rem">🎮 Games</div>
+    <p class="muted" style="font-size:.82rem;margin:0 0 .5rem 0">Vink aan om een game vrij te maken (altijd speelbaar via de home). Uitgevinkte games blijven "beloningsgames" die enkel na een oefensessie ontgrendelen.</p>
+    <div id="gamesCfgList" class="stack" style="gap:.35rem">
+      ${GAMES.map(g=>`<label style="display:flex;align-items:center;gap:.6rem;margin:0">
+        <input type="checkbox" data-gamefree="${g.id}" style="width:auto" ${cfg[g.id]&&cfg[g.id].free?"checked":""}> <span>${g.icon} <strong>${esc(g.name)}</strong> — vrij te spelen</span>
+      </label>`).join("")}
+    </div>
+    <div id="gamesCfgStatus" class="muted" style="font-size:.78rem;margin-top:.4rem"></div>`;
   document.getElementById("regOpen").onchange=async e=>{
     const { error }=await sb.from("app_settings").update({registration_open:e.target.checked}).eq("id",1);
     if(error) return toast(error.message,"err");
     toast("Instelling opgeslagen","ok");
   };
+  const statusEl=document.getElementById("gamesCfgStatus");
+  document.querySelectorAll('[data-gamefree]').forEach(cb=>cb.onchange=async()=>{
+    const nextCfg={};
+    document.querySelectorAll('[data-gamefree]').forEach(x=>{ nextCfg[x.dataset.gamefree]={ free:x.checked }; });
+    try{
+      await saveGamesConfig(nextCfg);
+      toast("Games-instellingen opgeslagen","ok");
+      statusEl.textContent="";
+    }catch(err){
+      statusEl.innerHTML=`Opslaan mislukt. Voeg eerst deze kolom toe: <code>ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS games_config jsonb DEFAULT '{}'::jsonb;</code>`;
+      toast("Opslaan mislukt — zie melding onder de games-instellingen.","err");
+    }
+  });
 }
 
 /* ============================================================
@@ -2788,11 +3120,18 @@ function parseQuizMarkdown(text){
 
 async function viewImport(){
   if(!isEditor()){ app.innerHTML=`<div class="empty">Geen toegang.</div>`; return; }
+  const { data:existingQuizzes } = await sb.from("quizzes").select("id,title,status").order("created_at",{ascending:false});
+  const quizOptions=(existingQuizzes||[]).map(q=>`<option value="${q.id}">${esc(q.title)} — ${q.status}</option>`).join("");
   app.innerHTML=`
     <a class="muted" data-nav="#/beheer">← Beheer</a>
     <h1>Quiz importeren</h1>
     <p class="muted">Plak een ingevuld Markdown-sjabloon of kies een <code>.md</code>-bestand. <a href="quiz-sjabloon.md" download>Leeg sjabloon downloaden</a>.</p>
     <div class="card">
+      <label style="display:block;margin-bottom:.4rem"><strong>Bestemming</strong></label>
+      <label style="display:flex;align-items:center;gap:.5rem"><input type="radio" name="importDest" value="new" checked style="width:auto"> Nieuwe quiz aanmaken (titel/beschrijving uit bestand)</label>
+      <label style="display:flex;align-items:center;gap:.5rem;margin-top:.3rem"><input type="radio" name="importDest" value="existing" style="width:auto" ${quizOptions?"":"disabled"}> Vragen toevoegen aan bestaande quiz</label>
+      <select id="targetQuiz" style="margin-top:.4rem;display:none">${quizOptions||`<option>(geen quizzen gevonden)</option>`}</select>
+      <hr style="margin:.8rem 0;border:none;border-top:1px solid var(--border,#ddd)">
       <input type="file" id="mdFile" accept=".md,text/markdown,text/plain" style="margin-bottom:.6rem">
       <textarea id="mdText" style="min-height:220px" placeholder="…of plak hier de inhoud van je sjabloon"></textarea>
       <label style="display:flex;align-items:center;gap:.5rem;margin-top:.6rem"><input type="checkbox" id="aiAll" style="width:auto"> Deze hele import is door AI gegenereerd (herkomst = AI, tenzij een vraag zelf <code>**Bron:** mens</code> vermeldt)</label>
@@ -2803,15 +3142,31 @@ async function viewImport(){
     <div id="importPreview"></div>`;
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
   const status=m=>{ document.getElementById("importStatus").textContent=m||""; };
+  const getDest=()=>document.querySelector('input[name="importDest"]:checked').value;
+  const importBtn=document.getElementById("importBtn");
+  const syncDest=()=>{
+    const dest=getDest();
+    document.getElementById("targetQuiz").style.display=dest==="existing"?"block":"none";
+    importBtn.textContent=dest==="existing"?"Vragen toevoegen":"Importeren als concept";
+    showPreview();
+  };
+  document.querySelectorAll('input[name="importDest"]').forEach(r=>r.onchange=syncDest);
   document.getElementById("mdFile").onchange=async e=>{
     const f=e.target.files[0]; if(f){ document.getElementById("mdText").value=await f.text(); showPreview(); }
   };
   const showPreview=()=>{
     const parsed=parseQuizMarkdown(document.getElementById("mdText").value);
+    const dest=getDest();
     const box=document.getElementById("importPreview");
+    const relevantErrors=dest==="existing"
+      ? parsed.errors.filter(e=>!/Geen titel gevonden/i.test(e))
+      : parsed.errors;
+    const targetTitle=dest==="existing"
+      ? (document.getElementById("targetQuiz").selectedOptions[0]?.textContent||"(geen)")
+      : (parsed.title||"(geen titel)");
     box.innerHTML=`<div class="card">
-      ${parsed.errors.length?`<div style="color:var(--wrong)"><strong>Aandachtspunten:</strong><ul>${parsed.errors.map(e=>`<li>${esc(e)}</li>`).join("")}</ul></div>`:`<p style="color:var(--correct)">${ICON.check} Geen fouten gevonden.</p>`}
-      <p><strong>${esc(parsed.title||"(geen titel)")}</strong> — ${parsed.questions.length} vragen</p>
+      ${relevantErrors.length?`<div style="color:var(--wrong)"><strong>Aandachtspunten:</strong><ul>${relevantErrors.map(e=>`<li>${esc(e)}</li>`).join("")}</ul></div>`:`<p style="color:var(--correct)">${ICON.check} Geen fouten gevonden.</p>`}
+      <p><strong>${dest==="existing"?"Doelquiz":"Nieuwe quiz"}:</strong> ${esc(targetTitle)} — ${parsed.questions.length} vragen ${dest==="existing"?"<span class=\"muted\">(titel/beschrijving uit bestand worden genegeerd)</span>":""}</p>
       ${parsed.questions.filter(q=>!q.validated).length?`<p class="muted">${parsed.questions.filter(q=>!q.validated).length} vraag/vragen zonder aangeduid juist antwoord → komen binnen als <strong>niet gevalideerd</strong>.</p>`:""}
       <ol>${parsed.questions.slice(0,8).map(q=>`<li>${esc(q.text).slice(0,80)}… <span class="muted">(juist: ${q.validated?lettersOf(q.correct_indexes):"in overleg"}${q.multi?" · meerkeuze":""})</span></li>`).join("")}</ol>
       ${parsed.questions.length>8?`<p class="muted">…en ${parsed.questions.length-8} meer.</p>`:""}
@@ -2819,22 +3174,39 @@ async function viewImport(){
     return parsed;
   };
   document.getElementById("previewBtn").onclick=showPreview;
-  document.getElementById("importBtn").onclick=async()=>{
-    const btn=document.getElementById("importBtn");
+  document.getElementById("targetQuiz").onchange=showPreview;
+  importBtn.onclick=async()=>{
+    const btn=importBtn;
     const parsed=parseQuizMarkdown(document.getElementById("mdText").value);
     showPreview();
-    if(!parsed.title || !parsed.questions.length){ toast("Niets te importeren — controleer het bestand.","err"); return; }
-    if(parsed.errors.length){ toast("Los eerst de aandachtspunten op.","err"); return; }
+    const dest=getDest();
+    if(!parsed.questions.length){ toast("Geen vragen gevonden in het bestand.","err"); return; }
+    if(dest==="new" && !parsed.title){ toast("Geen titel gevonden — controleer het bestand.","err"); return; }
+    const blockingErrors = dest==="existing"
+      ? parsed.errors.filter(e=>!/Geen titel gevonden/i.test(e))
+      : parsed.errors;
+    if(blockingErrors.length){ toast("Los eerst de aandachtspunten op.","err"); return; }
     btn.disabled=true;
     try{
       const aiAll=document.getElementById("aiAll").checked;
-      status("Quiz aanmaken…");
-      const { data:quiz, error }=await sb.from("quizzes").insert({ title:parsed.title, description:parsed.desc, status:"concept", created_by:ME.id }).select().single();
-      if(error) throw error;
+      let quizId, quizForNav, startOrder=0;
+      if(dest==="existing"){
+        quizId=document.getElementById("targetQuiz").value;
+        if(!quizId) throw new Error("Kies een doelquiz.");
+        status("Bestaande vragen tellen…");
+        const { data:last }=await sb.from("questions").select("sort_order").eq("quiz_id",quizId).order("sort_order",{ascending:false}).limit(1);
+        startOrder=(last&&last[0]?last[0].sort_order:0);
+        quizForNav=quizId;
+      } else {
+        status("Quiz aanmaken…");
+        const { data:quiz, error }=await sb.from("quizzes").insert({ title:parsed.title, description:parsed.desc, status:"concept", created_by:ME.id }).select().single();
+        if(error) throw error;
+        quizId=quiz.id; quizForNav=quiz.id;
+      }
       const rows=parsed.questions.map((q,i)=>{
         const src = q.source==="ai" ? "ai" : (aiAll ? "ai" : "mens");
         const doc = (q.docent_indexes && q.docent_indexes.length) ? q.docent_indexes : null;
-        return { quiz_id:quiz.id, sort_order:i+1, text:q.text, options:q.options, correct_indexes:q.correct_indexes, multi:!!q.multi, validated:q.validated!==false,
+        return { quiz_id:quizId, sort_order:startOrder+i+1, text:q.text, options:q.options, correct_indexes:q.correct_indexes, multi:!!q.multi, validated:q.validated!==false,
           docent_indexes:doc, docent_note: doc ? (q.docent_note||null) : null,
           legal_basis:q.legal_basis, wettekst:q.wettekst, explanation:q.explanation,
           answer_source:src, explanation_source:src, legal_basis_source: q.legal_basis ? src : null };
@@ -2846,8 +3218,10 @@ async function viewImport(){
         if(e2) throw e2;
       }
       status("");
-      toast(`Geïmporteerd: ${rows.length} vragen (concept)`,"ok");
-      go("#/beheer/quiz/"+quiz.id);
+      toast(dest==="existing"
+        ? `Toegevoegd: ${rows.length} vragen aan bestaande quiz`
+        : `Geïmporteerd: ${rows.length} vragen (concept)`,"ok");
+      go("#/beheer/quiz/"+quizForNav);
     }catch(err){
       status("");
       toast("Import mislukt: "+(err.message||err),"err");
@@ -2884,6 +3258,7 @@ async function boot(){
   await loadProfile();
   if(ME && !visitLogged && shouldLogVisit()){ visitLogged=true; sb.from("visits").insert({ user_id:ME.id }).then(()=>{},()=>{}); }
   if(ME) renderHeader();
+  if(ME) loadGamesConfig();
   route();
   if(ME) refreshNotifyBadge();
 }
