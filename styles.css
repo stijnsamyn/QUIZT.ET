@@ -164,6 +164,7 @@ label{font-size:.8rem;font-weight:600;color:var(--text-muted);display:block;marg
 .attempt-opt-corr{display:flex;align-items:flex-start;gap:.5rem;padding:.35rem .5rem;border:1px solid var(--border);
   border-radius:6px;margin:.2rem 0;background:var(--surface2);font-size:.85rem;cursor:pointer}
 .attempt-opt-corr.is-correct{background:var(--correct-soft);border-color:var(--correct)}
+.attempt-opt-corr.is-mine{background:var(--accent-soft);border-color:var(--accent-dark)}
 .attempt-opt-corr input{width:auto;margin-top:.15rem}
 .atfilter-count{display:inline-block;font-size:.68rem;padding:.02rem .35rem;border-radius:99px;
   background:var(--surface2);color:var(--text-muted);margin-left:.25rem}
@@ -423,6 +424,7 @@ details.fg-card>summary::-webkit-details-marker{display:none}
 .rv-sum{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}
 .rv-sum .q-num{flex-shrink:0}
 .rv-text{flex:1;font-size:.9rem;color:var(--ink);min-width:0;overflow:hidden;text-overflow:ellipsis}
+.rv-text-full{flex:1;font-size:.9rem;color:var(--ink);min-width:0;white-space:normal;overflow:visible;text-overflow:clip;line-height:1.4}
 .rv-status{flex-shrink:0;margin-left:auto}
 .rv-meta{display:flex;gap:.8rem 1.2rem;margin-top:.35rem;font-size:.78rem;color:var(--text-muted);flex-wrap:wrap;padding-left:2.4rem}
 .rv-meta strong{color:var(--ink)}

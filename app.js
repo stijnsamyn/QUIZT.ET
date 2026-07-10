@@ -2558,24 +2558,31 @@ function attemptScoreFrom(answers, snapshot){
 async function viewAttemptsList(quizId){
   const { data:quiz } = await sb.from("quizzes").select("id,title,description").eq("id",quizId).single();
   if(!quiz){ app.innerHTML=`<div class="empty">Quiz niet gevonden.</div>`; return; }
-  const { data:attempts } = await sb.from("quiz_attempts").select("*").eq("user_id",ME.id).eq("quiz_id",quizId).order("submitted_at",{ascending:false});
+  const [{data:attempts},{data:questions}] = await Promise.all([
+    sb.from("quiz_attempts").select("*").eq("user_id",ME.id).eq("quiz_id",quizId).order("submitted_at",{ascending:false}),
+    sb.from("questions").select("id,correct_indexes,validated").eq("quiz_id",quizId),
+  ]);
+  const currentCorrect={}; (questions||[]).forEach(q=>{ currentCorrect[q.id]=arr(q.correct_indexes); });
+  const totalQuestions=(questions||[]).length;
   app.innerHTML=`
     <a class="muted" data-nav="#/quiz/${quizId}">← ${esc(quiz.title)}</a>
     <div class="spread" style="margin-top:.4rem;flex-wrap:wrap;gap:.6rem"><h1 style="margin:0">📜 Historische pogingen</h1>
       <button class="btn btn-primary btn-sm" data-nav="#/quiz/${quizId}/poging/nieuw">+ Nieuwe poging invoeren</button>
     </div>
-    <p class="muted" style="font-size:.85rem;margin:.4rem 0 1rem 0">Elke poging bewaart je gekozen antwoorden én de juiste antwoorden zoals ze op dat moment waren. Latere aanpassingen aan de quiz beïnvloeden je bevroren score niet.</p>
+    <p class="muted" style="font-size:.85rem;margin:.4rem 0 1rem 0">De score wordt live berekend tegen de <strong>huidige</strong> juiste antwoorden van de quiz. Als iemand een correct antwoord aanpast, beweegt jouw score mee.</p>
     ${(attempts||[]).length ? `<div class="stack">${attempts.map(a=>{
-      const pctScore = (a.score+a.wrong)>0 ? Math.round(a.score/(a.score+a.wrong)*100) : 0;
+      const live=attemptScoreFrom(a.answers||{}, currentCorrect);
+      const denom=live.score+live.wrong;
+      const pctScore = denom>0 ? Math.round(live.score/denom*100) : 0;
       return `<div class="card attempt-card">
         <div class="spread" style="gap:.6rem;flex-wrap:wrap">
           <div>
             <div class="attempt-title"><strong>${esc(a.title||("Poging "+new Date(a.submitted_at).toLocaleDateString("nl-BE")))}</strong>
               <span class="pill" style="background:var(--surface2);color:var(--text-muted);font-size:.68rem">${a.source||"manual"}</span></div>
-            <div class="muted" style="font-size:.78rem">${fmtDate(a.submitted_at)} · ${a.total_answered}/${a.total_questions} beantwoord${a.overleg>0?` · ${a.overleg} in overleg`:""}</div>
+            <div class="muted" style="font-size:.78rem">${fmtDate(a.submitted_at)} · ${live.answered}/${totalQuestions} beantwoord${live.overleg>0?` · ${live.overleg} in overleg`:""}</div>
           </div>
           <div class="attempt-score">
-            <div class="attempt-score-val ${pctScore>=75?"ok":pctScore>=50?"warn":"bad"}">${a.score}/${a.total_questions}</div>
+            <div class="attempt-score-val ${pctScore>=75?"ok":pctScore>=50?"warn":"bad"}">${live.score}/${totalQuestions}</div>
             <div class="muted" style="font-size:.72rem">${pctScore}% juist</div>
           </div>
           <div class="btnrow" style="margin:0">
@@ -2600,26 +2607,30 @@ async function viewAttemptDetail(quizId, attemptId){
   if(!attempt){ app.innerHTML=`<div class="empty">Poging niet gevonden.</div>`; return; }
   const { data:quiz } = await sb.from("quizzes").select("id,title").eq("id",attempt.quiz_id).single();
   const { data:questions } = await sb.from("questions").select("*").eq("quiz_id",attempt.quiz_id).order("sort_order");
-  const pctScore = (attempt.score+attempt.wrong)>0 ? Math.round(attempt.score/(attempt.score+attempt.wrong)*100) : 0;
+  const qs=questions||[];
   const answers=attempt.answers||{};
-  const snapshot=attempt.correct_snapshot||{};
-  app.innerHTML=`
+  const currentCorrect={}; qs.forEach(q=>{ currentCorrect[q.id]=arr(q.correct_indexes); });
+  const totalQs=qs.length;
+  const renderDetail=()=>{
+    const live=attemptScoreFrom(answers, currentCorrect);
+    const denom=live.score+live.wrong;
+    const pctScore = denom>0 ? Math.round(live.score/denom*100) : 0;
+    return `
     <a class="muted" data-nav="#/quiz/${quizId}/pogingen">← Pogingen</a>
     <h1 style="margin:.4rem 0">${esc(attempt.title||("Poging "+new Date(attempt.submitted_at).toLocaleDateString("nl-BE")))}</h1>
     <p class="muted" style="font-size:.85rem">${esc(quiz?quiz.title:"")} · ${fmtDate(attempt.submitted_at)}</p>
     <div class="done-card" style="margin-top:1rem">
-      <div class="done-score ${pctScore>=75?"ok":pctScore>=50?"warn":"bad"}">${attempt.score}/${attempt.total_questions}</div>
-      <p>${pctScore}% juist · ${attempt.total_answered}/${attempt.total_questions} beantwoord${attempt.overleg>0?` · ${attempt.overleg} in overleg`:""}</p>
+      <div class="done-score ${pctScore>=75?"ok":pctScore>=50?"warn":"bad"}">${live.score}/${totalQs}</div>
+      <p>${pctScore}% juist · ${live.answered}/${totalQs} beantwoord${live.overleg>0?` · ${live.overleg} in overleg`:""}</p>
+      <p class="muted" style="font-size:.78rem;margin-top:.3rem">Live berekend tegen de huidige juiste antwoorden van de quiz.</p>
     </div>
     <h2 style="margin-top:1.4rem">Vraag-per-vraag</h2>
-    <div class="stack">${(questions||[]).map(q=>{
+    <div class="stack" id="attemptDetailList">${qs.map(q=>{
       const chosen = arr(answers[q.id]);
-      const snapCorrect = arr(snapshot[q.id]);
       const curCorrect = arr(q.correct_indexes);
       const answered = chosen.length>0;
-      const isCorrect = answered && snapCorrect.length && setEq(chosen, snapCorrect);
-      const corrChanged = snapCorrect.length && curCorrect.length && !setEq(snapCorrect, curCorrect);
-      const cls = !answered ? "onbeantwoord" : (snapCorrect.length ? (isCorrect?"juist":"fout") : "overleg");
+      const isCorrect = answered && curCorrect.length && setEq(chosen, curCorrect);
+      const cls = !answered ? "onbeantwoord" : (curCorrect.length ? (isCorrect?"juist":"fout") : "overleg");
       const pill = !answered ? `<span class="pill" style="background:var(--surface2);color:var(--text-muted)">niet beantwoord</span>`
                 : cls==="juist" ? `<span class="pill juist">juist</span>`
                 : cls==="fout" ? `<span class="pill fout">fout</span>`
@@ -2628,26 +2639,45 @@ async function viewAttemptDetail(quizId, attemptId){
         <summary>
           <div class="rv-sum">
             <span class="q-num">${q.qnum}</span>
-            <span class="rv-text">${esc((q.text||"").slice(0,140))}${(q.text||"").length>140?"…":""}</span>
+            <span class="rv-text rv-text-full">${esc(q.text||"")}</span>
             <span class="rv-status">${pill}</span>
           </div>
           <div class="rv-meta">
             <span>Jij: <strong>${answered?lettersOf(chosen):"—"}</strong></span>
-            <span>Juist (toen): <strong>${snapCorrect.length?lettersOf(snapCorrect):"—"}</strong></span>
-            ${corrChanged?`<span title="Het juiste antwoord is intussen gewijzigd">⚠️ Nu: ${lettersOf(curCorrect)}</span>`:""}
+            <span>Juist: <strong>${curCorrect.length?lettersOf(curCorrect):"—"}</strong></span>
           </div>
         </summary>
         <div class="rv-body">
           <div class="rv-opts">${(q.options||[]).map((o,i)=>{
             let c="rv-opt";
-            if(snapCorrect.includes(i)) c+=" correct";
-            if(answered && chosen.includes(i) && !snapCorrect.includes(i)) c+=" wrong";
+            if(curCorrect.includes(i)) c+=" correct";
+            if(answered && chosen.includes(i) && !curCorrect.includes(i)) c+=" wrong";
             return `<div class="${c}"><strong>${letter(i)}.</strong> ${esc(o)}</div>`;
           }).join("")}</div>
-          ${isEditor() ? `<details class="attempt-q-edit" data-corr-block="${q.id}">
+          <details class="attempt-q-edit" data-mine-block="${q.id}">
+            <summary>✏️ Mijn eigen antwoord aanpassen</summary>
+            <div class="attempt-q-edit-body">
+              <p class="muted" style="font-size:.78rem;margin:.2rem 0 .4rem 0">Handig als je bij het invoeren of tijdens de PDF-import iets fout aanvinkte. De score van deze poging past zich meteen aan.</p>
+              ${(q.options||[]).map((o,i)=>{
+                const isMulti = curCorrect.length>1 || q.multi;
+                const t = isMulti ? "checkbox" : "radio";
+                return `<label class="attempt-opt-corr ${chosen.includes(i)?"is-mine":""}">
+                  <input type="${t}" name="mine-${q.id}" data-mine-qid="${q.id}" value="${i}" ${chosen.includes(i)?"checked":""} data-mine-multi="${isMulti?1:0}">
+                  <span class="letter">${letter(i)}.</span>
+                  <span>${esc(o)}</span>
+                </label>`;
+              }).join("")}
+              <div class="btnrow" style="margin-top:.4rem">
+                <button class="btn btn-primary btn-sm" data-mine-save="${q.id}">Opslaan</button>
+                <span class="muted" data-mine-status="${q.id}" style="font-size:.78rem"></span>
+              </div>
+            </div>
+          </details>
+          ${isEditor() ? `<div class="btnrow" style="margin-top:.4rem"><a class="btn btn-ghost btn-sm" data-nav="#/beheer/vraag/${q.id}">🛠️ Bewerk de volledige vraag →</a></div>
+          <details class="attempt-q-edit" data-corr-block="${q.id}">
             <summary>✏️ Correct antwoord van deze vraag aanpassen</summary>
             <div class="attempt-q-edit-body">
-              <p class="muted" style="font-size:.78rem;margin:.2rem 0 .4rem 0">Wijzigingen gelden voor de quiz zelf (voor iedereen). Deze historische poging blijft bevroren op wat je toen scoorde.</p>
+              <p class="muted" style="font-size:.78rem;margin:.2rem 0 .4rem 0">Wijzigingen gelden voor de quiz zelf (voor iedereen). De score van deze poging wordt live herberekend.</p>
               ${(q.options||[]).map((o,i)=>`<label class="attempt-opt-corr ${curCorrect.includes(i)?"is-correct":""}">
                 <input type="checkbox" data-corr-qid="${q.id}" value="${i}" ${curCorrect.includes(i)?"checked":""}>
                 <span class="letter">${letter(i)}.</span>
@@ -2663,27 +2693,50 @@ async function viewAttemptDetail(quizId, attemptId){
       </details>`;
     }).join("")}</div>
   `;
-  app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
-  // Correct-antwoord inline editor (enkel voor editors)
-  app.querySelectorAll("[data-corr-save]").forEach(btn=>btn.onclick=async()=>{
-    const qid=btn.dataset.corrSave;
-    const q=(questions||[]).find(x=>x.id===qid); if(!q) return;
-    const checked=[...document.querySelectorAll(`[data-corr-qid="${qid}"]:checked`)].map(el=>parseInt(el.value,10)).sort((a,b)=>a-b);
-    const statusEl=document.querySelector(`[data-corr-status="${qid}"]`);
-    if(statusEl) statusEl.textContent="Opslaan…";
-    const { error }=await sb.from("questions").update({ correct_indexes: checked, multi: checked.length>1 }).eq("id",qid);
-    if(error){ if(statusEl) statusEl.innerHTML=`<span style="color:var(--wrong)">${esc(error.message)}</span>`; return; }
-    q.correct_indexes=checked; q.multi=checked.length>1;
-    if(statusEl) statusEl.innerHTML=`<span style="color:var(--correct)">✓ Opgeslagen — de historische poging blijft ongewijzigd</span>`;
-    // Update de "⚠️ Nu:" badge en de check-styling voor deze vraag
-    const block=document.querySelector(`[data-corr-block="${qid}"]`);
-    if(block){
-      block.querySelectorAll(".attempt-opt-corr").forEach(lbl=>{
-        const inp=lbl.querySelector("input");
-        lbl.classList.toggle("is-correct", !!(inp && inp.checked));
-      });
-    }
-  });
+  };
+  const wireHandlers=()=>{
+    app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
+    app.querySelectorAll("[data-corr-save]").forEach(btn=>btn.onclick=async()=>{
+      const qid=btn.dataset.corrSave;
+      const q=qs.find(x=>x.id===qid); if(!q) return;
+      const checked=[...document.querySelectorAll(`[data-corr-qid="${qid}"]:checked`)].map(el=>parseInt(el.value,10)).sort((a,b)=>a-b);
+      const statusEl=document.querySelector(`[data-corr-status="${qid}"]`);
+      if(statusEl) statusEl.textContent="Opslaan…";
+      const { error }=await sb.from("questions").update({ correct_indexes: checked, multi: checked.length>1 }).eq("id",qid);
+      if(error){ if(statusEl) statusEl.innerHTML=`<span style="color:var(--wrong)">${esc(error.message)}</span>`; return; }
+      q.correct_indexes=checked; q.multi=checked.length>1;
+      currentCorrect[qid]=checked;
+      // Volledige detail-view opnieuw renderen zodat score en juist/fout-status herberekend zijn
+      app.innerHTML=renderDetail();
+      wireHandlers();
+      toast("Correct antwoord opgeslagen — score herberekend","ok");
+    });
+    // Eigen antwoord aanpassen
+    app.querySelectorAll("[data-mine-save]").forEach(btn=>btn.onclick=async()=>{
+      const qid=btn.dataset.mineSave;
+      const inputs=[...document.querySelectorAll(`[data-mine-qid="${qid}"]:checked`)];
+      const picked=inputs.map(el=>parseInt(el.value,10)).sort((a,b)=>a-b);
+      const statusEl=document.querySelector(`[data-mine-status="${qid}"]`);
+      if(statusEl) statusEl.textContent="Opslaan…";
+      const nextAnswers={...answers};
+      if(picked.length) nextAnswers[qid]=picked; else delete nextAnswers[qid];
+      const live=attemptScoreFrom(nextAnswers, currentCorrect);
+      const { error }=await sb.from("quiz_attempts").update({
+        answers: nextAnswers,
+        score: live.score, wrong: live.wrong, overleg: live.overleg,
+        total_answered: live.answered, total_questions: qs.length,
+      }).eq("id",attemptId);
+      if(error){ if(statusEl) statusEl.innerHTML=`<span style="color:var(--wrong)">${esc(error.message)}</span>`; return; }
+      // Update lokale state en herrender
+      Object.keys(answers).forEach(k=>delete answers[k]);
+      Object.assign(answers, nextAnswers);
+      app.innerHTML=renderDetail();
+      wireHandlers();
+      toast("Jouw antwoord opgeslagen","ok");
+    });
+  };
+  app.innerHTML=renderDetail();
+  wireHandlers();
 }
 
 async function loadPdfJs(){
@@ -3360,6 +3413,17 @@ async function viewAccount(){
     sb.from("quizzes").select("id,title"),
   ]);
   const quizTitle={}; (allQuizzes||[]).forEach(q=>quizTitle[q.id]=q.title);
+  // Voor elke poging: haal huidige juiste antwoorden op om score live te herberekenen
+  const attemptQuizIds=[...new Set((myAttempts||[]).map(a=>a.quiz_id))];
+  const currentCorrectByQuiz={}; const totalQsByQuiz={};
+  if(attemptQuizIds.length){
+    const { data:qq } = await sb.from("questions").select("id,quiz_id,correct_indexes").in("quiz_id",attemptQuizIds);
+    (qq||[]).forEach(q=>{
+      currentCorrectByQuiz[q.quiz_id] = currentCorrectByQuiz[q.quiz_id] || {};
+      currentCorrectByQuiz[q.quiz_id][q.id] = arr(q.correct_indexes);
+      totalQsByQuiz[q.quiz_id] = (totalQsByQuiz[q.quiz_id]||0) + 1;
+    });
+  }
   const qids=[...new Set((flags||[]).map(f=>f.question_id))];
   let qmap={};
   if(qids.length){ const {data:qq}=await sb.from("questions").select("id,qnum,quiz_id").in("id",qids); (qq||[]).forEach(q=>qmap[q.id]=q); }
@@ -3428,10 +3492,14 @@ async function viewAccount(){
     </div>
 
     <h2>Historische pogingen (${(myAttempts||[]).length})</h2>
-    <p class="muted" style="font-size:.82rem">Officiële examens of oefensessies waarvan je de score bevroren wil bewaren, ook als de quiz-antwoorden later veranderen.</p>
+    <p class="muted" style="font-size:.82rem">Officiële examens of oefensessies waarvan je de antwoorden bewaart. De score wordt live berekend tegen de huidige juiste antwoorden van de quiz.</p>
     <div class="stack" style="margin-bottom:1rem">
       ${(myAttempts||[]).length ? myAttempts.map(a=>{
-        const pctA=(a.score+a.wrong)>0?Math.round(a.score/(a.score+a.wrong)*100):0;
+        const cur=currentCorrectByQuiz[a.quiz_id]||{};
+        const totQ=totalQsByQuiz[a.quiz_id]||0;
+        const live=attemptScoreFrom(a.answers||{}, cur);
+        const denom=live.score+live.wrong;
+        const pctA=denom>0?Math.round(live.score/denom*100):0;
         return `<div class="card attempt-card">
           <div class="spread" style="gap:.6rem;flex-wrap:wrap">
             <div>
@@ -3440,7 +3508,7 @@ async function viewAccount(){
               <div class="muted" style="font-size:.78rem">${esc(quizTitle[a.quiz_id]||"(quiz verwijderd)")} · ${fmtDate(a.submitted_at)}</div>
             </div>
             <div class="attempt-score">
-              <div class="attempt-score-val ${pctA>=75?"ok":pctA>=50?"warn":"bad"}">${a.score}/${a.total_questions}</div>
+              <div class="attempt-score-val ${pctA>=75?"ok":pctA>=50?"warn":"bad"}">${live.score}/${totQ}</div>
               <div class="muted" style="font-size:.72rem">${pctA}%</div>
             </div>
             <div class="btnrow" style="margin:0"><button class="btn btn-ghost btn-sm" data-nav="#/quiz/${a.quiz_id}/poging/${a.id}">Details →</button></div>
