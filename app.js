@@ -2582,8 +2582,8 @@ async function viewAttemptsList(quizId){
             <div class="muted" style="font-size:.78rem">${fmtDate(a.submitted_at)} · ${live.answered}/${totalQuestions} beantwoord${live.overleg>0?` · ${live.overleg} in overleg`:""}</div>
           </div>
           <div class="attempt-score">
-            <div class="attempt-score-val ${pctScore>=75?"ok":pctScore>=50?"warn":"bad"}">${live.score}/${totalQuestions}</div>
-            <div class="muted" style="font-size:.72rem">${pctScore}% juist</div>
+            <div class="attempt-score-val ${pctScore>=75?"ok":pctScore>=50?"warn":"bad"}">${live.score}/${totalQuestions} <span style="font-size:.7em;opacity:.85">(${pctScore}%)</span></div>
+            <div class="muted" style="font-size:.72rem">${live.answered}/${totalQuestions} beantwoord</div>
           </div>
           <div class="btnrow" style="margin:0">
             <button class="btn btn-ghost btn-sm" data-nav="#/quiz/${quizId}/poging/${a.id}">Details</button>
@@ -2620,8 +2620,8 @@ async function viewAttemptDetail(quizId, attemptId){
     <h1 style="margin:.4rem 0">${esc(attempt.title||("Poging "+new Date(attempt.submitted_at).toLocaleDateString("nl-BE")))}</h1>
     <p class="muted" style="font-size:.85rem">${esc(quiz?quiz.title:"")} · ${fmtDate(attempt.submitted_at)}</p>
     <div class="done-card" style="margin-top:1rem">
-      <div class="done-score ${pctScore>=75?"ok":pctScore>=50?"warn":"bad"}">${live.score}/${totalQs}</div>
-      <p>${pctScore}% juist · ${live.answered}/${totalQs} beantwoord${live.overleg>0?` · ${live.overleg} in overleg`:""}</p>
+      <div class="done-score ${pctScore>=75?"ok":pctScore>=50?"warn":"bad"}">${live.score}/${totalQs} <span style="font-size:.6em;font-weight:700;opacity:.8">(${pctScore}%)</span></div>
+      <p>${live.answered}/${totalQs} beantwoord${live.overleg>0?` · ${live.overleg} in overleg`:""}</p>
       <p class="muted" style="font-size:.78rem;margin-top:.3rem">Live berekend tegen de huidige juiste antwoorden van de quiz.</p>
     </div>
     <h2 style="margin-top:1.4rem">Vraag-per-vraag</h2>
@@ -3508,8 +3508,8 @@ async function viewAccount(){
               <div class="muted" style="font-size:.78rem">${esc(quizTitle[a.quiz_id]||"(quiz verwijderd)")} · ${fmtDate(a.submitted_at)}</div>
             </div>
             <div class="attempt-score">
-              <div class="attempt-score-val ${pctA>=75?"ok":pctA>=50?"warn":"bad"}">${live.score}/${totQ}</div>
-              <div class="muted" style="font-size:.72rem">${pctA}%</div>
+              <div class="attempt-score-val ${pctA>=75?"ok":pctA>=50?"warn":"bad"}">${live.score}/${totQ} <span style="font-size:.7em;opacity:.85">(${pctA}%)</span></div>
+              <div class="muted" style="font-size:.72rem">${live.answered}/${totQ} beantwoord</div>
             </div>
             <div class="btnrow" style="margin:0"><button class="btn btn-ghost btn-sm" data-nav="#/quiz/${a.quiz_id}/poging/${a.id}">Details →</button></div>
           </div>
