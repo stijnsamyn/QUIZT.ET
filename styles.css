@@ -137,7 +137,9 @@ label{font-size:.8rem;font-weight:600;color:var(--text-muted);display:block;marg
 .opt:hover{background:var(--surface2)}
 .opt.correct{background:var(--correct-soft);border-color:var(--correct)}
 .opt.wrong{background:var(--wrong-soft);border-color:var(--wrong)}
+.opt.selected{background:var(--accent-soft);border-color:var(--accent-dark)}
 .opt.disabled{cursor:default}
+.exam-progress{background:var(--accent-soft);border-radius:8px;padding:.4rem .6rem;margin-bottom:.4rem}
 .opt .letter{font-weight:800;color:var(--text-muted)}
 .explain{background:var(--accent-soft);border:1px solid var(--accent-soft-2);border-radius:var(--radius);
   padding:.9rem 1rem;margin-top:.8rem;font-size:.92rem;line-height:1.55}

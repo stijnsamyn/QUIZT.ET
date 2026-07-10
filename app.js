@@ -581,7 +581,7 @@ function shuffle(a){ a=a.slice(); for(let i=a.length-1;i>0;i--){ const j=Math.fl
 // Volgorde-modi: nummer, willekeurig, foutEerst, gemistEerst (onbeantwoord eerst), slim (gewogen toeval)
 function orderQuestions(all, answers, mode){
   const byNum=(a,b)=>a.sort_order-b.sort_order;
-  if(mode==="nummer"||mode==="volgorde") return all.slice().sort(byNum);
+  if(mode==="nummer"||mode==="volgorde"||mode==="examen") return all.slice().sort(byNum);
   if(mode==="willekeurig") return shuffle(all);
   if(mode==="foutEerst"||mode==="gemistEerst"){
     const rank = mode==="foutEerst"
@@ -755,11 +755,15 @@ function renderPlaySetup(){
     ["willekeurig","Willekeurig","Volledig willekeurig geschud — geen voorkeur."],
     ["foutEerst","Fouten eerst","Eerst de vragen die je fout had, dan de rest."],
     ["gemistEerst","Gemiste eerst","Eerst de vragen die je nog nooit beantwoordde, dan de rest."],
+    ["examen","Examen","Alle vragen, geen feedback per vraag. Je dient in en ziet dan pas je volledige score. Selectie en aantal worden vastgezet op alle vragen."],
   ];
   const chips=(grp,list,cur)=>list.map(([v,l,tip])=>`<button class="chip-toggle ${v===cur?"active":""}" data-${grp}="${v}" title="${esc(tip||"")}">${l}${tip?` <span class="infotip chip-i" tabindex="0" data-tip="${esc(tip)}" onclick="event.stopPropagation();">${ICON.info}</span>`:""}</button>`).join("");
   const focusLabel=f=>({alle:"alle vragen",foute:"je huidig foute vragen",onbeantwoord:"nog niet beantwoorde vragen",nietjuist:"nog niet juiste vragen",ooitFout:"historisch foute vragen"})[f];
-  const orderLabel=o=>({slim:"slim geoefend",nummer:"op vraagnummer",willekeurig:"willekeurig",foutEerst:"fouten eerst",gemistEerst:"gemiste eerst"})[o];
+  const orderLabel=o=>({slim:"slim geoefend",nummer:"op vraagnummer",willekeurig:"willekeurig",foutEerst:"fouten eerst",gemistEerst:"gemiste eerst",examen:"in examen-modus"})[o];
   const summaryStr=()=>{
+    if(order==="examen"){
+      return `Je start een <strong>examen</strong> met alle <strong>${total}</strong> vragen. Geen feedback per vraag — je ziet je volledige score pas na indienen.`;
+    }
     const custom=parseInt((document.getElementById("sizeCustom")||{}).value,10);
     const n=custom>0?custom:(size==="alle"?total:parseInt(size,10));
     return `Je start met <strong>${n}</strong> ${focusLabel(focus)}, ${orderLabel(order)}.`;
@@ -817,6 +821,7 @@ function renderPlaySetup(){
 
       <div class="setup-summary" id="setupSummary"></div>
       <button class="btn btn-primary btn-start" id="startBtn">Start oefensessie →</button>
+      <div id="examNote" class="muted" style="font-size:.78rem;margin-top:.5rem;display:none">📝 In examen-modus krijg je alle vragen zonder tussentijdse feedback. Bij "Dien in" verschijnt je volledige score.</div>
     </div>
     <div class="card" style="margin-top:1rem">
       <div class="spread">
@@ -837,7 +842,15 @@ function renderPlaySetup(){
   const drb=document.getElementById("discardResumeBtn"); if(drb) drb.onclick=()=>{ if(!confirm("De opgeslagen sessie weggooien?")) return; clearSession(PLAY.quiz.id); renderPlaySetup(); };
   const wire=(id,attr,set)=>app.querySelectorAll(`#${id} [data-${attr}]`).forEach(b=>b.onclick=()=>{
     app.querySelectorAll(`#${id} [data-${attr}]`).forEach(x=>x.classList.toggle("active",x===b)); set(b.dataset[attr]); });
-  const paintSummary=()=>{ const el=document.getElementById("setupSummary"); if(el) el.innerHTML=summaryStr(); };
+  const paintSummary=()=>{
+    const el=document.getElementById("setupSummary"); if(el) el.innerHTML=summaryStr();
+    const isExam = order==="examen";
+    const note=document.getElementById("examNote"); if(note) note.style.display=isExam?"block":"none";
+    const startB=document.getElementById("startBtn"); if(startB) startB.textContent = isExam ? "Start examen →" : "Start oefensessie →";
+    // Grijs size + focus uit tijdens examen (alle vragen, hele quiz)
+    ["gSize","gFocus"].forEach(id=>{ const el=document.getElementById(id); if(el){ el.style.opacity=isExam?".5":"1"; el.style.pointerEvents=isExam?"none":"auto"; } });
+    const sc=document.getElementById("sizeCustom"); if(sc){ sc.disabled=isExam; sc.style.opacity=isExam?".5":"1"; }
+  };
   document.getElementById("modesHelpBtn").onclick=openModesHelp;
   wire("gSize","size",v=>{ size=v; document.getElementById("sizeCustom").value=""; savePrefs({size, focus, order, customSize:""}); paintSummary(); });
   wire("gFocus","focus",v=>{ focus=v; paintSummary(); });
@@ -899,6 +912,7 @@ function openModesHelp(){
           <tr><td><strong>Willekeurig</strong></td><td>Volledig geschud — élke vraag heeft gelijke kans.</td><td>Om examen-omstandigheden te simuleren waar je vragen in willekeurige volgorde krijgt.</td></tr>
           <tr><td><strong>Fouten eerst</strong></td><td>Deterministisch: eerst alle vragen die je fout had, daarna de rest.</td><td>Als je gefocust je fouten wil bijwerken en er zeker van wil zijn dat ze allemaal aan bod komen.</td></tr>
           <tr><td><strong>Gemiste eerst</strong></td><td>Deterministisch: eerst alle vragen die je nog nooit beantwoordde, daarna de rest.</td><td>Om systematisch nieuwe stof af te werken vóór je terugkeert naar wat je al zag.</td></tr>
+          <tr><td><strong>Examen</strong> <span class="pill" style="background:var(--accent-soft);color:var(--accent-dark)">nieuw</span></td><td>Alle vragen van de quiz in vraagnummer-volgorde, zonder feedback per vraag.</td><td>Om te simuleren dat je een echte quiz aflegt: je vult alles in en pas na "Dien in" krijg je één globale score met alle juist/fout te zien.</td></tr>
         </tbody>
       </table>
 
@@ -935,7 +949,11 @@ async function wipeProgress(){
 }
 function startSession(size, focus, order){
   clearSession(PLAY.quiz.id);
+  // Examen dwingt: alle vragen, in vraagnummer-volgorde
+  if(order==="examen"){ size="alle"; focus="alle"; }
   PLAY.session={ size, focus, order }; PLAY.mode=order;
+  PLAY.examMode = order==="examen";
+  PLAY.examSubmitted = false;
   let pool=orderQuestions(poolFor(focus), PLAY.answers, order);
   if(!pool.length){ toast("Geen vragen voor deze keuze.","err"); return; }
   if(size!=="alle"){ const n=parseInt(size,10)||pool.length; pool=pool.slice(0,n); }
@@ -954,6 +972,7 @@ async function renderQuestion(){
   const correct = arr(q.correct_indexes);
   const validated = q.validated!==false;
   const multi = q.multi || correct.length>1;
+  const examLive = PLAY.examMode && !PLAY.examSubmitted;   // examen loopt: nog geen feedback
   // volgorde van de opties eenmalig door elkaar schudden per sessie
   PLAY.optOrder=PLAY.optOrder||{};
   if(!PLAY.optOrder[q.id]) PLAY.optOrder[q.id]=shuffle((q.options||[]).map((_,i)=>i));
@@ -963,7 +982,11 @@ async function renderQuestion(){
   const opts=order.map((origIdx,pos)=>{
     const o=(q.options||[])[origIdx];
     let cls="opt"; let box="";
-    if(answered){ cls+=" disabled";
+    if(examLive){
+      // Examen: geen feedback tonen — enkel markeren wat geselecteerd is, opties blijven klikbaar
+      if(answered && inSet(chosen,origIdx)) cls+=" selected";
+      if(multi) box=`<input type="checkbox" class="mopt" value="${origIdx}" ${answered&&inSet(chosen,origIdx)?"checked":""} style="width:auto;margin-top:.15rem">`;
+    } else if(answered){ cls+=" disabled";
       // Toon altijd het juiste antwoord (groen) en de foute keuze (rood) — ook bij niet-gevalideerde
       // vragen zien spelers zo wat er als juist bedoeld is, met het pill "in overleg" als vlag.
       if(correct.includes(origIdx)) cls+=" correct";
@@ -971,8 +994,9 @@ async function renderQuestion(){
       if(docentDiffers && docent.includes(origIdx)) cls+=" docent";
     }
     else if(multi){ box=`<input type="checkbox" class="mopt" value="${origIdx}" style="width:auto;margin-top:.15rem">`; }
-    const docentBadge = answered && docentDiffers && docent.includes(origIdx) ? `<span class="opt-doc" title="Volgens de docent">👨‍🏫</span>` : "";
-    const correctBadge = answered && correct.includes(origIdx) ? srcBadge(validated?"Juist antwoord":"Bedoeld als juist — nog in overleg", q.answer_source) : "";
+    const showBadges = answered && !examLive;
+    const docentBadge = showBadges && docentDiffers && docent.includes(origIdx) ? `<span class="opt-doc" title="Volgens de docent">👨‍🏫</span>` : "";
+    const correctBadge = showBadges && correct.includes(origIdx) ? srcBadge(validated?"Juist antwoord":"Bedoeld als juist — nog in overleg", q.answer_source) : "";
     return `<div class="${cls}" data-opt="${origIdx}">${box}<span class="letter">${letter(pos)}</span><span>${esc(o)} ${correctBadge}${docentBadge}</span></div>`;
   }).join("");
   // voortgang
@@ -991,6 +1015,12 @@ async function renderQuestion(){
     <h1 style="font-size:1.2rem;margin:.6rem 0 .4rem">${esc(PLAY.quiz.title)}</h1>
     ${PLAY.investigating ? `<div class="investigate-banner">
       🔍 <strong>Je onderzoekt een enkele vraag</strong> <span class="muted">— geen sessie, geen scoring. Klik "Nieuwe sessie" om echt te oefenen.</span>
+    </div>` : (examLive ? `<div class="progress exam-progress">
+      <div class="muted" style="font-size:.75rem;margin-bottom:.15rem">📝 Examen-modus — feedback verschijnt na indienen</div>
+      <div class="progress-line">
+        <div class="bar" style="flex:1"><span style="width:${pct(answeredN,total)}%"></span><div class="lab">Ingevuld ${answeredN}/${total}</div></div>
+        ${allDone?`<span class="pill" style="background:var(--accent-soft);color:var(--accent-dark);white-space:nowrap">Klaar om in te dienen</span>`:""}
+      </div>
     </div>` : `<div class="progress">
       <div class="muted" style="font-size:.75rem;margin-bottom:.15rem">Voortgang in deze sessie</div>
       <div class="progress-line">
@@ -1003,15 +1033,17 @@ async function renderQuestion(){
         </div>
         ${allDone?`<span class="pill" style="background:var(--correct-soft);color:var(--correct);white-space:nowrap">${ICON.check} Sessie voltooid</span>`:""}
       </div>
-    </div>`}
+    </div>`)}
     <div class="btnrow" style="margin-bottom:.8rem">
       <button class="btn btn-ghost btn-sm" id="prevBtn" ${PLAY.i===0?"disabled":""}>← Vorige</button>
       <button class="btn btn-ghost btn-sm" id="nextBtn" ${PLAY.i>=total-1?"disabled":""}>Volgende →</button>
-      ${PLAY.investigating ? "" : (unanswered?`<button class="btn btn-primary btn-sm" id="nextUnans">Volgende in deze sessie →</button>`:`<button class="btn btn-primary btn-sm" id="doneBtn">Bekijk resultaat →</button>`)}
+      ${PLAY.investigating ? "" : (examLive
+        ? (unanswered?`<button class="btn btn-ghost btn-sm" id="nextUnans">Volgende onbeantwoorde →</button><button class="btn btn-primary btn-sm" id="submitExamBtn" ${allDone?"":"disabled"} title="${allDone?"Dien in en zie je score":"Beantwoord eerst alle vragen"}">Dien in ${allDone?"":"("+answeredN+"/"+total+")"} →</button>`:`<button class="btn btn-primary btn-sm" id="submitExamBtn">Dien in en zie score →</button>`)
+        : (unanswered?`<button class="btn btn-primary btn-sm" id="nextUnans">Volgende in deze sessie →</button>`:`<button class="btn btn-primary btn-sm" id="doneBtn">Bekijk resultaat →</button>`))}
       ${isEditor()?`<button class="btn btn-ghost btn-sm" id="editQ" style="margin-left:auto">Bewerk deze vraag</button>`:""}
     </div>
     <div class="card">
-      <div class="q-meta"><span class="q-num">Vraag ${q.qnum}</span>${questionTags(q)}${answered?(isRight(q,chosen)===true?`<span class="pill juist">juist beantwoord</span>`:isRight(q,chosen)===false?`<span class="pill fout">fout beantwoord</span>`:`<span class="pill twijfel">antwoord genoteerd — in overleg</span>`):((PLAY.history&&PLAY.history[q.id]!=null)?(isRight(q,PLAY.history[q.id])===true?`<span class="pill" style="background:var(--correct-soft);color:var(--correct);opacity:.75">eerder juist</span>`:isRight(q,PLAY.history[q.id])===false?`<span class="pill" style="background:var(--wrong-soft);color:var(--wrong);opacity:.75">eerder fout</span>`:`<span class="pill" style="background:var(--warn-soft);color:var(--warn);opacity:.75">eerder beantwoord</span>`):`<span class="pill" style="background:var(--surface2);color:var(--text-muted)">nieuwe vraag voor jou</span>`)}</div>
+      <div class="q-meta"><span class="q-num">Vraag ${q.qnum}</span>${examLive?"":questionTags(q)}${examLive?(answered?`<span class="pill" style="background:var(--accent-soft);color:var(--accent-dark)">antwoord genoteerd</span>`:""):(answered?(isRight(q,chosen)===true?`<span class="pill juist">juist beantwoord</span>`:isRight(q,chosen)===false?`<span class="pill fout">fout beantwoord</span>`:`<span class="pill twijfel">antwoord genoteerd — in overleg</span>`):((PLAY.history&&PLAY.history[q.id]!=null)?(isRight(q,PLAY.history[q.id])===true?`<span class="pill" style="background:var(--correct-soft);color:var(--correct);opacity:.75">eerder juist</span>`:isRight(q,PLAY.history[q.id])===false?`<span class="pill" style="background:var(--wrong-soft);color:var(--wrong);opacity:.75">eerder fout</span>`:`<span class="pill" style="background:var(--warn-soft);color:var(--warn);opacity:.75">eerder beantwoord</span>`):`<span class="pill" style="background:var(--surface2);color:var(--text-muted)">nieuwe vraag voor jou</span>`))}</div>
       <div class="q-text">${esc(q.text)}</div>
       ${(!answered && (q.wettekst || q.legal_basis)) ? `<details class="prehelp"><summary>${ICON.info} Raadpleeg wettekst voor je antwoordt</summary>
         <div class="prehelp-body">
@@ -1019,7 +1051,7 @@ async function renderQuestion(){
           ${q.wettekst?`<div class="wettekst">${html(translateOptRefs(q.wettekst, q.id, q))}</div>`:""}
         </div></details>`:""}
       <div id="opts">${opts}</div>
-      ${(multi&&!answered)?`<div class="btnrow"><button class="btn btn-primary btn-sm" id="checkMulti">Nakijken</button></div>`:""}
+      ${(multi && (examLive || !answered))?`<div class="btnrow"><button class="btn btn-primary btn-sm" id="checkMulti">${examLive?"Bevestig antwoord":"Nakijken"}</button></div>`:""}
       <div id="afterAnswer"></div>
     </div>`;
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
@@ -1037,6 +1069,8 @@ async function renderQuestion(){
   if(eqBtn) eqBtn.onclick=()=>go("#/beheer/vraag/"+q.id);
   const dBtn=document.getElementById("doneBtn");
   if(dBtn) dBtn.onclick=()=>renderPlayDone();
+  const seb=document.getElementById("submitExamBtn");
+  if(seb && !seb.disabled) seb.onclick=()=>submitExam();
   app.querySelectorAll("[data-mode]").forEach(b=>b.onclick=()=>{
     if(PLAY.mode===b.dataset.mode) return;
     PLAY.mode=b.dataset.mode;
@@ -1045,6 +1079,28 @@ async function renderQuestion(){
     PLAY.i=Math.max(0, PLAY.questions.findIndex(x=>x.id===curId));
     renderQuestion();
   });
+  if(examLive){
+    // Examen: multi = checkbox-set commit met "Bevestig"; single = klik = zet antwoord (lokaal)
+    if(multi){
+      const syncChosen=()=>app.querySelectorAll("[data-opt]").forEach(el=>{
+        const cb=el.querySelector(".mopt"); el.classList.toggle("chosen", !!(cb&&cb.checked));
+      });
+      app.querySelectorAll("[data-opt]").forEach(el=>el.onclick=e=>{
+        if(e.target.tagName!=="INPUT"){ const cb=el.querySelector(".mopt"); if(cb) cb.checked=!cb.checked; }
+        syncChosen();
+      });
+      syncChosen();
+      const cm=document.getElementById("checkMulti");
+      if(cm){ cm.textContent="Bevestig antwoord"; cm.onclick=()=>{
+        const sel=[...app.querySelectorAll(".mopt:checked")].map(c=>+c.value);
+        if(!sel.length) return toast("Kruis minstens één antwoord aan","err");
+        examSetAnswer(q, sel);
+      }; }
+    } else {
+      app.querySelectorAll("[data-opt]").forEach(o=>o.onclick=()=>examSetAnswer(q, [+o.dataset.opt]));
+    }
+    return;
+  }
   if(answered){ renderAfterAnswer(q); }
   else if(multi){
     const syncChosen=()=>app.querySelectorAll("[data-opt]").forEach(el=>{
@@ -1061,6 +1117,50 @@ async function renderQuestion(){
     };
   }
   else app.querySelectorAll("[data-opt]").forEach(o=>o.onclick=()=>answerQuestion(q, [+o.dataset.opt]));
+}
+
+function examSetAnswer(q, idxArray){
+  const chosen=arr(idxArray).slice().sort((a,b)=>a-b);
+  PLAY.answers[q.id]=chosen;
+  // Ga direct naar de volgende onbeantwoorde vraag, of blijf hier als alles klaar is
+  const total=PLAY.questions.length;
+  let j=-1;
+  for(let k=1;k<=total;k++){ const idx=(PLAY.i+k)%total; if(PLAY.answers[PLAY.questions[idx].id]==null){ j=idx; break; } }
+  if(j>=0) PLAY.i=j;
+  renderQuestion();
+}
+
+async function submitExam(){
+  const qs=PLAY.questions;
+  const unanswered=qs.filter(x=>PLAY.answers[x.id]==null).length;
+  if(unanswered>0){
+    if(!confirm(`Je hebt nog ${unanswered} vraag/vragen niet beantwoord. Toch indienen?`)) return;
+  }
+  const submitBtn=document.getElementById("submitExamBtn");
+  if(submitBtn){ submitBtn.disabled=true; submitBtn.textContent="Indienen…"; }
+  const now=new Date().toISOString();
+  const answersRows=qs.filter(x=>PLAY.answers[x.id]!=null).map(x=>{
+    const c=PLAY.answers[x.id];
+    return { question_id:x.id, user_id:ME.id, chosen_indexes:c, is_correct:isRight(x,c), updated_at:now };
+  });
+  const eventsRows=qs.filter(x=>PLAY.answers[x.id]!=null).map(x=>{
+    const c=PLAY.answers[x.id];
+    return { question_id:x.id, quiz_id:PLAY.quiz.id, user_id:ME.id, is_correct:isRight(x,c) };
+  });
+  try{
+    if(answersRows.length){
+      const { error:e1 } = await sb.from("answers").upsert(answersRows,{ onConflict:"question_id,user_id" });
+      if(e1) throw e1;
+      const { error:e2 } = await sb.from("answer_events").insert(eventsRows);
+      if(e2) throw e2;
+    }
+  }catch(e){
+    toast("Indienen mislukt: "+e.message,"err");
+    if(submitBtn){ submitBtn.disabled=false; submitBtn.textContent="Dien in en zie score →"; }
+    return;
+  }
+  PLAY.examSubmitted=true;
+  renderPlayDone();
 }
 
 async function answerQuestion(q, idxArray){
