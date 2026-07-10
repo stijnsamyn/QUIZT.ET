@@ -2746,7 +2746,8 @@ async function parseFormsPdfPixels(pdf, questions, onProgress){
     return { num: s.num, lines: blockLines, text: blockLines.map(l=>l.text).join(" ") };
   });
 
-  // Pixel-sample helper: gemiddelde donkerheid in een klein cirkeltje ter hoogte van optie-regel
+  // Pixel-sample: fractie "gekleurde" (niet-witte) pixels binnen een cirkeltje.
+  // Threshold op 210 — vangt donkere zwarte en gekleurde MS-Forms-bolletjes (paars/blauw).
   const sampleDark = (bmp, cx, cy, r) => {
     let dark=0, tot=0;
     const w = bmp.width, h = bmp.height;
@@ -2757,14 +2758,29 @@ async function parseFormsPdfPixels(pdf, questions, onProgress){
         if(px<0||py<0||px>=w||py>=h) continue;
         const off = (py*w + px)*4;
         const lum = (bmp.data[off] + bmp.data[off+1] + bmp.data[off+2]) / 3;
-        tot++; if(lum < 100) dark++;
+        tot++; if(lum < 210) dark++;
       }
     }
     return tot ? dark/tot : 0;
   };
 
+  // Zoek op meerdere x-offsets links van de tekst en pak de hoogste darkness.
+  // Robuust tegen wisselende paddings tussen radio en tekst.
+  const bestLeftDarkness = (bmp, ln) => {
+    const cy = ln.y - ln.h*0.55;
+    const r  = Math.max(5, Math.round(ln.h*0.42));
+    let maxD = 0, atOffset = 0;
+    for(let off=12; off<=55; off+=4){
+      const cx = ln.x - off;
+      if(cx < r) continue;
+      const d = sampleDark(bmp, cx, cy, r);
+      if(d > maxD){ maxD = d; atOffset = off; }
+    }
+    return { darkness: maxD, offset: atOffset };
+  };
+
   const suggestions = {};
-  const debug = { matched:0, unmatched:0 };
+  const debug = { matched:0, unmatched:0, perQuestion:[] };
   questions.forEach(q=>{
     // Kies blok met hoogste tekst-overeenkomst met de vraagtekst
     let best=null, bestSim=0;
@@ -2775,8 +2791,8 @@ async function parseFormsPdfPixels(pdf, questions, onProgress){
     if(!best || bestSim < 0.12){ debug.unmatched++; return; }
     debug.matched++;
 
-    // Voor elke optie: vind best matchende regel in het blok en sample de pixels links
-    const chosen = [];
+    // Verzamel voor elke optie de best matchende regel + darkness links ervan
+    const measured = [];
     (q.options||[]).forEach((opt, idx)=>{
       let bl=null, blSim=0;
       for(const ln of best.lines){
@@ -2785,15 +2801,28 @@ async function parseFormsPdfPixels(pdf, questions, onProgress){
       }
       if(!bl || blSim < 0.28) return;
       const bmp = pages[bl.page].imgData;
-      // Radio button zit typisch 20-40 canvas-pixels links van de tekst
-      const cx = Math.max(0, bl.x - 22);
-      const cy = bl.y - bl.h*0.55;    // ongeveer het midden van het bolletje
-      const r  = Math.max(5, Math.round(bl.h*0.35));
-      const ratio = sampleDark(bmp, cx, cy, r);
-      // Leeg bolletje: enkel ringrand → ~10-25% donker. Gevuld: 60%+
-      if(ratio > 0.42) chosen.push(idx);
+      const m = bestLeftDarkness(bmp, bl);
+      measured.push({ idx, darkness: m.darkness, offset: m.offset, sim: blSim });
     });
+    if(!measured.length) return;
+
+    // Relatieve detectie: de gekozen optie(s) zijn donkerder dan de niet-gekozen.
+    // Baseline = kleinste gemeten darkness. Selected = > baseline + 0.10 én > 0.28 absoluut.
+    const baseline = Math.min(...measured.map(m=>m.darkness));
+    const isMulti = q.multi || arr(q.correct_indexes).length>1;
+    const relThresh = 0.10;
+    const absThresh = 0.28;
+    let chosen = measured
+      .filter(m => m.darkness > baseline + relThresh && m.darkness > absThresh)
+      .map(m => m.idx);
+
+    // Radio (single-select): behoud enkel de allerdonkerste
+    if(!isMulti && chosen.length > 1){
+      const top = measured.reduce((a,b)=> b.darkness > a.darkness ? b : a);
+      chosen = [top.idx];
+    }
     if(chosen.length) suggestions[q.id] = chosen;
+    debug.perQuestion.push({ qnum:q.qnum, baseline:+baseline.toFixed(2), measured:measured.map(m=>({i:m.idx,d:+m.darkness.toFixed(2)})), chosen });
   });
   suggestions.__debug = debug;
   return suggestions;
@@ -2899,6 +2928,8 @@ async function viewNewAttempt(quizId){
       const pdf=await lib.getDocument({data:buf}).promise;
       const suggestions=await parseFormsPdfPixels(pdf, qs, setStatus);
       const debug=suggestions.__debug || {}; delete suggestions.__debug;
+      console.log("[PDF-import] matched blocks:", debug.matched, "/", qs.length);
+      console.log("[PDF-import] per-question darkness:", debug.perQuestion);
       let filled=0;
       Object.keys(suggestions).forEach(qid=>{ state.answers[qid]=suggestions[qid]; filled++; });
       document.getElementById("atList").innerHTML=renderQuestions();
