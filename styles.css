@@ -601,3 +601,12 @@ summary .ico,button .ico{color:inherit}
 .score-section > summary::-webkit-details-marker{display:none}
 .score-section-hd{font-size:.95rem;color:var(--ink)}
 .score-table-card{padding:.3rem;overflow-x:auto}
+.score-mini-reset{display:inline-block;font-size:.66rem;padding:.05rem .35rem;border-radius:99px;
+  background:var(--accent-soft);color:var(--accent-dark);margin-left:.25rem;vertical-align:middle}
+.score-period-pill{display:inline-block;font-size:.7rem;padding:.1rem .5rem;border-radius:99px;
+  background:var(--accent-soft);color:var(--accent-dark);margin-left:.4rem}
+
+.games-cfg-row{border:1px solid var(--border);border-radius:10px;padding:.55rem .7rem;background:var(--surface)}
+.games-cfg-title{color:var(--ink);margin-bottom:.35rem;font-size:.92rem}
+.games-cfg-line{display:flex;align-items:center;gap:.5rem;margin:.25rem 0;font-size:.85rem}
+.games-cfg-line select{padding:.25rem .4rem;font-size:.85rem}

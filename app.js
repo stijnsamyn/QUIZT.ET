@@ -420,15 +420,19 @@ async function viewHome(){
   renderGamesTop3();
 }
 
-async function bestPerUser(limit){
-  const { data:rows }=await sb.from("tetris_scores").select("user_id,score,lines,level,created_at").order("score",{ascending:false}).limit(200);
+async function bestPerUser(limit, since){
+  let q=sb.from("tetris_scores").select("user_id,score,lines,level,created_at").order("score",{ascending:false}).limit(200);
+  if(since) q=q.gte("created_at", since.toISOString());
+  const { data:rows }=await q;
   const seen=new Set(); const best=[]; (rows||[]).forEach(r=>{ if(seen.has(r.user_id)) return; seen.add(r.user_id); best.push(r); });
   return best.slice(0, limit||best.length);
 }
 
 // Generieke best-per-user helper voor game_scores (snake/pong) — hoogste score per speler
-async function bestGameScores(game, limit){
-  const { data:rows }=await sb.from("game_scores").select("user_id,score,meta,created_at").eq("game",game).order("score",{ascending:false}).limit(200);
+async function bestGameScores(game, limit, since){
+  let q=sb.from("game_scores").select("user_id,score,meta,created_at").eq("game",game).order("score",{ascending:false}).limit(200);
+  if(since) q=q.gte("created_at", since.toISOString());
+  const { data:rows }=await q;
   const seen=new Set(); const best=[]; (rows||[]).forEach(r=>{ if(seen.has(r.user_id)) return; seen.add(r.user_id); best.push(r); });
   return best.slice(0, limit||best.length);
 }
@@ -436,22 +440,27 @@ async function bestGameScores(game, limit){
 // Compacte top-3 sectie op de home — één card per game
 async function renderGamesTop3(){
   const el=document.getElementById("gamesTop"); if(!el) return;
+  const sinceT=periodStart(gameResetMode("tetris"));
+  const sinceS=periodStart(gameResetMode("snake"));
+  const sinceP=periodStart(gameResetMode("pong"));
   const [tetris, snake, pong] = await Promise.all([
-    bestPerUser(3),
-    bestGameScores("snake",3),
-    bestGameScores("pong",3),
+    bestPerUser(3, sinceT),
+    bestGameScores("snake",3, sinceS),
+    bestGameScores("pong",3, sinceP),
   ]);
   const allIds=[...tetris,...snake,...pong].map(t=>t.user_id);
   const names = allIds.length ? await namesFor(allIds) : {};
   const medals=["🥇","🥈","🥉"];
-  const board = (icon, title, top, empty) => `
-    <div class="score-mini">
-      <div class="score-mini-hd">${icon} <strong>${title}</strong></div>
+  const board = (icon, title, top, empty, resetMode) => {
+    const label=periodLabel(resetMode);
+    return `<div class="score-mini">
+      <div class="score-mini-hd">${icon} <strong>${title}</strong>${label?` <span class="score-mini-reset" title="Scores worden gefilterd op periode">${label}</span>`:""}</div>
       ${top.length
         ? `<ol class="score-mini-list">${top.map((t,i)=>`<li><span class="score-mini-medal">${medals[i]}</span><span class="score-mini-name">${esc(names[t.user_id]||"?")}</span><span class="score-mini-num">${t.score}</span></li>`).join("")}</ol>`
         : `<p class="muted score-mini-empty">${empty}</p>`
       }
     </div>`;
+  };
   el.innerHTML=`
     <div class="card score-mini-card">
       <div class="score-mini-top">
@@ -459,9 +468,9 @@ async function renderGamesTop3(){
         <a class="ilink" data-nav="#/scorebord" style="font-size:.85rem">Volledig scorebord →</a>
       </div>
       <div class="score-mini-grid">
-        ${board("🧱","Tetris",tetris,"Nog geen scores.")}
-        ${board("🐍","Snake",snake,"Nog geen scores.")}
-        ${board("🏓","Pong",pong,"Nog geen scores.")}
+        ${board("🧱","Tetris",tetris,"Nog geen scores.",gameResetMode("tetris"))}
+        ${board("🐍","Snake",snake,"Nog geen scores.",gameResetMode("snake"))}
+        ${board("🏓","Pong",pong,"Nog geen scores.",gameResetMode("pong"))}
       </div>
     </div>`;
   el.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
@@ -469,10 +478,14 @@ async function renderGamesTop3(){
 
 async function viewScorebord(){
   app.innerHTML=`<div class="loading">Scorebord laden…</div>`;
+  await loadGamesConfig();
+  const sinceT=periodStart(gameResetMode("tetris"));
+  const sinceS=periodStart(gameResetMode("snake"));
+  const sinceP=periodStart(gameResetMode("pong"));
   const [tetris, snake, pong] = await Promise.all([
-    bestPerUser(50),
-    bestGameScores("snake",50),
-    bestGameScores("pong",50),
+    bestPerUser(50, sinceT),
+    bestGameScores("snake",50, sinceS),
+    bestGameScores("pong",50, sinceP),
   ]);
   const allIds=[...tetris,...snake,...pong].map(t=>t.user_id);
   const names = allIds.length ? await namesFor(allIds) : {};
@@ -497,9 +510,14 @@ async function viewScorebord(){
     <td>${t.meta?`${t.meta.you||"?"}-${t.meta.cpu||"?"}`:"—"}</td>
     <td class="muted" style="font-size:.75rem">${fmtDate(t.created_at)}</td>
   </tr>`;
-  const section=(icon,title,list,tableHead,rowFn,empty,tip)=>`
+  const fmtSince=d=>d?d.toLocaleDateString("nl-BE",{day:"2-digit",month:"short",year:"numeric"}):"";
+  const periodPill=(mode,since)=>{
+    const lbl=periodLabel(mode); if(!lbl) return "";
+    return `<span class="score-period-pill">${lbl} · sinds ${fmtSince(since)}</span>`;
+  };
+  const section=(icon,title,list,tableHead,rowFn,empty,tip,resetMode,since)=>`
     <details class="score-section" open>
-      <summary><span class="score-section-hd">${icon} <strong>${title}</strong> <span class="muted" style="font-size:.78rem">(${list.length})</span></span></summary>
+      <summary><span class="score-section-hd">${icon} <strong>${title}</strong> <span class="muted" style="font-size:.78rem">(${list.length})</span> ${periodPill(resetMode,since)}</span></summary>
       <div style="margin-top:.5rem">
         ${list.length
           ? `<div class="card score-table-card"><table>${tableHead}<tbody>${list.map(rowFn).join("")}</tbody></table></div>`
@@ -516,17 +534,20 @@ async function viewScorebord(){
       `<thead><tr><th>#</th><th>Naam</th><th>Score</th><th>Lijnen</th><th>Level</th><th>Datum</th></tr></thead>`,
       tetrisRow,
       "Nog geen scores. Speel een rondje na een geslaagde oefensessie.",
-      "Ontgrendel Tetris via een oefensessie van ≥25 vragen met ≥80% juist (tenzij een beheerder de game vrij zet).")}
+      "Ontgrendel Tetris via een oefensessie van ≥25 vragen met ≥80% juist (tenzij een beheerder de game vrij zet).",
+      gameResetMode("tetris"), sinceT)}
     ${section("🐍","Snake",snake,
       `<thead><tr><th>#</th><th>Naam</th><th>Score</th><th>Datum</th></tr></thead>`,
       myRow,
       "Nog geen scores. Speel Snake en zet jezelf als eerste op het bord.",
-      "Score = het aantal punten dat je haalde. Elke appel is +10.")}
+      "Score = het aantal punten dat je haalde. Elke appel is +10.",
+      gameResetMode("snake"), sinceS)}
     ${section("🏓","Pong",pong,
       `<thead><tr><th>#</th><th>Naam</th><th>Score</th><th>Setstand</th><th>Datum</th></tr></thead>`,
       pongRow,
       "Nog geen wedstrijden gewonnen. Versla de CPU en zet je stand.",
-      "Score = 70 − CPU-punten × 10. Schoner gewonnen = hoger. Verlies telt niet mee.")}
+      "Score = 70 − CPU-punten × 10. Schoner gewonnen = hoger. Verlies telt niet mee.",
+      gameResetMode("pong"), sinceP)}
   `;
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
 }
@@ -1227,15 +1248,17 @@ function openTetris(){
   document.body.appendChild(overlay);
   const ctx=overlay.querySelector("#txCanvas").getContext("2d");
   const nctx=overlay.querySelector("#txNext").getContext("2d");
+  const DIFF=gameDifficulty("tetris");
+  const START_DROP = DIFF==="easy" ? 1000 : DIFF==="hard" ? 550 : 800;
   const board=Array.from({length:ROWS},()=>Array(COLS).fill(0));
   let piece=null, next=null, score=0, lines=0, level=1;
-  let dropInterval=800, dropTimer=0, lastTime=0, paused=false, over=false;
+  let dropInterval=START_DROP, dropTimer=0, lastTime=0, paused=false, over=false;
   let hi=parseInt(localStorage.getItem(HS_KEY)||"0",10);
   const rand=()=>{ const k=NAMES[Math.floor(Math.random()*NAMES.length)]; const p=PIECES[k]; return {c:p.c, m:p.m.map(r=>r.slice()), x:Math.floor((COLS-p.m[0].length)/2), y:0}; };
   const collide=(p,dx=0,dy=0,m=p.m)=>{ for(let r=0;r<m.length;r++) for(let c=0;c<m[r].length;c++){ if(!m[r][c]) continue; const x=p.x+c+dx, y=p.y+r+dy; if(x<0||x>=COLS||y>=ROWS) return true; if(y>=0 && board[y][x]) return true; } return false; };
   const rotate=m=>{ const N=m.length, M=m[0].length; const nm=Array.from({length:M},()=>Array(N).fill(0)); for(let r=0;r<N;r++) for(let c=0;c<M;c++) nm[c][N-1-r]=m[r][c]; return nm; };
   const merge=()=>{ for(let r=0;r<piece.m.length;r++) for(let c=0;c<piece.m[r].length;c++){ if(piece.m[r][c] && piece.y+r>=0) board[piece.y+r][piece.x+c]=piece.m[r][c]; } };
-  const clearLines=()=>{ let n=0; for(let r=ROWS-1;r>=0;r--){ if(board[r].every(v=>v)){ board.splice(r,1); board.unshift(Array(COLS).fill(0)); n++; r++; } } if(n){ const pts=[0,100,300,500,800][n]||0; score+=pts*level; lines+=n; level=1+Math.floor(lines/10); dropInterval=Math.max(80, 800-(level-1)*70); } };
+  const clearLines=()=>{ let n=0; for(let r=ROWS-1;r>=0;r--){ if(board[r].every(v=>v)){ board.splice(r,1); board.unshift(Array(COLS).fill(0)); n++; r++; } } if(n){ const pts=[0,100,300,500,800][n]||0; score+=pts*level; lines+=n; level=1+Math.floor(lines/10); dropInterval=Math.max(DIFF==="hard"?50:80, START_DROP-(level-1)*70); } };
   const submitScore=async(s,ls,lv)=>{ if(!ME||s<=0) return; try{ await sb.from("tetris_scores").insert({ user_id:ME.id, score:s, lines:ls, level:lv }); }catch(e){} };
   const spawn=()=>{ piece=next||rand(); next=rand(); if(collide(piece)){ over=true; if(score>hi){ hi=score; try{ localStorage.setItem(HS_KEY,String(hi)); }catch(e){} } submitScore(score,lines,level); } };
   const softDrop=()=>{ if(collide(piece,0,1)){ merge(); clearLines(); spawn(); } else piece.y++; };
@@ -1264,7 +1287,7 @@ function openTetris(){
     if(over){ ctx.fillStyle="rgba(0,0,0,.72)"; ctx.fillRect(0,0,COLS*CELL,ROWS*CELL); ctx.fillStyle="#fff"; ctx.textAlign="center"; ctx.font="bold 22px Inter,sans-serif"; ctx.fillText("Game over", COLS*CELL/2, ROWS*CELL/2-10); ctx.font="12px Inter,sans-serif"; ctx.fillText("Enter = opnieuw · Esc = sluiten", COLS*CELL/2, ROWS*CELL/2+15); }
     else if(paused){ ctx.fillStyle="rgba(0,0,0,.6)"; ctx.fillRect(0,0,COLS*CELL,ROWS*CELL); ctx.fillStyle="#fff"; ctx.textAlign="center"; ctx.font="bold 20px Inter,sans-serif"; ctx.fillText("PAUZE (P)", COLS*CELL/2, ROWS*CELL/2); }
   };
-  const reset=()=>{ board.forEach(r=>r.fill(0)); score=0; lines=0; level=1; dropInterval=800; dropTimer=0; over=false; paused=false; next=rand(); spawn(); };
+  const reset=()=>{ board.forEach(r=>r.fill(0)); score=0; lines=0; level=1; dropInterval=START_DROP; dropTimer=0; over=false; paused=false; next=rand(); spawn(); };
   reset();
   let rafId=requestAnimationFrame(function loop(t){
     if(!lastTime) lastTime=t; const dt=t-lastTime; lastTime=t;
@@ -1337,10 +1360,14 @@ function openSnake(){
   let hi=parseInt(localStorage.getItem(HS_KEY)||"0",10);
   const randCell=()=>({x:Math.floor(Math.random()*COLS), y:Math.floor(Math.random()*ROWS)});
   const placeFood=()=>{ while(true){ const c=randCell(); if(!snake.some(s=>s.x===c.x&&s.y===c.y)){ food=c; return; } } };
+  const DIFF=gameDifficulty("snake");
+  const START_TICK = DIFF==="easy" ? 180 : DIFF==="hard" ? 100 : 140;
+  const MIN_TICK   = DIFF==="easy" ? 100 : DIFF==="hard" ? 40  : 60;
+  const TICK_DECAY = DIFF==="easy" ? 2   : DIFF==="hard" ? 4   : 3;
   const reset=()=>{
     snake=[{x:10,y:10},{x:9,y:10},{x:8,y:10}];
     dir={x:1,y:0}; nextDir=dir; score=0; over=false; paused=false;
-    tickMs=140; tickAcc=0; lastT=0; placeFood();
+    tickMs=START_TICK; tickAcc=0; lastT=0; placeFood();
   };
   const submitScore=async(s,len)=>{ if(!ME||s<=0) return; try{ await sb.from("game_scores").insert({ user_id:ME.id, game:"snake", score:s, meta:{ length:len } }); }catch(e){} };
   const step=()=>{
@@ -1352,7 +1379,7 @@ function openSnake(){
     if(head.x===food.x&&head.y===food.y){
       score+=10;
       if(score>hi){ hi=score; try{ localStorage.setItem(HS_KEY,String(hi)); }catch(e){} }
-      tickMs=Math.max(60, tickMs-3);
+      tickMs=Math.max(MIN_TICK, tickMs-TICK_DECAY);
       placeFood();
     } else {
       snake.pop();
@@ -1446,6 +1473,10 @@ function openPong(){
     </div>`;
   document.body.appendChild(overlay);
   const ctx=overlay.querySelector("#pgCanvas").getContext("2d");
+  const DIFF=gameDifficulty("pong");
+  const BALL_SPEED  = DIFF==="easy" ? 2.6 : DIFF==="hard" ? 4.0 : 3.2;
+  const CPU_SPEED   = DIFF==="easy" ? 2.4 : DIFF==="hard" ? 4.0 : 3.2;
+  const PADDLE_SPEED= DIFF==="easy" ? 5.0 : DIFF==="hard" ? 4.0 : 4.5;
   let py, cy, ball, ballV, scoreYou, scoreCpu, over, paused, waiting, rafId, lastT;
   const keys={up:false,down:false};
   const reset=(serveTo)=>{
@@ -1453,20 +1484,18 @@ function openPong(){
     ball={x:W/2, y:H/2};
     const dx = serveTo==="cpu" ? -1 : 1;
     const dy = (Math.random()*2-1)*0.6;
-    const speed=3.2;
-    ballV={x:dx*speed, y:dy*speed};
+    ballV={x:dx*BALL_SPEED, y:dy*BALL_SPEED};
     waiting=true; over=false; paused=false;
   };
   const resetAll=()=>{ scoreYou=0; scoreCpu=0; reset("cpu"); };
   resetAll();
   const step=(dt)=>{
-    const paddleSpeed=4.5;
-    if(keys.up) py-=paddleSpeed;
-    if(keys.down) py+=paddleSpeed;
+    if(keys.up) py-=PADDLE_SPEED;
+    if(keys.down) py+=PADDLE_SPEED;
     py=Math.max(0, Math.min(H-PAD_H, py));
     if(!waiting){
       const cpuC = cy+PAD_H/2, target=ball.y;
-      const cpuSpeed=3.2;
+      const cpuSpeed=CPU_SPEED;
       if(target < cpuC-6) cy-=cpuSpeed;
       else if(target > cpuC+6) cy+=cpuSpeed;
       cy=Math.max(0, Math.min(H-PAD_H, cy));
@@ -1560,27 +1589,66 @@ function openPong(){
    Wordt bewaard in app_settings.games_config (jsonb).
    ============================================================ */
 const GAMES = [
-  { id:"tetris", name:"Tetris", icon:"🧱", desc:"Klassieke blokjes-pauze.", defaultFree:false, lockedHint:"Ontgrendel na een oefensessie van ≥25 vragen én ≥80% juist.", open:openTetris },
-  { id:"snake",  name:"Snake",  icon:"🐍", desc:"Blijf leven, eet, groei.",  defaultFree:true,  lockedHint:"Vergrendeld door een beheerder.", open:openSnake },
-  { id:"pong",   name:"Pong",   icon:"🏓", desc:"Retro paddle vs CPU.",       defaultFree:true,  lockedHint:"Vergrendeld door een beheerder.", open:openPong  },
+  { id:"tetris", name:"Tetris", icon:"🧱", desc:"Klassieke blokjes-pauze.", defaultFree:false, defaultReset:"off", defaultDifficulty:"normal", lockedHint:"Ontgrendel na een oefensessie van ≥25 vragen én ≥80% juist.", open:openTetris },
+  { id:"snake",  name:"Snake",  icon:"🐍", desc:"Blijf leven, eet, groei.",  defaultFree:true,  defaultReset:"off", defaultDifficulty:"normal", lockedHint:"Vergrendeld door een beheerder.", open:openSnake },
+  { id:"pong",   name:"Pong",   icon:"🏓", desc:"Retro paddle vs CPU.",       defaultFree:true,  defaultReset:"off", defaultDifficulty:"normal", lockedHint:"Vergrendeld door een beheerder.", open:openPong  },
 ];
+const RESET_MODES = ["off","weekly","monthly"];
+const DIFFICULTIES = ["easy","normal","hard"];
 let GAMES_CFG=null;
-function gamesDefaults(){ const d={}; GAMES.forEach(g=>d[g.id]={free:!!g.defaultFree}); return d; }
+function gamesDefaults(){ const d={}; GAMES.forEach(g=>d[g.id]={free:!!g.defaultFree, reset:g.defaultReset||"off", difficulty:g.defaultDifficulty||"normal"}); return d; }
 async function loadGamesConfig(){
   const defaults=gamesDefaults();
   try{
     const { data, error }=await sb.from("app_settings").select("games_config").eq("id",1).single();
     if(error) throw error;
     const stored=(data&&data.games_config)||{};
-    GAMES_CFG={}; GAMES.forEach(g=>{ GAMES_CFG[g.id]={ free: stored[g.id]&&typeof stored[g.id].free==="boolean" ? stored[g.id].free : defaults[g.id].free }; });
+    GAMES_CFG={};
+    GAMES.forEach(g=>{
+      const s=stored[g.id]||{};
+      GAMES_CFG[g.id]={
+        free: typeof s.free==="boolean" ? s.free : defaults[g.id].free,
+        reset: RESET_MODES.includes(s.reset) ? s.reset : defaults[g.id].reset,
+        difficulty: DIFFICULTIES.includes(s.difficulty) ? s.difficulty : defaults[g.id].difficulty,
+      };
+    });
   }catch(e){ GAMES_CFG=defaults; }
   return GAMES_CFG;
 }
 async function saveGamesConfig(cfg){
-  const clean={}; GAMES.forEach(g=>{ clean[g.id]={ free: !!(cfg[g.id]&&cfg[g.id].free) }; });
+  const clean={}; GAMES.forEach(g=>{
+    const s=cfg[g.id]||{};
+    clean[g.id]={
+      free: !!s.free,
+      reset: RESET_MODES.includes(s.reset) ? s.reset : "off",
+      difficulty: DIFFICULTIES.includes(s.difficulty) ? s.difficulty : "normal",
+    };
+  });
   const { error }=await sb.from("app_settings").update({ games_config: clean }).eq("id",1);
   if(error) throw error;
   GAMES_CFG=clean;
+}
+function gameDifficulty(gameId){
+  return (GAMES_CFG && GAMES_CFG[gameId] && GAMES_CFG[gameId].difficulty) || "normal";
+}
+// Startdatum (lokaal) van de huidige periode voor een reset-modus. Retourneert null als er niet gefilterd moet worden.
+function periodStart(mode){
+  if(mode!=="weekly" && mode!=="monthly") return null;
+  const d=new Date();
+  if(mode==="monthly") return new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0);
+  // weekly: maandag 00:00 lokaal
+  const day=d.getDay(); // 0=zo, 1=ma, …
+  const daysSinceMonday = (day===0) ? 6 : day-1;
+  const monday=new Date(d.getFullYear(), d.getMonth(), d.getDate()-daysSinceMonday, 0, 0, 0, 0);
+  return monday;
+}
+function periodLabel(mode){
+  if(mode==="weekly") return "wekelijkse reset";
+  if(mode==="monthly") return "maandelijkse reset";
+  return "";
+}
+function gameResetMode(gameId){
+  return (GAMES_CFG && GAMES_CFG[gameId] && GAMES_CFG[gameId].reset) || "off";
 }
 function renderGamesSection(){
   if(!GAMES_CFG) return "";
@@ -2728,15 +2796,30 @@ async function renderSettings(){
   const { data } = await sb.from("app_settings").select("*").eq("id",1).single();
   await loadGamesConfig();
   const cfg=GAMES_CFG||{};
+  const resetLabel={off:"Uit (geen reset)", weekly:"Wekelijks (elke maandag)", monthly:"Maandelijks (1e van de maand)"};
+  const diffLabel={easy:"Makkelijk", normal:"Normaal", hard:"Moeilijk"};
   box.innerHTML=`<label style="display:flex;align-items:center;gap:.6rem;margin:0">
     <input type="checkbox" id="regOpen" style="width:auto" ${data&&data.registration_open?"checked":""}> Registratie open (nieuwe accounts toegestaan)</label>
     <hr style="margin:1rem 0;border:none;border-top:1px solid var(--border)">
     <div style="font-weight:700;color:var(--ink);margin-bottom:.3rem">🎮 Games</div>
-    <p class="muted" style="font-size:.82rem;margin:0 0 .5rem 0">Vink aan om een game vrij te maken (altijd speelbaar via de home). Uitgevinkte games blijven "beloningsgames" die enkel na een oefensessie ontgrendelen.</p>
-    <div id="gamesCfgList" class="stack" style="gap:.35rem">
-      ${GAMES.map(g=>`<label style="display:flex;align-items:center;gap:.6rem;margin:0">
-        <input type="checkbox" data-gamefree="${g.id}" style="width:auto" ${cfg[g.id]&&cfg[g.id].free?"checked":""}> <span>${g.icon} <strong>${esc(g.name)}</strong> — vrij te spelen</span>
-      </label>`).join("")}
+    <p class="muted" style="font-size:.82rem;margin:0 0 .5rem 0">Per game: vrij te spelen (anders "beloningsgame"), scorereset (wekelijks/maandelijks filteren op scorebord — oude scores blijven wél in de DB) en moeilijkheidsgraad.</p>
+    <div id="gamesCfgList" class="stack" style="gap:.7rem">
+      ${GAMES.map(g=>`<div class="games-cfg-row">
+        <div class="games-cfg-title">${g.icon} <strong>${esc(g.name)}</strong></div>
+        <label class="games-cfg-line">
+          <input type="checkbox" data-gamefree="${g.id}" style="width:auto" ${cfg[g.id]&&cfg[g.id].free?"checked":""}> Vrij te spelen
+        </label>
+        <label class="games-cfg-line">Scorereset:
+          <select data-gamereset="${g.id}">
+            ${RESET_MODES.map(m=>`<option value="${m}" ${cfg[g.id]&&cfg[g.id].reset===m?"selected":""}>${resetLabel[m]}</option>`).join("")}
+          </select>
+        </label>
+        <label class="games-cfg-line">Moeilijkheid:
+          <select data-gamediff="${g.id}">
+            ${DIFFICULTIES.map(d=>`<option value="${d}" ${cfg[g.id]&&cfg[g.id].difficulty===d?"selected":""}>${diffLabel[d]}</option>`).join("")}
+          </select>
+        </label>
+      </div>`).join("")}
     </div>
     <div id="gamesCfgStatus" class="muted" style="font-size:.78rem;margin-top:.4rem"></div>`;
   document.getElementById("regOpen").onchange=async e=>{
@@ -2745,18 +2828,23 @@ async function renderSettings(){
     toast("Instelling opgeslagen","ok");
   };
   const statusEl=document.getElementById("gamesCfgStatus");
-  document.querySelectorAll('[data-gamefree]').forEach(cb=>cb.onchange=async()=>{
-    const nextCfg={};
-    document.querySelectorAll('[data-gamefree]').forEach(x=>{ nextCfg[x.dataset.gamefree]={ free:x.checked }; });
-    try{
-      await saveGamesConfig(nextCfg);
-      toast("Games-instellingen opgeslagen","ok");
-      statusEl.textContent="";
-    }catch(err){
+  const collectCfg=()=>{
+    const c={};
+    GAMES.forEach(g=>{ c[g.id]={
+      free: document.querySelector(`[data-gamefree="${g.id}"]`).checked,
+      reset: document.querySelector(`[data-gamereset="${g.id}"]`).value,
+      difficulty: document.querySelector(`[data-gamediff="${g.id}"]`).value,
+    }; });
+    return c;
+  };
+  const persist=async()=>{
+    try{ await saveGamesConfig(collectCfg()); toast("Games-instellingen opgeslagen","ok"); statusEl.textContent=""; }
+    catch(err){
       statusEl.innerHTML=`Opslaan mislukt. Voeg eerst deze kolom toe: <code>ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS games_config jsonb DEFAULT '{}'::jsonb;</code>`;
       toast("Opslaan mislukt — zie melding onder de games-instellingen.","err");
     }
-  });
+  };
+  document.querySelectorAll('[data-gamefree],[data-gamereset],[data-gamediff]').forEach(el=>el.onchange=persist);
 }
 
 /* ============================================================
