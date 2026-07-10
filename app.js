@@ -355,6 +355,9 @@ async function route(){
     if(p.length===0) return viewHome();
     if(p[0]==="quiz" && p[2]==="overzicht") return viewOverview(p[1]);
     if(p[0]==="quiz" && p[2]==="stats") return viewQuizStats(p[1]);
+    if(p[0]==="quiz" && p[2]==="pogingen") return viewAttemptsList(p[1]);
+    if(p[0]==="quiz" && p[2]==="poging" && p[3]==="nieuw") return viewNewAttempt(p[1]);
+    if(p[0]==="quiz" && p[2]==="poging") return viewAttemptDetail(p[1], p[3]);
     if(p[0]==="quiz") return viewPlay(p[1]);
     if(p[0]==="stats" && p[1]==="vragen") return viewStatsVragen();
     if(p[0]==="stats" && p[1]==="gebruikers") return viewStatsGebruikers();
@@ -786,7 +789,7 @@ function renderPlaySetup(){
     <h1 style="margin:.5rem 0">${esc(PLAY.quiz.title)}</h1>
     <p class="muted">${esc(PLAY.quiz.description||"")}</p>
     <div class="muted" style="font-size:.82rem;margin:.4rem 0 1.2rem">
-      Meer over deze quiz: <a class="ilink" data-nav="#/quiz/${PLAY.quiz.id}/overzicht">Overzicht van alle vragen</a> · <a class="ilink" data-nav="#/quiz/${PLAY.quiz.id}/stats">Statistiek van deze quiz</a>
+      Meer over deze quiz: <a class="ilink" data-nav="#/quiz/${PLAY.quiz.id}/overzicht">Overzicht van alle vragen</a> · <a class="ilink" data-nav="#/quiz/${PLAY.quiz.id}/stats">Statistiek van deze quiz</a> · <a class="ilink" data-nav="#/quiz/${PLAY.quiz.id}/pogingen">📜 Historische pogingen</a>
     </div>
     ${resumeBanner}
     <div class="setup-panel">
@@ -2534,6 +2537,335 @@ async function viewOverview(quizId){
 function PLAY_goto(quizId, qid){ PLAY.pendingJump=qid; go("#/quiz/"+quizId); }
 
 /* ============================================================
+   HISTORISCHE POGINGEN — bevroren score
+   Werking: bij "opslaan" wordt de correct_indexes van elke vraag
+   op dat moment mee gesnapshot. Zelfs als een beheerder het juiste
+   antwoord later aanpast, blijft de bevroren score in deze poging.
+   ============================================================ */
+function attemptScoreFrom(answers, snapshot){
+  let score=0, wrong=0, answered=0, overleg=0;
+  Object.keys(answers||{}).forEach(qid=>{
+    const chosen=arr(answers[qid]);
+    if(!chosen.length) return;
+    answered++;
+    const corr=arr(snapshot[qid]);
+    if(!corr.length){ overleg++; return; }
+    if(setEq(chosen, corr)) score++; else wrong++;
+  });
+  return { score, wrong, answered, overleg };
+}
+
+async function viewAttemptsList(quizId){
+  const { data:quiz } = await sb.from("quizzes").select("id,title,description").eq("id",quizId).single();
+  if(!quiz){ app.innerHTML=`<div class="empty">Quiz niet gevonden.</div>`; return; }
+  const { data:attempts } = await sb.from("quiz_attempts").select("*").eq("user_id",ME.id).eq("quiz_id",quizId).order("submitted_at",{ascending:false});
+  app.innerHTML=`
+    <a class="muted" data-nav="#/quiz/${quizId}">← ${esc(quiz.title)}</a>
+    <div class="spread" style="margin-top:.4rem;flex-wrap:wrap;gap:.6rem"><h1 style="margin:0">📜 Historische pogingen</h1>
+      <button class="btn btn-primary btn-sm" data-nav="#/quiz/${quizId}/poging/nieuw">+ Nieuwe poging invoeren</button>
+    </div>
+    <p class="muted" style="font-size:.85rem;margin:.4rem 0 1rem 0">Elke poging bewaart je gekozen antwoorden én de juiste antwoorden zoals ze op dat moment waren. Latere aanpassingen aan de quiz beïnvloeden je bevroren score niet.</p>
+    ${(attempts||[]).length ? `<div class="stack">${attempts.map(a=>{
+      const pctScore = (a.score+a.wrong)>0 ? Math.round(a.score/(a.score+a.wrong)*100) : 0;
+      return `<div class="card attempt-card">
+        <div class="spread" style="gap:.6rem;flex-wrap:wrap">
+          <div>
+            <div class="attempt-title"><strong>${esc(a.title||("Poging "+new Date(a.submitted_at).toLocaleDateString("nl-BE")))}</strong>
+              <span class="pill" style="background:var(--surface2);color:var(--text-muted);font-size:.68rem">${a.source||"manual"}</span></div>
+            <div class="muted" style="font-size:.78rem">${fmtDate(a.submitted_at)} · ${a.total_answered}/${a.total_questions} beantwoord${a.overleg>0?` · ${a.overleg} in overleg`:""}</div>
+          </div>
+          <div class="attempt-score">
+            <div class="attempt-score-val ${pctScore>=75?"ok":pctScore>=50?"warn":"bad"}">${a.score}/${a.total_questions}</div>
+            <div class="muted" style="font-size:.72rem">${pctScore}% juist</div>
+          </div>
+          <div class="btnrow" style="margin:0">
+            <button class="btn btn-ghost btn-sm" data-nav="#/quiz/${quizId}/poging/${a.id}">Details</button>
+            <button class="btn btn-danger btn-sm" data-del="${a.id}">Verwijder</button>
+          </div>
+        </div>
+      </div>`;
+    }).join("")}</div>` : `<div class="empty">Nog geen pogingen. Klik hierboven op "+ Nieuwe poging invoeren" om er eentje toe te voegen.</div>`}
+  `;
+  app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
+  app.querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{
+    if(!confirm("Deze poging definitief verwijderen?")) return;
+    const { error } = await sb.from("quiz_attempts").delete().eq("id",b.dataset.del);
+    if(error) return toast(error.message,"err");
+    toast("Verwijderd","ok"); viewAttemptsList(quizId);
+  });
+}
+
+async function viewAttemptDetail(quizId, attemptId){
+  const { data:attempt } = await sb.from("quiz_attempts").select("*").eq("id",attemptId).single();
+  if(!attempt){ app.innerHTML=`<div class="empty">Poging niet gevonden.</div>`; return; }
+  const { data:quiz } = await sb.from("quizzes").select("id,title").eq("id",attempt.quiz_id).single();
+  const { data:questions } = await sb.from("questions").select("*").eq("quiz_id",attempt.quiz_id).order("sort_order");
+  const pctScore = (attempt.score+attempt.wrong)>0 ? Math.round(attempt.score/(attempt.score+attempt.wrong)*100) : 0;
+  const answers=attempt.answers||{};
+  const snapshot=attempt.correct_snapshot||{};
+  app.innerHTML=`
+    <a class="muted" data-nav="#/quiz/${quizId}/pogingen">← Pogingen</a>
+    <h1 style="margin:.4rem 0">${esc(attempt.title||("Poging "+new Date(attempt.submitted_at).toLocaleDateString("nl-BE")))}</h1>
+    <p class="muted" style="font-size:.85rem">${esc(quiz?quiz.title:"")} · ${fmtDate(attempt.submitted_at)}</p>
+    <div class="done-card" style="margin-top:1rem">
+      <div class="done-score ${pctScore>=75?"ok":pctScore>=50?"warn":"bad"}">${attempt.score}/${attempt.total_questions}</div>
+      <p>${pctScore}% juist · ${attempt.total_answered}/${attempt.total_questions} beantwoord${attempt.overleg>0?` · ${attempt.overleg} in overleg`:""}</p>
+    </div>
+    <h2 style="margin-top:1.4rem">Vraag-per-vraag</h2>
+    <div class="stack">${(questions||[]).map(q=>{
+      const chosen = arr(answers[q.id]);
+      const snapCorrect = arr(snapshot[q.id]);
+      const curCorrect = arr(q.correct_indexes);
+      const answered = chosen.length>0;
+      const isCorrect = answered && snapCorrect.length && setEq(chosen, snapCorrect);
+      const corrChanged = snapCorrect.length && curCorrect.length && !setEq(snapCorrect, curCorrect);
+      const cls = !answered ? "onbeantwoord" : (snapCorrect.length ? (isCorrect?"juist":"fout") : "overleg");
+      const pill = !answered ? `<span class="pill" style="background:var(--surface2);color:var(--text-muted)">niet beantwoord</span>`
+                : cls==="juist" ? `<span class="pill juist">juist</span>`
+                : cls==="fout" ? `<span class="pill fout">fout</span>`
+                : `<span class="pill twijfel">in overleg</span>`;
+      return `<details class="rv-item ${cls}" ${cls==="fout"?"open":""}>
+        <summary>
+          <div class="rv-sum">
+            <span class="q-num">${q.qnum}</span>
+            <span class="rv-text">${esc((q.text||"").slice(0,140))}${(q.text||"").length>140?"…":""}</span>
+            <span class="rv-status">${pill}</span>
+          </div>
+          <div class="rv-meta">
+            <span>Jij: <strong>${answered?lettersOf(chosen):"—"}</strong></span>
+            <span>Juist (toen): <strong>${snapCorrect.length?lettersOf(snapCorrect):"—"}</strong></span>
+            ${corrChanged?`<span title="Het juiste antwoord is intussen gewijzigd">⚠️ Nu: ${lettersOf(curCorrect)}</span>`:""}
+          </div>
+        </summary>
+        <div class="rv-body">
+          <div class="rv-opts">${(q.options||[]).map((o,i)=>{
+            let c="rv-opt";
+            if(snapCorrect.includes(i)) c+=" correct";
+            if(answered && chosen.includes(i) && !snapCorrect.includes(i)) c+=" wrong";
+            return `<div class="${c}"><strong>${letter(i)}.</strong> ${esc(o)}</div>`;
+          }).join("")}</div>
+        </div>
+      </details>`;
+    }).join("")}</div>
+  `;
+  app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
+}
+
+async function loadPdfJs(){
+  if(window.pdfjsLib) return window.pdfjsLib;
+  await new Promise((res, rej)=>{
+    const s=document.createElement("script");
+    s.src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js";
+    s.onload=res; s.onerror=()=>rej(new Error("pdf.js kon niet geladen worden"));
+    document.head.appendChild(s);
+  });
+  const lib=window.pdfjsLib || (window.pdfjs && window.pdfjs.getDocument ? window.pdfjs : null);
+  if(!lib) throw new Error("pdf.js niet beschikbaar");
+  lib.GlobalWorkerOptions.workerSrc="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+  window.pdfjsLib=lib;
+  return lib;
+}
+
+// Normaliseer tekst voor fuzzy matching (lowercase, alfanumeriek + spatie)
+function normText(s){
+  return (s||"").toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g,"")
+    .replace(/[^a-z0-9 ]+/g," ").replace(/\s+/g," ").trim();
+}
+// Jaccard-woordoverlap
+function textSim(a,b){
+  const A=new Set(normText(a).split(" ").filter(x=>x.length>=3));
+  const B=new Set(normText(b).split(" ").filter(x=>x.length>=3));
+  if(!A.size || !B.size) return 0;
+  let inter=0; A.forEach(x=>{ if(B.has(x)) inter++; });
+  return inter/(A.size+B.size-inter);
+}
+
+// Parse ruwe tekst uit een MS-Forms PDF en probeer per vraag de gekozen opties te detecteren.
+// Levert een array {questionIndex, optionIndex[]} — best-effort, gebruiker moet valideren.
+function parseFormsPdfText(pageTexts, questions){
+  // Selected markers in MS Forms PDFs: ●, ◉, ⬤, ✓, ✔ (filled radio), ✓, ☑ (checked box)
+  const SELECTED_RE = /[●◉⬤✓✔☑■]/;
+  const suggestions={}; // qid → [optionIndex]
+  const combined = pageTexts.join("\n");
+  // Zoek "N." + vraagtekst-blokken door de tekst en probeer per gevonden blok de gekozen regels te vinden.
+  // Voor elke vraag in de DB zoeken we het meest gelijkende blok in de PDF-tekst.
+  const lines = combined.split("\n").map(x=>x.trim()).filter(x=>x);
+  // Vind vermoedelijke vraag-starts: regels die met "N." beginnen
+  const starts=[];
+  for(let i=0;i<lines.length;i++){
+    const m=lines[i].match(/^(\d+)\.\s*(.*)$/);
+    if(m){ starts.push({ i, num:parseInt(m[1],10), rest:m[2] }); }
+  }
+  // Bouw blokken: tekst tussen vraag N en vraag N+1
+  const blocks=starts.map((s,idx)=>{
+    const end = idx+1<starts.length ? starts[idx+1].i : lines.length;
+    const block = lines.slice(s.i, end).join(" ").replace(/^\d+\.\s*/,"");
+    return { num:s.num, text:block };
+  });
+  // Voor elke vraag in DB: kies het blok met hoogste tekstgelijkenis
+  questions.forEach(q=>{
+    let best=null, bestSim=0;
+    blocks.forEach(b=>{ const s=textSim(q.text, b.text); if(s>bestSim){ bestSim=s; best=b; } });
+    if(!best || bestSim<0.15) return; // te lage overeenkomst
+    // Binnen het blok: zoek per optie tekst de gelijkende regel en kijk of er markers voor staan
+    const blockLines = lines.slice(starts.find(s=>s.num===best.num).i, starts[starts.findIndex(s=>s.num===best.num)+1] ? starts[starts.findIndex(s=>s.num===best.num)+1].i : lines.length);
+    const opts=q.options||[];
+    const chosen=[];
+    opts.forEach((opt,idx)=>{
+      // Vind de best matchende regel voor deze optie
+      let bl=null, blSim=0;
+      blockLines.forEach(ln=>{ const s=textSim(opt, ln); if(s>blSim){ blSim=s; bl=ln; } });
+      if(bl && blSim>=0.4 && SELECTED_RE.test(bl)) chosen.push(idx);
+    });
+    if(chosen.length) suggestions[q.id]=chosen;
+  });
+  return suggestions;
+}
+
+async function viewNewAttempt(quizId){
+  const { data:quiz } = await sb.from("quizzes").select("id,title,description").eq("id",quizId).single();
+  if(!quiz){ app.innerHTML=`<div class="empty">Quiz niet gevonden.</div>`; return; }
+  const { data:questions } = await sb.from("questions").select("*").eq("quiz_id",quizId).order("sort_order");
+  const qs=questions||[];
+  const state = { title:"", answers:{} };  // answers: qid → [chosen_idx]
+
+  const renderQuestions=()=>{
+    return qs.map(q=>{
+      const multi = q.multi || arr(q.correct_indexes).length>1;
+      const chosen = arr(state.answers[q.id]);
+      const opts = (q.options||[]).map((o,i)=>{
+        const isPicked = chosen.includes(i);
+        const inputType = multi ? "checkbox" : "radio";
+        return `<label class="attempt-opt ${isPicked?"picked":""}">
+          <input type="${inputType}" name="ans-${q.id}" value="${i}" ${isPicked?"checked":""} data-qid="${q.id}" data-oidx="${i}" data-multi="${multi?1:0}">
+          <span class="letter">${letter(i)}.</span>
+          <span>${esc(o)}</span>
+        </label>`;
+      }).join("");
+      return `<div class="card attempt-q" data-q-block="${q.id}">
+        <div class="attempt-q-hd"><span class="q-num">${q.qnum}</span>${multi?`<span class="pill" style="background:var(--surface2);color:var(--text-muted);font-size:.68rem">meerkeuze</span>`:""}</div>
+        <div class="q-text" style="margin:.3rem 0 .5rem 0">${esc(q.text)}</div>
+        <div>${opts}</div>
+      </div>`;
+    }).join("");
+  };
+
+  app.innerHTML=`
+    <a class="muted" data-nav="#/quiz/${quizId}/pogingen">← Pogingen</a>
+    <h1 style="margin:.4rem 0">+ Nieuwe poging invoeren</h1>
+    <p class="muted" style="font-size:.85rem">Voor: <strong>${esc(quiz.title)}</strong> · ${qs.length} vragen</p>
+    <div class="card">
+      <label>Titel (optioneel)</label>
+      <input id="atTitle" placeholder="bv. Officieel examen 10-07-2026">
+      <div style="margin-top:.6rem">
+        <label>📄 PDF-antwoordblad (Microsoft Forms)</label>
+        <input type="file" id="atPdf" accept="application/pdf">
+        <div id="atPdfStatus" class="muted" style="font-size:.78rem;margin-top:.3rem">Optioneel — de app probeert dan je aanduidingen te herkennen. Verifieer daarna zeker even.</div>
+      </div>
+    </div>
+    <div id="atSummary" class="attempt-summary muted" style="margin:.8rem 0"></div>
+    <div id="atList" class="stack">${renderQuestions()}</div>
+    <div class="attempt-actions">
+      <div class="btnrow">
+        <button class="btn btn-primary" id="atSaveBtn">💾 Poging opslaan</button>
+        <button class="btn btn-ghost" data-nav="#/quiz/${quizId}/pogingen">Annuleren</button>
+      </div>
+    </div>
+  `;
+  app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
+
+  const summary=document.getElementById("atSummary");
+  const paintSummary=()=>{
+    const answered=Object.values(state.answers).filter(x=>arr(x).length).length;
+    summary.innerHTML=`Ingevuld: <strong>${answered}</strong> / ${qs.length}`;
+  };
+  paintSummary();
+
+  const attachOptionHandlers=()=>{
+    document.querySelectorAll("input[data-qid]").forEach(el=>{
+      el.onchange=()=>{
+        const qid=el.dataset.qid;
+        const idx=parseInt(el.dataset.oidx,10);
+        const multi=el.dataset.multi==="1";
+        const cur=arr(state.answers[qid]);
+        if(multi){
+          const set=new Set(cur);
+          if(el.checked) set.add(idx); else set.delete(idx);
+          state.answers[qid]=[...set].sort((a,b)=>a-b);
+        } else {
+          state.answers[qid]=[idx];
+        }
+        // Toggle 'picked' klasse op de label
+        const block=document.querySelector(`[data-q-block="${qid}"]`);
+        if(block){
+          block.querySelectorAll(".attempt-opt").forEach(lbl=>{
+            const inp=lbl.querySelector("input");
+            lbl.classList.toggle("picked", inp && inp.checked);
+          });
+        }
+        paintSummary();
+      };
+    });
+  };
+  attachOptionHandlers();
+
+  document.getElementById("atTitle").oninput=e=>{ state.title=e.target.value; };
+
+  document.getElementById("atPdf").onchange=async e=>{
+    const f=e.target.files[0]; if(!f) return;
+    const statusEl=document.getElementById("atPdfStatus");
+    statusEl.textContent="PDF laden…";
+    try{
+      const lib=await loadPdfJs();
+      const buf=await f.arrayBuffer();
+      const pdf=await lib.getDocument({data:buf}).promise;
+      const pages=[];
+      for(let i=1;i<=pdf.numPages;i++){
+        const page=await pdf.getPage(i);
+        const content=await page.getTextContent();
+        pages.push(content.items.map(it=>it.str).join("\n"));
+      }
+      statusEl.textContent="Vragen matchen…";
+      const suggestions=parseFormsPdfText(pages, qs);
+      let filled=0;
+      Object.keys(suggestions).forEach(qid=>{ state.answers[qid]=suggestions[qid]; filled++; });
+      document.getElementById("atList").innerHTML=renderQuestions();
+      attachOptionHandlers();
+      paintSummary();
+      statusEl.innerHTML=`✅ Auto-gedetecteerd voor <strong>${filled}</strong> / ${qs.length} vragen. <span style="color:var(--warn)">Verifieer elke vraag voor je opslaat.</span>`;
+    }catch(err){
+      statusEl.innerHTML=`<span style="color:var(--wrong)">PDF-import mislukt: ${esc(err.message||err)}</span>`;
+    }
+  };
+
+  document.getElementById("atSaveBtn").onclick=async()=>{
+    const answered=Object.values(state.answers).filter(x=>arr(x).length).length;
+    if(answered===0){ toast("Vul minstens één antwoord in.","err"); return; }
+    // Snapshot van huidige correct_indexes per vraag
+    const snapshot={};
+    qs.forEach(q=>{ snapshot[q.id]=arr(q.correct_indexes); });
+    const { score, wrong, overleg } = attemptScoreFrom(state.answers, snapshot);
+    const row={
+      user_id: ME.id,
+      quiz_id: quizId,
+      source: "manual",
+      title: state.title || null,
+      answers: state.answers,
+      correct_snapshot: snapshot,
+      score, wrong,
+      total_answered: answered,
+      total_questions: qs.length,
+    };
+    // 'overleg' kolom bestaat niet — voeg mee in title-lokaal niet nodig; enkel gebruikt voor weergave
+    row.overleg = overleg;
+    const { data, error } = await sb.from("quiz_attempts").insert(row).select().single();
+    if(error){ toast("Opslaan mislukt: "+error.message,"err"); return; }
+    toast(`Poging opgeslagen — ${score}/${qs.length}`,"ok");
+    go("#/quiz/"+quizId+"/poging/"+data.id);
+  };
+}
+
+/* ============================================================
    STATISTIEK — gedeelde hulpjes
    ============================================================ */
 // Per gebruiker de meest recente niet-lege voorkeur uit de flags
@@ -2807,10 +3139,13 @@ async function viewStatsGebruikers(){
    MIJN ACCOUNT — reacties, profiel, wachtwoord
    ============================================================ */
 async function viewAccount(){
-  const [{data:flags},{data:myEvents}] = await Promise.all([
+  const [{data:flags},{data:myEvents},{data:myAttempts},{data:allQuizzes}] = await Promise.all([
     sb.from("flags").select("*").eq("user_id",ME.id).order("created_at",{ascending:false}).range(0,9999),
     sb.from("answer_events").select("is_correct,created_at").eq("user_id",ME.id).range(0,49999),
+    sb.from("quiz_attempts").select("*").eq("user_id",ME.id).order("submitted_at",{ascending:false}).limit(50),
+    sb.from("quizzes").select("id,title"),
   ]);
+  const quizTitle={}; (allQuizzes||[]).forEach(q=>quizTitle[q.id]=q.title);
   const qids=[...new Set((flags||[]).map(f=>f.question_id))];
   let qmap={};
   if(qids.length){ const {data:qq}=await sb.from("questions").select("id,qnum,quiz_id").in("id",qids); (qq||[]).forEach(q=>qmap[q.id]=q); }
@@ -2876,6 +3211,28 @@ async function viewAccount(){
       <label>Nieuw wachtwoord</label><input id="pw1" type="password" autocomplete="new-password">
       <label>Herhaal nieuw wachtwoord</label><input id="pw2" type="password" autocomplete="new-password">
       <div class="btnrow"><button class="btn btn-primary btn-sm" id="savePw">Wachtwoord wijzigen</button></div>
+    </div>
+
+    <h2>Historische pogingen (${(myAttempts||[]).length})</h2>
+    <p class="muted" style="font-size:.82rem">Officiële examens of oefensessies waarvan je de score bevroren wil bewaren, ook als de quiz-antwoorden later veranderen.</p>
+    <div class="stack" style="margin-bottom:1rem">
+      ${(myAttempts||[]).length ? myAttempts.map(a=>{
+        const pctA=(a.score+a.wrong)>0?Math.round(a.score/(a.score+a.wrong)*100):0;
+        return `<div class="card attempt-card">
+          <div class="spread" style="gap:.6rem;flex-wrap:wrap">
+            <div>
+              <div class="attempt-title"><strong>${esc(a.title||("Poging "+new Date(a.submitted_at).toLocaleDateString("nl-BE")))}</strong>
+                <span class="pill" style="background:var(--surface2);color:var(--text-muted);font-size:.68rem">${a.source||"manual"}</span></div>
+              <div class="muted" style="font-size:.78rem">${esc(quizTitle[a.quiz_id]||"(quiz verwijderd)")} · ${fmtDate(a.submitted_at)}</div>
+            </div>
+            <div class="attempt-score">
+              <div class="attempt-score-val ${pctA>=75?"ok":pctA>=50?"warn":"bad"}">${a.score}/${a.total_questions}</div>
+              <div class="muted" style="font-size:.72rem">${pctA}%</div>
+            </div>
+            <div class="btnrow" style="margin:0"><button class="btn btn-ghost btn-sm" data-nav="#/quiz/${a.quiz_id}/poging/${a.id}">Details →</button></div>
+          </div>
+        </div>`;
+      }).join("") : `<p class="muted">Nog geen pogingen. Open een quiz en klik op "📜 Historische pogingen" om er eentje toe te voegen.</p>`}
     </div>
 
     <h2>Mijn reacties (${(flags||[]).length})</h2>

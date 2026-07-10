@@ -1,0 +1,1 @@
+ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS overleg int NOT NULL DEFAULT 0;
