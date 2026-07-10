@@ -404,11 +404,14 @@ async function viewHome(){
       </div>
     </div>`;}).join("");
   await loadGamesConfig();
+  const active=activeGames();
+  const myStatsArr = active.length ? await Promise.all(active.map(g=>gameStats(g.id, "me"))) : [];
+  const myStats={}; active.forEach((g,i)=>{ myStats[g.id]=myStatsArr[i]; });
   app.innerHTML=`
     <div class="spread"><h1>Quizzen</h1>${isEditor()?`<button class="btn btn-primary btn-sm" data-nav="#/beheer">Beheer</button>`:""}</div>
     <div class="dev-note">${ICON.info} QUIZT.ET wordt nog volop ontwikkeld — vernieuw af en toe eens de pagina om de laatste functies te hebben. <button class="btn btn-ghost btn-sm" id="hardRefresh" style="margin-left:.5rem">Nu vernieuwen</button></div>
     ${quizzes&&quizzes.length?`<div class="grid" style="margin-top:1rem">${cards}</div>`:`<div class="empty">Nog geen quizzen.</div>`}
-    ${renderGamesSection()}
+    ${renderGamesSection(myStats)}
     <div id="gamesTop"></div>`;
   app.querySelectorAll("[data-open]").forEach(c=>c.onclick=()=>go("#/quiz/"+c.dataset.open));
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
@@ -426,6 +429,22 @@ async function bestPerUser(limit, since){
   const { data:rows }=await q;
   const seen=new Set(); const best=[]; (rows||[]).forEach(r=>{ if(seen.has(r.user_id)) return; seen.add(r.user_id); best.push(r); });
   return best.slice(0, limit||best.length);
+}
+
+// Stats per game — één query per active game, ofwel voor mij ofwel voor iedereen
+async function gameStats(gameId, userScope /* "me" | "all" */){
+  const isTetris = gameId==="tetris";
+  const tbl = isTetris ? "tetris_scores" : "game_scores";
+  let q = sb.from(tbl).select("user_id,score,created_at");
+  if(!isTetris) q = q.eq("game", gameId);
+  if(userScope==="me" && ME) q = q.eq("user_id", ME.id);
+  q = q.order("created_at",{ascending:false}).limit(5000);
+  const { data } = await q;
+  const rows = data || [];
+  if(!rows.length) return { plays:0, best:0, last:null, players:0 };
+  const best = rows.reduce((m,r)=>Math.max(m, r.score||0), 0);
+  const players = new Set(rows.map(r=>r.user_id)).size;
+  return { plays: rows.length, best, last: rows[0].created_at, players };
 }
 
 // Generieke best-per-user helper voor game_scores (snake/pong) — hoogste score per speler
@@ -1093,12 +1112,25 @@ function renderPlayDone(){
         <a class="btn btn-ghost" data-nav="#/">Naar quizzen</a>
       </div>
       <div style="margin-top:1rem"><a class="ilink" id="scrollToReview" style="font-size:.85rem">↓ Bekijk gedetailleerd overzicht van alle vragen</a></div>
-      ${(()=>{ const tetrisFree=!!(GAMES_CFG && GAMES_CFG.tetris && GAMES_CFG.tetris.free);
-        const eligible=tetrisFree || (qs.length>=25 && scored>0 && p>=80);
+      ${(()=>{
+        const list=activeGames();
+        if(!list.length) return "";
+        const rewardGames=list.filter(g=>!(GAMES_CFG[g.id]&&GAMES_CFG[g.id].free));
+        if(!rewardGames.length) return "";
+        const anyOk=rewardGames.some(g=>gateSatisfied(g.id, qs.length, p));
+        const btns=rewardGames.map(g=>{
+          const ok=gateSatisfied(g.id, qs.length, p);
+          const desc=gateDescription(g.id);
+          return `<button class="btn btn-ghost btn-sm" data-brain="${g.id}" ${ok?"":"disabled"} title="${ok?"Speel "+esc(g.name):"Vergrendeld — "+esc(desc||"voorwaarde niet gehaald")}">${g.icon} ${esc(g.name)} ${ok?"":"🔒"}</button>`;
+        }).join(" ");
+        const hint = anyOk
+          ? "Je hebt een pauze verdiend 🎉"
+          : `Ontgrendel deze games door de voorwaarde te halen: ${rewardGames.map(g=>{const d=gateDescription(g.id);return `${g.icon} ${esc(g.name)}${d?` (${esc(d)})`:""}`;}).join(" · ")}`;
         return `<div class="brain-break">
-          <div class="muted" style="font-size:.82rem;margin-bottom:.4rem">${eligible?(tetrisFree?"Zin in een rondje?":"Je hebt een pauze verdiend 🎉"):"Speel Tetris na een sessie van minstens 25 vragen met ≥80% juist."}</div>
-          <button class="btn btn-ghost btn-sm" id="openTetris" ${eligible?"":"disabled"} title="${eligible?"Speel een rondje Tetris":"Vergrendeld — je moet minstens 25 vragen doen én 80% juist scoren"}">🧱 Speel Tetris ${eligible?"":"🔒"}</button>
-        </div>`; })()}
+          <div class="muted" style="font-size:.82rem;margin-bottom:.4rem">${hint}</div>
+          <div class="btnrow" style="justify-content:center;flex-wrap:wrap">${btns}</div>
+        </div>`;
+      })()}
     </div>
 
     <div class="done-review">
@@ -1117,7 +1149,7 @@ function renderPlayDone(){
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
   const aw=document.getElementById("againWrong"); if(aw) aw.onclick=()=>startSession("alle","foute",PLAY.mode||"slim");
   document.getElementById("againNew").onclick=()=>viewPlay(PLAY.quiz.id);
-  const tb=document.getElementById("openTetris"); if(tb && !tb.disabled) tb.onclick=openTetris;
+  app.querySelectorAll("[data-brain]").forEach(b=>{ if(b.disabled) return; b.onclick=()=>{ const g=GAMES.find(x=>x.id===b.dataset.brain); if(g && typeof g.open==="function") g.open(); }; });
   app.querySelectorAll("[data-rvf]").forEach(b=>b.onclick=()=>{
     const f=b.dataset.rvf;
     app.querySelectorAll("[data-rvf]").forEach(x=>x.classList.toggle("active", x===b));
@@ -1503,15 +1535,28 @@ function openPong(){
       ball.x+=ballV.x; ball.y+=ballV.y;
       if(ball.y<BALL/2){ ball.y=BALL/2; ballV.y*=-1; }
       if(ball.y>H-BALL/2){ ball.y=H-BALL/2; ballV.y*=-1; }
-      // Speler-paddle
+      // Gebogen paddle: relatieve raakplaats bepaalt hoek, sneller ramp bij lage snelheid,
+      // afvlakkend rond snelheid 8.
+      const MAX_ANGLE = Math.PI/2.7;  // ~66°
+      const MAX_SPEED = 11;
+      const paddleHit=(paddleTop, sideRight)=>{
+        const off = (ball.y-(paddleTop+PAD_H/2)) / (PAD_H/2);            // -1..+1
+        const curved = Math.sign(off) * Math.pow(Math.min(Math.abs(off),1), 0.65);
+        const angle = curved * MAX_ANGLE;
+        const cur = Math.hypot(ballV.x, ballV.y);
+        const gain = cur<5 ? 1.14 : cur<7 ? 1.08 : cur<9 ? 1.035 : 1.015;
+        const next = Math.min(MAX_SPEED, cur*gain);
+        const dir = sideRight ? -1 : 1;
+        ballV.x = dir * Math.abs(next * Math.cos(angle));
+        ballV.y = next * Math.sin(angle);
+      };
+      // Speler-paddle (links)
       if(ball.x-BALL/2 <= PAD_W && ball.y>=py && ball.y<=py+PAD_H && ballV.x<0){
-        ball.x=PAD_W+BALL/2; ballV.x*=-1.05;
-        ballV.y += ((ball.y-(py+PAD_H/2))/PAD_H)*3;
+        ball.x=PAD_W+BALL/2; paddleHit(py, false);
       }
-      // CPU-paddle
+      // CPU-paddle (rechts)
       if(ball.x+BALL/2 >= W-PAD_W && ball.y>=cy && ball.y<=cy+PAD_H && ballV.x>0){
-        ball.x=W-PAD_W-BALL/2; ballV.x*=-1.05;
-        ballV.y += ((ball.y-(cy+PAD_H/2))/PAD_H)*3;
+        ball.x=W-PAD_W-BALL/2; paddleHit(cy, true);
       }
       if(ball.x<0){ scoreCpu++; if(scoreCpu>=WIN_SCORE){ over=true; } else reset("you"); }
       else if(ball.x>W){ scoreYou++; if(scoreYou>=WIN_SCORE){ over=true; submitPongScore(); } else reset("cpu"); }
@@ -1523,8 +1568,25 @@ function openPong(){
     ctx.strokeStyle="rgba(255,255,255,.25)"; ctx.setLineDash([6,6]);
     ctx.beginPath(); ctx.moveTo(W/2,0); ctx.lineTo(W/2,H); ctx.stroke(); ctx.setLineDash([]);
     ctx.fillStyle="#fff";
-    ctx.fillRect(0, py, PAD_W, PAD_H);
-    ctx.fillRect(W-PAD_W, cy, PAD_W, PAD_H);
+    // Gebogen paddles: rechthoek met sterke ronding aan de kant richting de bal
+    const drawPaddle=(x, y, w, h, facingRight)=>{
+      const r=Math.min(w, h/2);
+      ctx.beginPath();
+      if(facingRight){
+        ctx.moveTo(x, y);
+        ctx.lineTo(x+w-r, y);
+        ctx.quadraticCurveTo(x+w+r*0.6, y+h/2, x+w-r, y+h);
+        ctx.lineTo(x, y+h);
+      } else {
+        ctx.moveTo(x+w, y);
+        ctx.lineTo(x+r, y);
+        ctx.quadraticCurveTo(x-r*0.6, y+h/2, x+r, y+h);
+        ctx.lineTo(x+w, y+h);
+      }
+      ctx.closePath(); ctx.fill();
+    };
+    drawPaddle(0, py, PAD_W, PAD_H, true);
+    drawPaddle(W-PAD_W, cy, PAD_W, PAD_H, false);
     ctx.beginPath(); ctx.arc(ball.x, ball.y, BALL/2, 0, Math.PI*2); ctx.fill();
     overlay.querySelector("#pgYou").textContent=scoreYou;
     overlay.querySelector("#pgCpu").textContent=scoreCpu;
@@ -1886,16 +1948,25 @@ function openBreakout(){
    Wordt bewaard in app_settings.games_config (jsonb).
    ============================================================ */
 const GAMES = [
-  { id:"tetris",   name:"Tetris",   icon:"🧱", desc:"Klassieke blokjes-pauze.",       defaultEnabled:true,  defaultFree:false, defaultReset:"off", defaultDifficulty:"normal", lockedHint:"Ontgrendel na een oefensessie van ≥25 vragen én ≥80% juist.", open:openTetris   },
-  { id:"snake",    name:"Snake",    icon:"🐍", desc:"Blijf leven, eet, groei.",        defaultEnabled:true,  defaultFree:true,  defaultReset:"off", defaultDifficulty:"normal", lockedHint:"Vergrendeld door een beheerder.", open:openSnake    },
-  { id:"pong",     name:"Pong",     icon:"🏓", desc:"Retro paddle vs CPU.",            defaultEnabled:true,  defaultFree:true,  defaultReset:"off", defaultDifficulty:"normal", lockedHint:"Vergrendeld door een beheerder.", open:openPong     },
-  { id:"g2048",    name:"2048",     icon:"🔢", desc:"Schuif en versmelt getallen.",    defaultEnabled:false, defaultFree:true,  defaultReset:"off", defaultDifficulty:"normal", lockedHint:"Vergrendeld door een beheerder.", open:open2048     },
-  { id:"breakout", name:"Breakout", icon:"🧱", desc:"Kaats de bal, sla stenen weg.",   defaultEnabled:false, defaultFree:true,  defaultReset:"off", defaultDifficulty:"normal", lockedHint:"Vergrendeld door een beheerder.", open:openBreakout },
+  { id:"tetris",   name:"Tetris",   icon:"🧱", desc:"Klassieke blokjes-pauze.",       defaultEnabled:true,  defaultFree:false, defaultReset:"off", defaultDifficulty:"normal", defaultGate:{minQuestions:25, minPercent:80}, open:openTetris   },
+  { id:"snake",    name:"Snake",    icon:"🐍", desc:"Blijf leven, eet, groei.",        defaultEnabled:true,  defaultFree:true,  defaultReset:"off", defaultDifficulty:"normal", defaultGate:{minQuestions:0, minPercent:0},  open:openSnake    },
+  { id:"pong",     name:"Pong",     icon:"🏓", desc:"Retro paddle vs CPU.",            defaultEnabled:true,  defaultFree:true,  defaultReset:"off", defaultDifficulty:"normal", defaultGate:{minQuestions:0, minPercent:0},  open:openPong     },
+  { id:"g2048",    name:"2048",     icon:"🔢", desc:"Schuif en versmelt getallen.",    defaultEnabled:false, defaultFree:true,  defaultReset:"off", defaultDifficulty:"normal", defaultGate:{minQuestions:0, minPercent:0},  open:open2048     },
+  { id:"breakout", name:"Breakout", icon:"🧱", desc:"Kaats de bal, sla stenen weg.",   defaultEnabled:false, defaultFree:true,  defaultReset:"off", defaultDifficulty:"normal", defaultGate:{minQuestions:0, minPercent:0},  open:openBreakout },
 ];
 const RESET_MODES = ["off","weekly","monthly"];
 const DIFFICULTIES = ["easy","normal","hard"];
 let GAMES_CFG=null;
-function gamesDefaults(){ const d={}; GAMES.forEach(g=>d[g.id]={enabled:g.defaultEnabled!==false, free:!!g.defaultFree, reset:g.defaultReset||"off", difficulty:g.defaultDifficulty||"normal"}); return d; }
+function gamesDefaults(){ const d={}; GAMES.forEach(g=>d[g.id]={
+  enabled:g.defaultEnabled!==false, free:!!g.defaultFree,
+  reset:g.defaultReset||"off", difficulty:g.defaultDifficulty||"normal",
+  gate:{ minQuestions:(g.defaultGate&&g.defaultGate.minQuestions)||0, minPercent:(g.defaultGate&&g.defaultGate.minPercent)||0 },
+}); return d; }
+function cleanGate(g){
+  const q=Math.max(0, Math.min(500, parseInt(g&&g.minQuestions,10)||0));
+  const p=Math.max(0, Math.min(100, parseInt(g&&g.minPercent,10)||0));
+  return { minQuestions:q, minPercent:p };
+}
 async function loadGamesConfig(){
   const defaults=gamesDefaults();
   try{
@@ -1910,6 +1981,7 @@ async function loadGamesConfig(){
         free: typeof s.free==="boolean" ? s.free : defaults[g.id].free,
         reset: RESET_MODES.includes(s.reset) ? s.reset : defaults[g.id].reset,
         difficulty: DIFFICULTIES.includes(s.difficulty) ? s.difficulty : defaults[g.id].difficulty,
+        gate: s.gate ? cleanGate(s.gate) : defaults[g.id].gate,
       };
     });
   }catch(e){ GAMES_CFG=defaults; }
@@ -1923,11 +1995,28 @@ async function saveGamesConfig(cfg){
       free: !!s.free,
       reset: RESET_MODES.includes(s.reset) ? s.reset : "off",
       difficulty: DIFFICULTIES.includes(s.difficulty) ? s.difficulty : "normal",
+      gate: cleanGate(s.gate),
     };
   });
   const { error }=await sb.from("app_settings").update({ games_config: clean }).eq("id",1);
   if(error) throw error;
   GAMES_CFG=clean;
+}
+function gameGate(gameId){
+  return (GAMES_CFG && GAMES_CFG[gameId] && GAMES_CFG[gameId].gate) || { minQuestions:0, minPercent:0 };
+}
+function gateSatisfied(gameId, sessionN, sessionPct){
+  const g=gameGate(gameId);
+  const nOK = (g.minQuestions||0)<=0 || sessionN>=g.minQuestions;
+  const pOK = (g.minPercent||0)<=0 || sessionPct>=g.minPercent;
+  return nOK && pOK;
+}
+function gateDescription(gameId){
+  const g=gameGate(gameId);
+  const parts=[];
+  if(g.minQuestions>0) parts.push(`≥${g.minQuestions} vragen`);
+  if(g.minPercent>0)   parts.push(`≥${g.minPercent}% juist`);
+  return parts.length ? parts.join(" · ") : "";
 }
 function gameDifficulty(gameId){
   return (GAMES_CFG && GAMES_CFG[gameId] && GAMES_CFG[gameId].difficulty) || "normal";
@@ -1956,18 +2045,26 @@ function periodLabel(mode){
 function gameResetMode(gameId){
   return (GAMES_CFG && GAMES_CFG[gameId] && GAMES_CFG[gameId].reset) || "off";
 }
-function renderGamesSection(){
+function renderGamesSection(myStats){
   if(!GAMES_CFG) return "";
   const list=activeGames();
   if(!list.length) return "";
+  const stats=myStats||{};
   const cards=list.map(g=>{
     const free=!!(GAMES_CFG[g.id]&&GAMES_CFG[g.id].free);
+    const s=stats[g.id];
+    const counter = s && s.plays>0
+      ? `<div class="game-counter" title="Jouw statistieken voor deze game">📊 ${s.plays} ${s.plays===1?"partij":"partijen"} · beste <strong>${s.best}</strong></div>`
+      : `<div class="game-counter muted" style="opacity:.7">Nog niet gespeeld</div>`;
+    const gateDesc = !free ? gateDescription(g.id) : "";
+    const lockedText = gateDesc ? `Ontgrendel via een oefensessie (${esc(gateDesc)}).` : (g.lockedHint||"Vergrendeld door een beheerder.");
     return `<div class="card game-card ${free?"":"locked"}">
       <div class="game-card-top"><span class="game-icon">${g.icon}</span><h3 style="margin:0">${esc(g.name)}</h3></div>
-      <p class="muted" style="font-size:.85rem;margin:.3rem 0 .6rem 0">${esc(g.desc)}</p>
+      <p class="muted" style="font-size:.85rem;margin:.3rem 0 .5rem 0">${esc(g.desc)}</p>
+      ${counter}
       ${free
-        ? `<button class="btn btn-primary btn-sm" data-play="${g.id}">Speel</button>`
-        : `<div class="game-lock">🔒 ${esc(g.lockedHint||"Vergrendeld.")}</div>`
+        ? `<button class="btn btn-primary btn-sm" data-play="${g.id}" style="margin-top:.4rem">Speel</button>`
+        : `<div class="game-lock" style="margin-top:.4rem">🔒 ${esc(lockedText)}</div>`
       }
     </div>`;
   }).join("");
@@ -2455,9 +2552,41 @@ async function viewStatsVragen(){
         <td><a class="btn btn-ghost btn-sm" data-nav="#/quiz/${x.q.id}/stats">Details</a></td></tr>`).join("")}</tbody>
     </table></div>
     <h2>Alle vragen</h2>
-    <div id="svTable"></div>`;
+    <div id="svTable"></div>
+    <h2 style="margin-top:1.8rem">🎮 Games</h2>
+    <div id="gamesStatsMount"><p class="muted">Games-statistieken laden…</p></div>`;
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
   mountStatsTable("svTable", agg, qtitle);
+  renderGamesStatsBlock();
+}
+
+async function renderGamesStatsBlock(){
+  await loadGamesConfig();
+  const mount=document.getElementById("gamesStatsMount"); if(!mount) return;
+  const list=activeGames();
+  if(!list.length){ mount.innerHTML=`<p class="muted">Geen actieve games.</p>`; return; }
+  const [mine, all] = await Promise.all([
+    Promise.all(list.map(g=>gameStats(g.id, "me"))),
+    Promise.all(list.map(g=>gameStats(g.id, "all"))),
+  ]);
+  const fmtLast=d=>d?new Date(d).toLocaleDateString("nl-BE",{day:"2-digit",month:"short",year:"numeric"}):"—";
+  mount.innerHTML=`<div class="card" style="padding:.3rem"><table>
+    <thead><tr><th>Game</th><th>Jij: partijen</th><th>Jij: beste</th><th>Jij: laatst</th><th>Iedereen: partijen</th><th>Spelers</th><th>Iedereen: beste</th></tr></thead>
+    <tbody>${list.map((g,i)=>{
+      const m=mine[i], a=all[i];
+      return `<tr>
+        <td>${g.icon} <strong>${esc(g.name)}</strong></td>
+        <td>${m.plays||"—"}</td>
+        <td>${m.plays?m.best:"—"}</td>
+        <td class="muted" style="font-size:.78rem">${fmtLast(m.last)}</td>
+        <td>${a.plays||"—"}</td>
+        <td>${a.players||"—"}</td>
+        <td>${a.plays?a.best:"—"}</td>
+      </tr>`;
+    }).join("")}</tbody>
+  </table></div>
+  <p class="muted" style="font-size:.78rem;margin-top:.4rem">Cumulatief — tellingen negeren de scorereset. Volledige ranglijst per periode: <a class="ilink" data-nav="#/scorebord">Scorebord →</a></p>`;
+  mount.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
 }
 
 /* ============================================================
@@ -3130,6 +3259,12 @@ async function renderSettings(){
             ${DIFFICULTIES.map(d=>`<option value="${d}" ${cfg[g.id]&&cfg[g.id].difficulty===d?"selected":""}>${diffLabel[d]}</option>`).join("")}
           </select>
         </label>
+        <div class="games-cfg-line games-cfg-gate">
+          <span>Quiz-voorwaarde:</span>
+          <label>min. vragen <input type="number" min="0" max="500" step="1" data-gategnq="${g.id}" value="${(cfg[g.id]&&cfg[g.id].gate&&cfg[g.id].gate.minQuestions)||0}" style="width:5.5rem"></label>
+          <label>min. % juist <input type="number" min="0" max="100" step="1" data-gategpct="${g.id}" value="${(cfg[g.id]&&cfg[g.id].gate&&cfg[g.id].gate.minPercent)||0}" style="width:5rem"></label>
+          <span class="muted" style="font-size:.72rem">(0 = geen voorwaarde)</span>
+        </div>
       </div>`).join("")}
     </div>
     <div id="gamesCfgStatus" class="muted" style="font-size:.78rem;margin-top:.4rem"></div>`;
@@ -3146,6 +3281,10 @@ async function renderSettings(){
       free: document.querySelector(`[data-gamefree="${g.id}"]`).checked,
       reset: document.querySelector(`[data-gamereset="${g.id}"]`).value,
       difficulty: document.querySelector(`[data-gamediff="${g.id}"]`).value,
+      gate: {
+        minQuestions: parseInt(document.querySelector(`[data-gategnq="${g.id}"]`).value,10)||0,
+        minPercent:   parseInt(document.querySelector(`[data-gategpct="${g.id}"]`).value,10)||0,
+      },
     }; });
     return c;
   };
@@ -3156,7 +3295,7 @@ async function renderSettings(){
       toast("Opslaan mislukt — zie melding onder de games-instellingen.","err");
     }
   };
-  document.querySelectorAll('[data-gameenabled],[data-gamefree],[data-gamereset],[data-gamediff]').forEach(el=>el.onchange=persist);
+  document.querySelectorAll('[data-gameenabled],[data-gamefree],[data-gamereset],[data-gamediff],[data-gategnq],[data-gategpct]').forEach(el=>el.onchange=persist);
 }
 
 /* ============================================================
