@@ -2680,45 +2680,122 @@ function textSim(a,b){
   return inter/(A.size+B.size-inter);
 }
 
-// Parse ruwe tekst uit een MS-Forms PDF en probeer per vraag de gekozen opties te detecteren.
-// Levert een array {questionIndex, optionIndex[]} — best-effort, gebruiker moet valideren.
-function parseFormsPdfText(pageTexts, questions){
-  // Selected markers in MS Forms PDFs: ●, ◉, ⬤, ✓, ✔ (filled radio), ✓, ☑ (checked box)
-  const SELECTED_RE = /[●◉⬤✓✔☑■]/;
-  const suggestions={}; // qid → [optionIndex]
-  const combined = pageTexts.join("\n");
-  // Zoek "N." + vraagtekst-blokken door de tekst en probeer per gevonden blok de gekozen regels te vinden.
-  // Voor elke vraag in de DB zoeken we het meest gelijkende blok in de PDF-tekst.
-  const lines = combined.split("\n").map(x=>x.trim()).filter(x=>x);
-  // Vind vermoedelijke vraag-starts: regels die met "N." beginnen
-  const starts=[];
-  for(let i=0;i<lines.length;i++){
-    const m=lines[i].match(/^(\d+)\.\s*(.*)$/);
-    if(m){ starts.push({ i, num:parseInt(m[1],10), rest:m[2] }); }
+// PDF-parsing voor MS Forms: render elke pagina en detecteer selectie op basis van
+// pixel-donkerheid links van de optietekst. Text-markers zijn onbetrouwbaar want
+// de radio buttons zijn vector-graphics, niet tekst.
+async function parseFormsPdfPixels(pdf, questions, onProgress){
+  const SCALE = 2.0;
+  const pages = [];  // { imgData, viewport, lines: [{y, x, text, items}] }
+
+  for(let pn=1; pn<=pdf.numPages; pn++){
+    if(onProgress) onProgress(`Pagina ${pn}/${pdf.numPages} renderen…`);
+    const page = await pdf.getPage(pn);
+    const viewport = page.getViewport({ scale: SCALE });
+    const canvas = document.createElement("canvas");
+    canvas.width = viewport.width; canvas.height = viewport.height;
+    const ctx = canvas.getContext("2d", { willReadFrequently:true });
+    await page.render({ canvasContext:ctx, viewport }).promise;
+    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const content = await page.getTextContent();
+
+    // Groepeer text-items in regels op basis van y-coördinaat
+    const items = content.items.map(it=>{
+      const [a,b,c,d,e,f] = it.transform;
+      const [xc, yc] = viewport.convertToViewportPoint(e, f);
+      const h = Math.hypot(b, d) * SCALE;
+      return { str: it.str, x: xc, y: yc, h };
+    }).filter(it=>it.str && it.str.trim());
+    items.sort((a,b)=> a.y - b.y || a.x - b.x);
+    const lines = [];
+    let cur = null;
+    for(const it of items){
+      if(!cur || Math.abs(it.y - cur.y) > cur.h*0.6){
+        cur = { y: it.y, x: it.x, text: it.str, h: it.h, items: [it] };
+        lines.push(cur);
+      } else {
+        cur.items.push(it);
+        cur.x = Math.min(cur.x, it.x);
+        cur.text += (cur.text.endsWith(" ")?"":" ") + it.str;
+      }
+    }
+    pages.push({ imgData, viewport, lines });
   }
-  // Bouw blokken: tekst tussen vraag N en vraag N+1
-  const blocks=starts.map((s,idx)=>{
-    const end = idx+1<starts.length ? starts[idx+1].i : lines.length;
-    const block = lines.slice(s.i, end).join(" ").replace(/^\d+\.\s*/,"");
-    return { num:s.num, text:block };
-  });
-  // Voor elke vraag in DB: kies het blok met hoogste tekstgelijkenis
-  questions.forEach(q=>{
-    let best=null, bestSim=0;
-    blocks.forEach(b=>{ const s=textSim(q.text, b.text); if(s>bestSim){ bestSim=s; best=b; } });
-    if(!best || bestSim<0.15) return; // te lage overeenkomst
-    // Binnen het blok: zoek per optie tekst de gelijkende regel en kijk of er markers voor staan
-    const blockLines = lines.slice(starts.find(s=>s.num===best.num).i, starts[starts.findIndex(s=>s.num===best.num)+1] ? starts[starts.findIndex(s=>s.num===best.num)+1].i : lines.length);
-    const opts=q.options||[];
-    const chosen=[];
-    opts.forEach((opt,idx)=>{
-      // Vind de best matchende regel voor deze optie
-      let bl=null, blSim=0;
-      blockLines.forEach(ln=>{ const s=textSim(opt, ln); if(s>blSim){ blSim=s; bl=ln; } });
-      if(bl && blSim>=0.4 && SELECTED_RE.test(bl)) chosen.push(idx);
+
+  if(onProgress) onProgress("Vragen matchen…");
+
+  // Vind genummerde vraag-starts over alle pagina's
+  const starts = [];
+  pages.forEach((pg, pi)=>{
+    pg.lines.forEach((ln, li)=>{
+      const m = ln.text.match(/^(\d+)\.\s+/);
+      if(m) starts.push({ page: pi, lineIdx: li, num: parseInt(m[1],10) });
     });
-    if(chosen.length) suggestions[q.id]=chosen;
   });
+
+  // Bouw voor elke start het bijhorende blok van regels tot de volgende start
+  const blocks = starts.map((s, i)=>{
+    const next = starts[i+1];
+    const blockLines = [];
+    const endPage = next ? next.page : pages.length-1;
+    for(let p = s.page; p <= endPage; p++){
+      const lines = pages[p].lines;
+      const from = (p===s.page) ? s.lineIdx : 0;
+      const to   = (next && p===next.page) ? next.lineIdx : lines.length;
+      for(let k=from; k<to; k++) blockLines.push({ page: p, ...lines[k] });
+    }
+    return { num: s.num, lines: blockLines, text: blockLines.map(l=>l.text).join(" ") };
+  });
+
+  // Pixel-sample helper: gemiddelde donkerheid in een klein cirkeltje ter hoogte van optie-regel
+  const sampleDark = (bmp, cx, cy, r) => {
+    let dark=0, tot=0;
+    const w = bmp.width, h = bmp.height;
+    for(let dy=-r; dy<=r; dy++){
+      for(let dx=-r; dx<=r; dx++){
+        if(dx*dx + dy*dy > r*r) continue;
+        const px = Math.round(cx+dx), py = Math.round(cy+dy);
+        if(px<0||py<0||px>=w||py>=h) continue;
+        const off = (py*w + px)*4;
+        const lum = (bmp.data[off] + bmp.data[off+1] + bmp.data[off+2]) / 3;
+        tot++; if(lum < 100) dark++;
+      }
+    }
+    return tot ? dark/tot : 0;
+  };
+
+  const suggestions = {};
+  const debug = { matched:0, unmatched:0 };
+  questions.forEach(q=>{
+    // Kies blok met hoogste tekst-overeenkomst met de vraagtekst
+    let best=null, bestSim=0;
+    for(const bl of blocks){
+      const s = textSim(q.text, bl.text);
+      if(s > bestSim){ bestSim = s; best = bl; }
+    }
+    if(!best || bestSim < 0.12){ debug.unmatched++; return; }
+    debug.matched++;
+
+    // Voor elke optie: vind best matchende regel in het blok en sample de pixels links
+    const chosen = [];
+    (q.options||[]).forEach((opt, idx)=>{
+      let bl=null, blSim=0;
+      for(const ln of best.lines){
+        const s = textSim(opt, ln.text);
+        if(s > blSim){ blSim = s; bl = ln; }
+      }
+      if(!bl || blSim < 0.28) return;
+      const bmp = pages[bl.page].imgData;
+      // Radio button zit typisch 20-40 canvas-pixels links van de tekst
+      const cx = Math.max(0, bl.x - 22);
+      const cy = bl.y - bl.h*0.55;    // ongeveer het midden van het bolletje
+      const r  = Math.max(5, Math.round(bl.h*0.35));
+      const ratio = sampleDark(bmp, cx, cy, r);
+      // Leeg bolletje: enkel ringrand → ~10-25% donker. Gevuld: 60%+
+      if(ratio > 0.42) chosen.push(idx);
+    });
+    if(chosen.length) suggestions[q.id] = chosen;
+  });
+  suggestions.__debug = debug;
   return suggestions;
 }
 
@@ -2814,25 +2891,20 @@ async function viewNewAttempt(quizId){
   document.getElementById("atPdf").onchange=async e=>{
     const f=e.target.files[0]; if(!f) return;
     const statusEl=document.getElementById("atPdfStatus");
-    statusEl.textContent="PDF laden…";
+    const setStatus=(msg)=>{ statusEl.textContent=msg; };
+    setStatus("PDF laden…");
     try{
       const lib=await loadPdfJs();
       const buf=await f.arrayBuffer();
       const pdf=await lib.getDocument({data:buf}).promise;
-      const pages=[];
-      for(let i=1;i<=pdf.numPages;i++){
-        const page=await pdf.getPage(i);
-        const content=await page.getTextContent();
-        pages.push(content.items.map(it=>it.str).join("\n"));
-      }
-      statusEl.textContent="Vragen matchen…";
-      const suggestions=parseFormsPdfText(pages, qs);
+      const suggestions=await parseFormsPdfPixels(pdf, qs, setStatus);
+      const debug=suggestions.__debug || {}; delete suggestions.__debug;
       let filled=0;
       Object.keys(suggestions).forEach(qid=>{ state.answers[qid]=suggestions[qid]; filled++; });
       document.getElementById("atList").innerHTML=renderQuestions();
       attachOptionHandlers();
       paintSummary();
-      statusEl.innerHTML=`✅ Auto-gedetecteerd voor <strong>${filled}</strong> / ${qs.length} vragen. <span style="color:var(--warn)">Verifieer elke vraag voor je opslaat.</span>`;
+      statusEl.innerHTML=`✅ Auto-gedetecteerd voor <strong>${filled}</strong> / ${qs.length} vragen (${debug.matched||0} vragen gematcht in PDF). <span style="color:var(--warn)">Verifieer elke vraag voor je opslaat.</span>`;
     }catch(err){
       statusEl.innerHTML=`<span style="color:var(--wrong)">PDF-import mislukt: ${esc(err.message||err)}</span>`;
     }
