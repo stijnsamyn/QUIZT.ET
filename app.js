@@ -2833,12 +2833,29 @@ async function viewNewAttempt(quizId){
   if(!quiz){ app.innerHTML=`<div class="empty">Quiz niet gevonden.</div>`; return; }
   const { data:questions } = await sb.from("questions").select("*").eq("quiz_id",quizId).order("sort_order");
   const qs=questions||[];
-  const state = { title:"", answers:{} };  // answers: qid → [chosen_idx]
+  const state = { title:"", answers:{}, filter:"alle" };  // filter: alle|fout|juist|onbeantwoord
 
+  const qStatus=(q)=>{
+    const chosen=arr(state.answers[q.id]);
+    const correct=arr(q.correct_indexes);
+    if(!chosen.length) return "onbeantwoord";
+    if(!correct.length || q.validated===false) return "overleg";
+    return setEq(chosen, correct) ? "juist" : "fout";
+  };
+  const filteredQs=()=>{
+    if(state.filter==="alle") return qs;
+    if(state.filter==="fout") return qs.filter(q=>qStatus(q)==="fout");
+    if(state.filter==="juist") return qs.filter(q=>qStatus(q)==="juist");
+    if(state.filter==="onbeantwoord") return qs.filter(q=>qStatus(q)==="onbeantwoord");
+    return qs;
+  };
   const renderQuestions=()=>{
-    return qs.map(q=>{
+    const list=filteredQs();
+    if(!list.length) return `<p class="muted" style="padding:.6rem">Geen vragen in deze filter.</p>`;
+    return list.map(q=>{
       const multi = q.multi || arr(q.correct_indexes).length>1;
       const chosen = arr(state.answers[q.id]);
+      const correct = arr(q.correct_indexes);
       const opts = (q.options||[]).map((o,i)=>{
         const isPicked = chosen.includes(i);
         const inputType = multi ? "checkbox" : "radio";
@@ -2848,10 +2865,27 @@ async function viewNewAttempt(quizId){
           <span>${esc(o)}</span>
         </label>`;
       }).join("");
+      const correctEditor = isEditor() ? `
+        <details class="attempt-q-edit">
+          <summary>✏️ Correct antwoord van deze vraag aanpassen</summary>
+          <div class="attempt-q-edit-body">
+            <p class="muted" style="font-size:.78rem;margin:.2rem 0 .4rem 0">Vink de juiste antwoord(en) aan. Wijzigingen gelden voor de quiz zelf (dus voor iedereen). Je persoonlijke antwoord blijft ongewijzigd.</p>
+            ${(q.options||[]).map((o,i)=>`<label class="attempt-opt-corr ${correct.includes(i)?"is-correct":""}">
+              <input type="checkbox" data-corr-qid="${q.id}" value="${i}" ${correct.includes(i)?"checked":""}>
+              <span class="letter">${letter(i)}.</span>
+              <span>${esc(o)}</span>
+            </label>`).join("")}
+            <div class="btnrow" style="margin-top:.4rem">
+              <button class="btn btn-primary btn-sm" data-corr-save="${q.id}">Opslaan</button>
+              <span class="muted corr-status" data-corr-status="${q.id}" style="font-size:.78rem"></span>
+            </div>
+          </div>
+        </details>` : "";
       return `<div class="card attempt-q" data-q-block="${q.id}">
-        <div class="attempt-q-hd"><span class="q-num">${q.qnum}</span>${multi?`<span class="pill" style="background:var(--surface2);color:var(--text-muted);font-size:.68rem">meerkeuze</span>`:""}</div>
+        <div class="attempt-q-hd"><span class="q-num">${q.qnum}</span>${multi?`<span class="pill" style="background:var(--surface2);color:var(--text-muted);font-size:.68rem">meerkeuze</span>`:""}${correct.length?`<span class="muted" style="font-size:.75rem">juist: <strong>${lettersOf(correct)}</strong></span>`:`<span class="pill twijfel" style="font-size:.68rem">nog geen juist antwoord</span>`}</div>
         <div class="q-text" style="margin:.3rem 0 .5rem 0">${esc(q.text)}</div>
         <div>${opts}</div>
+        ${correctEditor}
       </div>`;
     }).join("");
   };
@@ -2870,6 +2904,10 @@ async function viewNewAttempt(quizId){
       </div>
     </div>
     <div id="atSummary" class="attempt-summary muted" style="margin:.8rem 0"></div>
+    <div class="filterbar" id="atFilter" style="margin-bottom:.6rem">
+      <span class="muted">Toon:</span>
+      ${[["alle","Alle"],["fout","Enkel fout"],["juist","Juist"],["onbeantwoord","Nog niet beantwoord"]].map(([v,l])=>`<button class="chip-toggle" data-atfilter="${v}">${l} <span class="atfilter-count" data-c="${v}">0</span></button>`).join("")}
+    </div>
     <div id="atList" class="stack">${renderQuestions()}</div>
     <div class="attempt-actions">
       <div class="btnrow">
@@ -2882,11 +2920,50 @@ async function viewNewAttempt(quizId){
 
   const summary=document.getElementById("atSummary");
   const paintSummary=()=>{
-    const answered=Object.values(state.answers).filter(x=>arr(x).length).length;
-    summary.innerHTML=`Ingevuld: <strong>${answered}</strong> / ${qs.length}`;
+    let answered=0, right=0, wrong=0, todo=0;
+    qs.forEach(q=>{
+      const s=qStatus(q);
+      if(s==="onbeantwoord") todo++;
+      else { answered++; if(s==="juist") right++; else if(s==="fout") wrong++; }
+    });
+    summary.innerHTML=`Ingevuld: <strong>${answered}</strong> / ${qs.length} · <span style="color:var(--correct)">${right} juist</span> · <span style="color:var(--wrong)">${wrong} fout</span> · <span class="muted">${todo} nog te doen</span>`;
+    document.querySelectorAll(".atfilter-count").forEach(el=>{
+      const k=el.dataset.c;
+      el.textContent = k==="alle"?qs.length : k==="fout"?wrong : k==="juist"?right : todo;
+    });
+    document.querySelectorAll("[data-atfilter]").forEach(b=>b.classList.toggle("active", b.dataset.atfilter===state.filter));
+  };
+  const rerender=()=>{
+    document.getElementById("atList").innerHTML=renderQuestions();
+    attachOptionHandlers();
+    attachCorrectHandlers();
+    paintSummary();
   };
   paintSummary();
+  document.querySelectorAll("[data-atfilter]").forEach(b=>b.onclick=()=>{ state.filter=b.dataset.atfilter; rerender(); });
 
+  const attachCorrectHandlers=()=>{
+    document.querySelectorAll("[data-corr-save]").forEach(btn=>btn.onclick=async()=>{
+      const qid=btn.dataset.corrSave;
+      const q=qs.find(x=>x.id===qid); if(!q) return;
+      const checked=[...document.querySelectorAll(`[data-corr-qid="${qid}"]:checked`)].map(el=>parseInt(el.value,10)).sort((a,b)=>a-b);
+      const statusEl=document.querySelector(`[data-corr-status="${qid}"]`);
+      const newMulti = checked.length>1;
+      if(statusEl) statusEl.textContent="Opslaan…";
+      const { error }=await sb.from("questions").update({ correct_indexes: checked, multi: newMulti }).eq("id",qid);
+      if(error){ if(statusEl) statusEl.innerHTML=`<span style="color:var(--wrong)">${esc(error.message)}</span>`; return; }
+      q.correct_indexes=checked;
+      q.multi=newMulti;
+      if(statusEl) statusEl.innerHTML=`<span style="color:var(--correct)">✓ Opgeslagen</span>`;
+      // Herrender enkel dit blok zodat de status-pill + eventueel single/multi input-type updaten
+      const block=document.querySelector(`[data-q-block="${qid}"]`);
+      if(block){
+        const wrap=document.createElement("div"); wrap.innerHTML=renderQuestions();
+        const fresh=wrap.querySelector(`[data-q-block="${qid}"]`);
+        if(fresh){ block.replaceWith(fresh); attachOptionHandlers(); attachCorrectHandlers(); paintSummary(); }
+      }
+    });
+  };
   const attachOptionHandlers=()=>{
     document.querySelectorAll("input[data-qid]").forEach(el=>{
       el.onchange=()=>{
@@ -2914,6 +2991,7 @@ async function viewNewAttempt(quizId){
     });
   };
   attachOptionHandlers();
+  attachCorrectHandlers();
 
   document.getElementById("atTitle").oninput=e=>{ state.title=e.target.value; };
 
@@ -2932,9 +3010,7 @@ async function viewNewAttempt(quizId){
       console.log("[PDF-import] per-question darkness:", debug.perQuestion);
       let filled=0;
       Object.keys(suggestions).forEach(qid=>{ state.answers[qid]=suggestions[qid]; filled++; });
-      document.getElementById("atList").innerHTML=renderQuestions();
-      attachOptionHandlers();
-      paintSummary();
+      rerender();
       statusEl.innerHTML=`✅ Auto-gedetecteerd voor <strong>${filled}</strong> / ${qs.length} vragen (${debug.matched||0} vragen gematcht in PDF). <span style="color:var(--warn)">Verifieer elke vraag voor je opslaat.</span>`;
     }catch(err){
       statusEl.innerHTML=`<span style="color:var(--wrong)">PDF-import mislukt: ${esc(err.message||err)}</span>`;
