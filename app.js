@@ -437,117 +437,118 @@ async function bestGameScores(game, limit, since){
   return best.slice(0, limit||best.length);
 }
 
-// Compacte top-3 sectie op de home — één card per game
+// Compacte top-3 sectie op de home — één card per actieve game
 async function renderGamesTop3(){
   const el=document.getElementById("gamesTop"); if(!el) return;
-  const sinceT=periodStart(gameResetMode("tetris"));
-  const sinceS=periodStart(gameResetMode("snake"));
-  const sinceP=periodStart(gameResetMode("pong"));
-  const [tetris, snake, pong] = await Promise.all([
-    bestPerUser(3, sinceT),
-    bestGameScores("snake",3, sinceS),
-    bestGameScores("pong",3, sinceP),
-  ]);
-  const allIds=[...tetris,...snake,...pong].map(t=>t.user_id);
+  const list=activeGames();
+  if(!list.length){ el.innerHTML=""; return; }
+  const fetches = list.map(g=>{
+    const since=periodStart(gameResetMode(g.id));
+    return g.id==="tetris" ? bestPerUser(3, since) : bestGameScores(g.id, 3, since);
+  });
+  const results = await Promise.all(fetches);
+  const allIds = results.flat().map(t=>t.user_id);
   const names = allIds.length ? await namesFor(allIds) : {};
   const medals=["🥇","🥈","🥉"];
-  const board = (icon, title, top, empty, resetMode) => {
-    const label=periodLabel(resetMode);
+  const boards = list.map((g,i)=>{
+    const top=results[i];
+    const mode=gameResetMode(g.id);
+    const label=periodLabel(mode);
     return `<div class="score-mini">
-      <div class="score-mini-hd">${icon} <strong>${title}</strong>${label?` <span class="score-mini-reset" title="Scores worden gefilterd op periode">${label}</span>`:""}</div>
+      <div class="score-mini-hd">${g.icon} <strong>${esc(g.name)}</strong>${label?` <span class="score-mini-reset" title="Scores worden gefilterd op periode">${label}</span>`:""}</div>
       ${top.length
         ? `<ol class="score-mini-list">${top.map((t,i)=>`<li><span class="score-mini-medal">${medals[i]}</span><span class="score-mini-name">${esc(names[t.user_id]||"?")}</span><span class="score-mini-num">${t.score}</span></li>`).join("")}</ol>`
-        : `<p class="muted score-mini-empty">${empty}</p>`
+        : `<p class="muted score-mini-empty">Nog geen scores.</p>`
       }
     </div>`;
-  };
+  }).join("");
   el.innerHTML=`
     <div class="card score-mini-card">
       <div class="score-mini-top">
         <div class="score-mini-title">🏆 <strong>High scores</strong> <span class="muted" style="font-size:.78rem">— beste per speler</span></div>
         <a class="ilink" data-nav="#/scorebord" style="font-size:.85rem">Volledig scorebord →</a>
       </div>
-      <div class="score-mini-grid">
-        ${board("🧱","Tetris",tetris,"Nog geen scores.",gameResetMode("tetris"))}
-        ${board("🐍","Snake",snake,"Nog geen scores.",gameResetMode("snake"))}
-        ${board("🏓","Pong",pong,"Nog geen scores.",gameResetMode("pong"))}
-      </div>
+      <div class="score-mini-grid">${boards}</div>
     </div>`;
   el.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
+}
+
+// Per-game metadata voor het scorebord: tabelkoppen, rij-render, uitleg
+function scorebordMeta(gameId, names){
+  const meRow=t=>t.user_id===ME.id?' style="background:var(--accent-soft)"':'';
+  const meLbl=t=>t.user_id===ME.id?' <span class="muted" style="font-size:.72rem">(jij)</span>':'';
+  const nm=t=>esc(names[t.user_id]||"?");
+  const dt=t=>`<td class="muted" style="font-size:.75rem">${fmtDate(t.created_at)}</td>`;
+  const base=(extraTh, extraTd, tip)=>({
+    head:`<thead><tr><th>#</th><th>Naam</th><th>Score</th>${extraTh}<th>Datum</th></tr></thead>`,
+    row:(t,i)=>`<tr${meRow(t)}><td><strong>${i+1}</strong></td><td>${nm(t)}${meLbl(t)}</td><td><strong>${t.score}</strong></td>${extraTd(t)}${dt(t)}</tr>`,
+    tip,
+  });
+  switch(gameId){
+    case "tetris":
+      return { source:"tetris", empty:"Nog geen scores.",
+        ...base("<th>Lijnen</th><th>Level</th>", t=>`<td>${t.lines}</td><td>${t.level}</td>`,
+          "Ontgrendel Tetris via een oefensessie van ≥25 vragen met ≥80% juist (tenzij een beheerder de game vrij zet).") };
+    case "snake":
+      return { source:"game", empty:"Nog geen scores.",
+        ...base("", ()=>"", "Score = het aantal punten dat je haalde. Elke appel is +10.") };
+    case "pong":
+      return { source:"game", empty:"Nog geen wedstrijden gewonnen.",
+        ...base("<th>Setstand</th>", t=>`<td>${t.meta?`${t.meta.you||"?"}-${t.meta.cpu||"?"}`:"—"}</td>`,
+          "Score = 70 − CPU-punten × 10. Schoner gewonnen = hoger. Verlies telt niet mee.") };
+    case "g2048":
+      return { source:"game", empty:"Nog geen scores.",
+        ...base("<th>Hoogste tegel</th>", t=>`<td>${t.meta&&t.meta.best?t.meta.best:"—"}</td>`,
+          "Score = som van alle samengevoegde waarden.") };
+    case "breakout":
+      return { source:"game", empty:"Nog geen scores.",
+        ...base("<th>Levens over</th>", t=>`<td>${t.meta&&typeof t.meta.lives==="number"?t.meta.lives:"—"}</td>`,
+          "Score = 10 per steen + 50 bonus per overgebleven leven bij shutout.") };
+    default:
+      return { source:"game", empty:"Nog geen scores.", ...base("", ()=>"", "") };
+  }
 }
 
 async function viewScorebord(){
   app.innerHTML=`<div class="loading">Scorebord laden…</div>`;
   await loadGamesConfig();
-  const sinceT=periodStart(gameResetMode("tetris"));
-  const sinceS=periodStart(gameResetMode("snake"));
-  const sinceP=periodStart(gameResetMode("pong"));
-  const [tetris, snake, pong] = await Promise.all([
-    bestPerUser(50, sinceT),
-    bestGameScores("snake",50, sinceS),
-    bestGameScores("pong",50, sinceP),
-  ]);
-  const allIds=[...tetris,...snake,...pong].map(t=>t.user_id);
+  const list=activeGames();
+  if(!list.length){
+    app.innerHTML=`<a class="muted" data-nav="#/">← Quizzen</a>
+      <h1 style="margin:.5rem 0">🏆 Scorebord</h1>
+      <p class="muted">Nog geen games geactiveerd. Ga naar Beheer → Instellingen om er eentje aan te zetten.</p>`;
+    app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
+    return;
+  }
+  const sinces=list.map(g=>periodStart(gameResetMode(g.id)));
+  const results=await Promise.all(list.map((g,i)=>g.id==="tetris" ? bestPerUser(50, sinces[i]) : bestGameScores(g.id, 50, sinces[i])));
+  const allIds=results.flat().map(t=>t.user_id);
   const names = allIds.length ? await namesFor(allIds) : {};
-  const myRow=(t,i)=>`<tr${t.user_id===ME.id?' style="background:var(--accent-soft)"':''}>
-    <td><strong>${i+1}</strong></td>
-    <td>${esc(names[t.user_id]||"?")}${t.user_id===ME.id?' <span class="muted" style="font-size:.72rem">(jij)</span>':''}</td>
-    <td><strong>${t.score}</strong></td>
-    <td class="muted" style="font-size:.75rem">${fmtDate(t.created_at)}</td>
-  </tr>`;
-  const tetrisRow=(t,i)=>`<tr${t.user_id===ME.id?' style="background:var(--accent-soft)"':''}>
-    <td><strong>${i+1}</strong></td>
-    <td>${esc(names[t.user_id]||"?")}${t.user_id===ME.id?' <span class="muted" style="font-size:.72rem">(jij)</span>':''}</td>
-    <td><strong>${t.score}</strong></td>
-    <td>${t.lines}</td>
-    <td>${t.level}</td>
-    <td class="muted" style="font-size:.75rem">${fmtDate(t.created_at)}</td>
-  </tr>`;
-  const pongRow=(t,i)=>`<tr${t.user_id===ME.id?' style="background:var(--accent-soft)"':''}>
-    <td><strong>${i+1}</strong></td>
-    <td>${esc(names[t.user_id]||"?")}${t.user_id===ME.id?' <span class="muted" style="font-size:.72rem">(jij)</span>':''}</td>
-    <td><strong>${t.score}</strong></td>
-    <td>${t.meta?`${t.meta.you||"?"}-${t.meta.cpu||"?"}`:"—"}</td>
-    <td class="muted" style="font-size:.75rem">${fmtDate(t.created_at)}</td>
-  </tr>`;
   const fmtSince=d=>d?d.toLocaleDateString("nl-BE",{day:"2-digit",month:"short",year:"numeric"}):"";
   const periodPill=(mode,since)=>{
     const lbl=periodLabel(mode); if(!lbl) return "";
     return `<span class="score-period-pill">${lbl} · sinds ${fmtSince(since)}</span>`;
   };
-  const section=(icon,title,list,tableHead,rowFn,empty,tip,resetMode,since)=>`
-    <details class="score-section" open>
-      <summary><span class="score-section-hd">${icon} <strong>${title}</strong> <span class="muted" style="font-size:.78rem">(${list.length})</span> ${periodPill(resetMode,since)}</span></summary>
+  const sections=list.map((g,i)=>{
+    const meta=scorebordMeta(g.id, names);
+    const rows=results[i];
+    const since=sinces[i], mode=gameResetMode(g.id);
+    return `<details class="score-section" open>
+      <summary><span class="score-section-hd">${g.icon} <strong>${esc(g.name)}</strong> <span class="muted" style="font-size:.78rem">(${rows.length})</span> ${periodPill(mode, since)}</span></summary>
       <div style="margin-top:.5rem">
-        ${list.length
-          ? `<div class="card score-table-card"><table>${tableHead}<tbody>${list.map(rowFn).join("")}</tbody></table></div>`
-          : `<p class="muted">${empty}</p>`
+        ${rows.length
+          ? `<div class="card score-table-card"><table>${meta.head}<tbody>${rows.map(meta.row).join("")}</tbody></table></div>`
+          : `<p class="muted">${meta.empty}</p>`
         }
-        ${tip?`<p class="muted" style="font-size:.78rem;margin-top:.4rem">${tip}</p>`:""}
+        ${meta.tip?`<p class="muted" style="font-size:.78rem;margin-top:.4rem">${meta.tip}</p>`:""}
       </div>
     </details>`;
+  }).join("");
   app.innerHTML=`
     <a class="muted" data-nav="#/">← Quizzen</a>
     <h1 style="margin:.5rem 0">🏆 Scorebord</h1>
     <p class="muted" style="font-size:.85rem;margin:.2rem 0 1rem 0">Beste score per speler, per game. Elke game telt — alleen je persoonlijke topscore staat in de ranglijst.</p>
-    ${section("🧱","Tetris",tetris,
-      `<thead><tr><th>#</th><th>Naam</th><th>Score</th><th>Lijnen</th><th>Level</th><th>Datum</th></tr></thead>`,
-      tetrisRow,
-      "Nog geen scores. Speel een rondje na een geslaagde oefensessie.",
-      "Ontgrendel Tetris via een oefensessie van ≥25 vragen met ≥80% juist (tenzij een beheerder de game vrij zet).",
-      gameResetMode("tetris"), sinceT)}
-    ${section("🐍","Snake",snake,
-      `<thead><tr><th>#</th><th>Naam</th><th>Score</th><th>Datum</th></tr></thead>`,
-      myRow,
-      "Nog geen scores. Speel Snake en zet jezelf als eerste op het bord.",
-      "Score = het aantal punten dat je haalde. Elke appel is +10.",
-      gameResetMode("snake"), sinceS)}
-    ${section("🏓","Pong",pong,
-      `<thead><tr><th>#</th><th>Naam</th><th>Score</th><th>Setstand</th><th>Datum</th></tr></thead>`,
-      pongRow,
-      "Nog geen wedstrijden gewonnen. Versla de CPU en zet je stand.",
-      "Score = 70 − CPU-punten × 10. Schoner gewonnen = hoger. Verlies telt niet mee.",
-      gameResetMode("pong"), sinceP)}
+    ${sections}
   `;
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
 }
@@ -1583,20 +1584,318 @@ function openPong(){
 }
 
 /* ============================================================
+   2048 — schuif getallen (4x4 grid)
+   ============================================================ */
+function open2048(){
+  const HS_KEY="quiztet_2048_hs";
+  const N=4, CELL=80, GAP=6, W=N*CELL+(N+1)*GAP;
+  const DIFF=gameDifficulty("g2048");
+  const START_TILES = DIFF==="easy" ? 3 : DIFF==="hard" ? 1 : 2;
+  const SPAWN_HIGH = DIFF==="easy" ? .05 : DIFF==="hard" ? .2 : .1;  // kans op 4 i.p.v. 2
+  const COLORS={
+    0:"#cdc1b4", 2:"#eee4da", 4:"#ede0c8", 8:"#f2b179", 16:"#f59563",
+    32:"#f67c5f", 64:"#f65e3b", 128:"#edcf72", 256:"#edcc61", 512:"#edc850",
+    1024:"#edc53f", 2048:"#edc22e", 4096:"#3c3a32", 8192:"#3c3a32"
+  };
+  const overlay=document.createElement("div");
+  overlay.className="tetris-overlay";
+  overlay.innerHTML=`
+    <div class="tetris-modal" role="dialog" aria-label="2048">
+      <div class="tetris-hd">
+        <div class="tetris-title">🔢 2048</div>
+        <button class="tetris-close" id="g2Close" aria-label="Sluiten">×</button>
+      </div>
+      <div class="tetris-body">
+        <canvas id="g2Canvas" width="${W}" height="${W}"></canvas>
+        <div class="tetris-side">
+          <div class="tetris-stats">
+            <div class="tetris-stat"><label>Score</label><div id="g2Score">0</div></div>
+            <div class="tetris-stat"><label>Highscore</label><div id="g2Hi">0</div></div>
+          </div>
+          <div class="tetris-help muted">
+            <div>← → ↑ ↓ schuiven</div>
+            <div>Enter = opnieuw · Esc = sluiten</div>
+          </div>
+        </div>
+      </div>
+      <div class="tetris-touch">
+        <button data-dir="L" aria-label="Links">←</button>
+        <button data-dir="U" aria-label="Omhoog">↑</button>
+        <button data-dir="D" aria-label="Omlaag">↓</button>
+        <button data-dir="R" aria-label="Rechts">→</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const ctx=overlay.querySelector("#g2Canvas").getContext("2d");
+  let grid, score, over;
+  let hi=parseInt(localStorage.getItem(HS_KEY)||"0",10);
+  const emptyCells=()=>{ const list=[]; for(let r=0;r<N;r++) for(let c=0;c<N;c++) if(!grid[r][c]) list.push([r,c]); return list; };
+  const spawn=()=>{ const cells=emptyCells(); if(!cells.length) return; const [r,c]=cells[Math.floor(Math.random()*cells.length)]; grid[r][c]=Math.random()<SPAWN_HIGH?4:2; };
+  const reset=()=>{ grid=Array.from({length:N},()=>Array(N).fill(0)); score=0; over=false; for(let i=0;i<START_TILES;i++) spawn(); };
+  const slideRow=(row)=>{
+    const nz=row.filter(v=>v);
+    let gained=0;
+    for(let i=0;i<nz.length-1;i++){
+      if(nz[i]===nz[i+1]){ nz[i]*=2; gained+=nz[i]; nz.splice(i+1,1); }
+    }
+    while(nz.length<N) nz.push(0);
+    return { row:nz, gained };
+  };
+  const rotate=(g)=>{ const n=g.length; const out=Array.from({length:n},()=>Array(n).fill(0)); for(let r=0;r<n;r++) for(let c=0;c<n;c++) out[c][n-1-r]=g[r][c]; return out; };
+  const move=(dir)=>{
+    // Normaliseer naar "links": roteer, schuif links, roteer terug
+    let rots=0;
+    if(dir==="U") rots=3;
+    else if(dir==="R") rots=2;
+    else if(dir==="D") rots=1;
+    let g=grid;
+    for(let i=0;i<rots;i++) g=rotate(g);
+    let changed=false, gained=0;
+    for(let r=0;r<N;r++){
+      const before=g[r].slice();
+      const { row, gained:gg }=slideRow(g[r]);
+      g[r]=row; gained+=gg;
+      if(before.some((v,i)=>v!==row[i])) changed=true;
+    }
+    for(let i=0;i<(4-rots)%4;i++) g=rotate(g);
+    if(changed){
+      grid=g; score+=gained;
+      if(score>hi){ hi=score; try{ localStorage.setItem(HS_KEY,String(hi)); }catch(e){} }
+      spawn();
+      if(!hasMove()){ over=true; submitScore(); }
+    }
+  };
+  const hasMove=()=>{
+    if(emptyCells().length) return true;
+    for(let r=0;r<N;r++) for(let c=0;c<N;c++){
+      const v=grid[r][c];
+      if(c<N-1 && grid[r][c+1]===v) return true;
+      if(r<N-1 && grid[r+1][c]===v) return true;
+    }
+    return false;
+  };
+  const submitScore=async()=>{ if(!ME||score<=0) return; try{ await sb.from("game_scores").insert({ user_id:ME.id, game:"g2048", score, meta:{ best:Math.max(...grid.flat()) } }); }catch(e){} };
+  const draw=()=>{
+    ctx.fillStyle="#bbada0"; ctx.fillRect(0,0,W,W);
+    for(let r=0;r<N;r++) for(let c=0;c<N;c++){
+      const x=GAP+c*(CELL+GAP), y=GAP+r*(CELL+GAP), v=grid[r][c];
+      ctx.fillStyle=COLORS[v]||COLORS[8192];
+      ctx.fillRect(x, y, CELL, CELL);
+      if(v){
+        ctx.fillStyle = v<=4 ? "#776e65" : "#f9f6f2";
+        const fs = v<100?36 : v<1000?30 : 24;
+        ctx.font=`bold ${fs}px Inter,sans-serif`;
+        ctx.textAlign="center"; ctx.textBaseline="middle";
+        ctx.fillText(String(v), x+CELL/2, y+CELL/2);
+      }
+    }
+    overlay.querySelector("#g2Score").textContent=score;
+    overlay.querySelector("#g2Hi").textContent=hi;
+    if(over){
+      ctx.fillStyle="rgba(0,0,0,.65)"; ctx.fillRect(0,0,W,W);
+      ctx.fillStyle="#fff"; ctx.textAlign="center"; ctx.textBaseline="middle";
+      ctx.font="bold 26px Inter,sans-serif"; ctx.fillText("Game over", W/2, W/2-8);
+      ctx.font="13px Inter,sans-serif"; ctx.fillText("Enter = opnieuw · Esc = sluiten", W/2, W/2+18);
+    }
+  };
+  reset();
+  let rafId=requestAnimationFrame(function loop(){ draw(); rafId=requestAnimationFrame(loop); });
+  const keyHandler=e=>{
+    if(e.key==="Escape"){ close(); return; }
+    if(over){ if(e.key==="Enter"){ reset(); } return; }
+    if(e.key==="ArrowLeft"){ e.preventDefault(); move("L"); }
+    else if(e.key==="ArrowRight"){ e.preventDefault(); move("R"); }
+    else if(e.key==="ArrowUp"){ e.preventDefault(); move("U"); }
+    else if(e.key==="ArrowDown"){ e.preventDefault(); move("D"); }
+  };
+  window.addEventListener("keydown", keyHandler);
+  overlay.querySelectorAll("[data-dir]").forEach(b=>b.onclick=()=>{ if(over){ reset(); return; } move(b.dataset.dir); });
+  // Swipe-detectie op canvas voor mobiel
+  const cvs=overlay.querySelector("#g2Canvas");
+  let tsx=0, tsy=0;
+  cvs.addEventListener("touchstart", e=>{ const t=e.changedTouches[0]; tsx=t.clientX; tsy=t.clientY; });
+  cvs.addEventListener("touchend", e=>{
+    const t=e.changedTouches[0]; const dx=t.clientX-tsx, dy=t.clientY-tsy;
+    if(Math.max(Math.abs(dx),Math.abs(dy))<20) return;
+    if(Math.abs(dx)>Math.abs(dy)) move(dx>0?"R":"L");
+    else move(dy>0?"D":"U");
+  });
+  const close=()=>{ cancelAnimationFrame(rafId); window.removeEventListener("keydown", keyHandler); overlay.remove(); };
+  overlay.querySelector("#g2Close").onclick=close;
+  overlay.addEventListener("click", e=>{ if(e.target===overlay) close(); });
+}
+
+/* ============================================================
+   BREAKOUT — pauzegame (paddle onderaan, blokjes bovenaan)
+   ============================================================ */
+function openBreakout(){
+  const W=480, H=360, PAD_H=10, BALL=8;
+  const DIFF=gameDifficulty("breakout");
+  const BALL_SPEED  = DIFF==="easy" ? 3.2 : DIFF==="hard" ? 5.0 : 4.0;
+  const PAD_W       = DIFF==="easy" ? 90  : DIFF==="hard" ? 55  : 72;
+  const LIVES_START = DIFF==="easy" ? 5   : DIFF==="hard" ? 2   : 3;
+  const ROWS=5, COLS=10, BRICK_H=16, BRICK_W=(W-20)/COLS, BRICK_TOP=30;
+  const BRICK_COLORS=["#ef4444","#f97316","#facc15","#22c55e","#3b82f6"];
+  const overlay=document.createElement("div");
+  overlay.className="tetris-overlay";
+  overlay.innerHTML=`
+    <div class="tetris-modal" role="dialog" aria-label="Breakout">
+      <div class="tetris-hd">
+        <div class="tetris-title">🧱 Breakout</div>
+        <button class="tetris-close" id="bkClose" aria-label="Sluiten">×</button>
+      </div>
+      <div class="tetris-body">
+        <canvas id="bkCanvas" width="${W}" height="${H}"></canvas>
+        <div class="tetris-side">
+          <div class="tetris-stats">
+            <div class="tetris-stat"><label>Score</label><div id="bkScore">0</div></div>
+            <div class="tetris-stat"><label>Levens</label><div id="bkLives">${LIVES_START}</div></div>
+          </div>
+          <div class="tetris-help muted">
+            <div>← → of muis</div>
+            <div>Spatie = start / opnieuw</div>
+            <div>Esc = sluiten</div>
+          </div>
+        </div>
+      </div>
+      <div class="tetris-touch">
+        <button data-bdir="L" aria-label="Links">←</button>
+        <button data-bdir="S" aria-label="Start">▶</button>
+        <button data-bdir="R" aria-label="Rechts">→</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const ctx=overlay.querySelector("#bkCanvas").getContext("2d");
+  let paddleX, ball, ballV, bricks, score, lives, over, won, waiting;
+  const keys={left:false,right:false};
+  const submitScore=async()=>{ if(!ME||score<=0) return; try{ await sb.from("game_scores").insert({ user_id:ME.id, game:"breakout", score, meta:{ won:!!won, lives } }); }catch(e){} };
+  const resetBricks=()=>{
+    bricks=[];
+    for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++){
+      bricks.push({ x:10+c*BRICK_W, y:BRICK_TOP+r*BRICK_H, w:BRICK_W-2, h:BRICK_H-2, color:BRICK_COLORS[r], alive:true });
+    }
+  };
+  const serveBall=()=>{
+    ball={x:paddleX+PAD_W/2, y:H-PAD_H-BALL};
+    const dir=(Math.random()*.6-.3)+ (Math.random()<.5?-.7:.7);
+    ballV={x:dir*BALL_SPEED*0.6, y:-BALL_SPEED};
+    waiting=true;
+  };
+  const resetAll=()=>{
+    paddleX=(W-PAD_W)/2; score=0; lives=LIVES_START; over=false; won=false;
+    resetBricks(); serveBall();
+  };
+  resetAll();
+  const step=()=>{
+    if(keys.left)  paddleX -= 6;
+    if(keys.right) paddleX += 6;
+    paddleX=Math.max(0, Math.min(W-PAD_W, paddleX));
+    if(waiting){ ball.x=paddleX+PAD_W/2; return; }
+    ball.x+=ballV.x; ball.y+=ballV.y;
+    if(ball.x<BALL/2){ ball.x=BALL/2; ballV.x*=-1; }
+    if(ball.x>W-BALL/2){ ball.x=W-BALL/2; ballV.x*=-1; }
+    if(ball.y<BALL/2){ ball.y=BALL/2; ballV.y*=-1; }
+    // Paddle-botsing
+    if(ball.y+BALL/2 >= H-PAD_H && ball.x>=paddleX && ball.x<=paddleX+PAD_W && ballV.y>0){
+      ball.y = H-PAD_H-BALL/2;
+      ballV.y*=-1;
+      const off=(ball.x-(paddleX+PAD_W/2))/(PAD_W/2);
+      ballV.x = off*BALL_SPEED*0.9;
+    }
+    // Bal viel eronder
+    if(ball.y > H){
+      lives--;
+      if(lives<=0){ over=true; submitScore(); }
+      else serveBall();
+    }
+    // Steenbotsing
+    for(const b of bricks){
+      if(!b.alive) continue;
+      if(ball.x>b.x && ball.x<b.x+b.w && ball.y>b.y && ball.y<b.y+b.h){
+        b.alive=false; score+=10;
+        // Bepaal richting flip: kleinste overlap
+        const overlapX=Math.min(ball.x-b.x, (b.x+b.w)-ball.x);
+        const overlapY=Math.min(ball.y-b.y, (b.y+b.h)-ball.y);
+        if(overlapX<overlapY) ballV.x*=-1; else ballV.y*=-1;
+        break;
+      }
+    }
+    if(bricks.every(b=>!b.alive)){ won=true; over=true; score+=lives*50; submitScore(); }
+  };
+  const draw=()=>{
+    ctx.fillStyle="#0f172a"; ctx.fillRect(0,0,W,H);
+    for(const b of bricks) if(b.alive){ ctx.fillStyle=b.color; ctx.fillRect(b.x,b.y,b.w,b.h); }
+    ctx.fillStyle="#fff"; ctx.fillRect(paddleX, H-PAD_H, PAD_W, PAD_H);
+    ctx.beginPath(); ctx.arc(ball.x, ball.y, BALL/2, 0, Math.PI*2); ctx.fill();
+    overlay.querySelector("#bkScore").textContent=score;
+    overlay.querySelector("#bkLives").textContent=lives;
+    if(over){
+      ctx.fillStyle="rgba(0,0,0,.65)"; ctx.fillRect(0,0,W,H);
+      ctx.fillStyle="#fff"; ctx.textAlign="center"; ctx.textBaseline="middle";
+      ctx.font="bold 26px Inter,sans-serif";
+      ctx.fillText(won?"Alle stenen weg! 🎉":"Game over", W/2, H/2-10);
+      ctx.font="13px Inter,sans-serif"; ctx.fillText("Spatie/Enter = opnieuw · Esc = sluiten", W/2, H/2+18);
+    } else if(waiting){
+      ctx.fillStyle="rgba(0,0,0,.45)"; ctx.fillRect(0,0,W,H);
+      ctx.fillStyle="#fff"; ctx.textAlign="center"; ctx.textBaseline="middle";
+      ctx.font="14px Inter,sans-serif"; ctx.fillText("Druk op spatie om te starten", W/2, H/2);
+    }
+  };
+  let rafId=requestAnimationFrame(function loop(){ if(!over) step(); draw(); rafId=requestAnimationFrame(loop); });
+  const keyHandler=e=>{
+    if(e.key==="Escape"){ close(); return; }
+    if(over){ if(e.key==="Enter"||e.key===" "){ resetAll(); } return; }
+    if(e.key==="ArrowLeft"||e.key==="a"||e.key==="A"){ e.preventDefault(); keys.left=true; }
+    else if(e.key==="ArrowRight"||e.key==="d"||e.key==="D"){ e.preventDefault(); keys.right=true; }
+    else if(e.key===" "){ e.preventDefault(); if(waiting) waiting=false; }
+  };
+  const keyUp=e=>{
+    if(e.key==="ArrowLeft"||e.key==="a"||e.key==="A") keys.left=false;
+    else if(e.key==="ArrowRight"||e.key==="d"||e.key==="D") keys.right=false;
+  };
+  window.addEventListener("keydown", keyHandler);
+  window.addEventListener("keyup", keyUp);
+  const cvs=overlay.querySelector("#bkCanvas");
+  cvs.addEventListener("mousemove", e=>{
+    if(over) return;
+    const rect=cvs.getBoundingClientRect();
+    const scaleX = W/rect.width;
+    paddleX = Math.max(0, Math.min(W-PAD_W, (e.clientX-rect.left)*scaleX - PAD_W/2));
+  });
+  overlay.querySelectorAll("[data-bdir]").forEach(b=>{
+    const act=b.dataset.bdir;
+    const press=()=>{
+      if(over){ resetAll(); return; }
+      if(act==="S"){ if(waiting) waiting=false; return; }
+      if(act==="L") keys.left=true; else if(act==="R") keys.right=true;
+    };
+    const release=()=>{ keys.left=false; keys.right=false; };
+    b.addEventListener("mousedown", press); b.addEventListener("touchstart", e=>{ e.preventDefault(); press(); });
+    b.addEventListener("mouseup", release); b.addEventListener("mouseleave", release);
+    b.addEventListener("touchend", release); b.addEventListener("touchcancel", release);
+  });
+  const close=()=>{ cancelAnimationFrame(rafId); window.removeEventListener("keydown", keyHandler); window.removeEventListener("keyup", keyUp); overlay.remove(); };
+  overlay.querySelector("#bkClose").onclick=close;
+  overlay.addEventListener("click", e=>{ if(e.target===overlay) close(); });
+}
+
+/* ============================================================
    GAMES-REGISTER + INSTELLINGEN
    Configuratie per game: `free` = altijd speelbaar via home?
    Anders is de game "beloningsgame" (bv. tetris: pas na oefensessie).
    Wordt bewaard in app_settings.games_config (jsonb).
    ============================================================ */
 const GAMES = [
-  { id:"tetris", name:"Tetris", icon:"🧱", desc:"Klassieke blokjes-pauze.", defaultFree:false, defaultReset:"off", defaultDifficulty:"normal", lockedHint:"Ontgrendel na een oefensessie van ≥25 vragen én ≥80% juist.", open:openTetris },
-  { id:"snake",  name:"Snake",  icon:"🐍", desc:"Blijf leven, eet, groei.",  defaultFree:true,  defaultReset:"off", defaultDifficulty:"normal", lockedHint:"Vergrendeld door een beheerder.", open:openSnake },
-  { id:"pong",   name:"Pong",   icon:"🏓", desc:"Retro paddle vs CPU.",       defaultFree:true,  defaultReset:"off", defaultDifficulty:"normal", lockedHint:"Vergrendeld door een beheerder.", open:openPong  },
+  { id:"tetris",   name:"Tetris",   icon:"🧱", desc:"Klassieke blokjes-pauze.",       defaultEnabled:true,  defaultFree:false, defaultReset:"off", defaultDifficulty:"normal", lockedHint:"Ontgrendel na een oefensessie van ≥25 vragen én ≥80% juist.", open:openTetris   },
+  { id:"snake",    name:"Snake",    icon:"🐍", desc:"Blijf leven, eet, groei.",        defaultEnabled:true,  defaultFree:true,  defaultReset:"off", defaultDifficulty:"normal", lockedHint:"Vergrendeld door een beheerder.", open:openSnake    },
+  { id:"pong",     name:"Pong",     icon:"🏓", desc:"Retro paddle vs CPU.",            defaultEnabled:true,  defaultFree:true,  defaultReset:"off", defaultDifficulty:"normal", lockedHint:"Vergrendeld door een beheerder.", open:openPong     },
+  { id:"g2048",    name:"2048",     icon:"🔢", desc:"Schuif en versmelt getallen.",    defaultEnabled:false, defaultFree:true,  defaultReset:"off", defaultDifficulty:"normal", lockedHint:"Vergrendeld door een beheerder.", open:open2048     },
+  { id:"breakout", name:"Breakout", icon:"🧱", desc:"Kaats de bal, sla stenen weg.",   defaultEnabled:false, defaultFree:true,  defaultReset:"off", defaultDifficulty:"normal", lockedHint:"Vergrendeld door een beheerder.", open:openBreakout },
 ];
 const RESET_MODES = ["off","weekly","monthly"];
 const DIFFICULTIES = ["easy","normal","hard"];
 let GAMES_CFG=null;
-function gamesDefaults(){ const d={}; GAMES.forEach(g=>d[g.id]={free:!!g.defaultFree, reset:g.defaultReset||"off", difficulty:g.defaultDifficulty||"normal"}); return d; }
+function gamesDefaults(){ const d={}; GAMES.forEach(g=>d[g.id]={enabled:g.defaultEnabled!==false, free:!!g.defaultFree, reset:g.defaultReset||"off", difficulty:g.defaultDifficulty||"normal"}); return d; }
 async function loadGamesConfig(){
   const defaults=gamesDefaults();
   try{
@@ -1607,6 +1906,7 @@ async function loadGamesConfig(){
     GAMES.forEach(g=>{
       const s=stored[g.id]||{};
       GAMES_CFG[g.id]={
+        enabled: typeof s.enabled==="boolean" ? s.enabled : defaults[g.id].enabled,
         free: typeof s.free==="boolean" ? s.free : defaults[g.id].free,
         reset: RESET_MODES.includes(s.reset) ? s.reset : defaults[g.id].reset,
         difficulty: DIFFICULTIES.includes(s.difficulty) ? s.difficulty : defaults[g.id].difficulty,
@@ -1619,6 +1919,7 @@ async function saveGamesConfig(cfg){
   const clean={}; GAMES.forEach(g=>{
     const s=cfg[g.id]||{};
     clean[g.id]={
+      enabled: !!s.enabled,
       free: !!s.free,
       reset: RESET_MODES.includes(s.reset) ? s.reset : "off",
       difficulty: DIFFICULTIES.includes(s.difficulty) ? s.difficulty : "normal",
@@ -1631,6 +1932,11 @@ async function saveGamesConfig(cfg){
 function gameDifficulty(gameId){
   return (GAMES_CFG && GAMES_CFG[gameId] && GAMES_CFG[gameId].difficulty) || "normal";
 }
+function gameEnabled(gameId){
+  if(!GAMES_CFG || !GAMES_CFG[gameId]) return false;
+  return !!GAMES_CFG[gameId].enabled;
+}
+function activeGames(){ return GAMES.filter(g=>gameEnabled(g.id)); }
 // Startdatum (lokaal) van de huidige periode voor een reset-modus. Retourneert null als er niet gefilterd moet worden.
 function periodStart(mode){
   if(mode!=="weekly" && mode!=="monthly") return null;
@@ -1652,7 +1958,9 @@ function gameResetMode(gameId){
 }
 function renderGamesSection(){
   if(!GAMES_CFG) return "";
-  const cards=GAMES.map(g=>{
+  const list=activeGames();
+  if(!list.length) return "";
+  const cards=list.map(g=>{
     const free=!!(GAMES_CFG[g.id]&&GAMES_CFG[g.id].free);
     return `<div class="card game-card ${free?"":"locked"}">
       <div class="game-card-top"><span class="game-icon">${g.icon}</span><h3 style="margin:0">${esc(g.name)}</h3></div>
@@ -2804,8 +3112,11 @@ async function renderSettings(){
     <div style="font-weight:700;color:var(--ink);margin-bottom:.3rem">🎮 Games</div>
     <p class="muted" style="font-size:.82rem;margin:0 0 .5rem 0">Per game: vrij te spelen (anders "beloningsgame"), scorereset (wekelijks/maandelijks filteren op scorebord — oude scores blijven wél in de DB) en moeilijkheidsgraad.</p>
     <div id="gamesCfgList" class="stack" style="gap:.7rem">
-      ${GAMES.map(g=>`<div class="games-cfg-row">
-        <div class="games-cfg-title">${g.icon} <strong>${esc(g.name)}</strong></div>
+      ${GAMES.map(g=>`<div class="games-cfg-row ${cfg[g.id]&&cfg[g.id].enabled?"":"is-inactive"}">
+        <div class="games-cfg-title">${g.icon} <strong>${esc(g.name)}</strong>${cfg[g.id]&&cfg[g.id].enabled?"":' <span class="games-cfg-badge">inactief</span>'}</div>
+        <label class="games-cfg-line">
+          <input type="checkbox" data-gameenabled="${g.id}" style="width:auto" ${cfg[g.id]&&cfg[g.id].enabled?"checked":""}> Actief (zichtbaar op home &amp; scorebord)
+        </label>
         <label class="games-cfg-line">
           <input type="checkbox" data-gamefree="${g.id}" style="width:auto" ${cfg[g.id]&&cfg[g.id].free?"checked":""}> Vrij te spelen
         </label>
@@ -2831,6 +3142,7 @@ async function renderSettings(){
   const collectCfg=()=>{
     const c={};
     GAMES.forEach(g=>{ c[g.id]={
+      enabled: document.querySelector(`[data-gameenabled="${g.id}"]`).checked,
       free: document.querySelector(`[data-gamefree="${g.id}"]`).checked,
       reset: document.querySelector(`[data-gamereset="${g.id}"]`).value,
       difficulty: document.querySelector(`[data-gamediff="${g.id}"]`).value,
@@ -2844,7 +3156,7 @@ async function renderSettings(){
       toast("Opslaan mislukt — zie melding onder de games-instellingen.","err");
     }
   };
-  document.querySelectorAll('[data-gamefree],[data-gamereset],[data-gamediff]').forEach(el=>el.onchange=persist);
+  document.querySelectorAll('[data-gameenabled],[data-gamefree],[data-gamereset],[data-gamediff]').forEach(el=>el.onchange=persist);
 }
 
 /* ============================================================

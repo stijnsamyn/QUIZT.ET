@@ -607,6 +607,9 @@ summary .ico,button .ico{color:inherit}
   background:var(--accent-soft);color:var(--accent-dark);margin-left:.4rem}
 
 .games-cfg-row{border:1px solid var(--border);border-radius:10px;padding:.55rem .7rem;background:var(--surface)}
+.games-cfg-row.is-inactive{opacity:.75;border-style:dashed}
 .games-cfg-title{color:var(--ink);margin-bottom:.35rem;font-size:.92rem}
+.games-cfg-badge{display:inline-block;font-size:.68rem;padding:.05rem .4rem;border-radius:99px;
+  background:var(--surface2);color:var(--text-muted);border:1px solid var(--border);margin-left:.35rem;vertical-align:middle}
 .games-cfg-line{display:flex;align-items:center;gap:.5rem;margin:.25rem 0;font-size:.85rem}
 .games-cfg-line select{padding:.25rem .4rem;font-size:.85rem}
