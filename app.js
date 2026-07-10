@@ -2644,11 +2644,46 @@ async function viewAttemptDetail(quizId, attemptId){
             if(answered && chosen.includes(i) && !snapCorrect.includes(i)) c+=" wrong";
             return `<div class="${c}"><strong>${letter(i)}.</strong> ${esc(o)}</div>`;
           }).join("")}</div>
+          ${isEditor() ? `<details class="attempt-q-edit" data-corr-block="${q.id}">
+            <summary>✏️ Correct antwoord van deze vraag aanpassen</summary>
+            <div class="attempt-q-edit-body">
+              <p class="muted" style="font-size:.78rem;margin:.2rem 0 .4rem 0">Wijzigingen gelden voor de quiz zelf (voor iedereen). Deze historische poging blijft bevroren op wat je toen scoorde.</p>
+              ${(q.options||[]).map((o,i)=>`<label class="attempt-opt-corr ${curCorrect.includes(i)?"is-correct":""}">
+                <input type="checkbox" data-corr-qid="${q.id}" value="${i}" ${curCorrect.includes(i)?"checked":""}>
+                <span class="letter">${letter(i)}.</span>
+                <span>${esc(o)}</span>
+              </label>`).join("")}
+              <div class="btnrow" style="margin-top:.4rem">
+                <button class="btn btn-primary btn-sm" data-corr-save="${q.id}">Opslaan</button>
+                <span class="muted" data-corr-status="${q.id}" style="font-size:.78rem"></span>
+              </div>
+            </div>
+          </details>` : ""}
         </div>
       </details>`;
     }).join("")}</div>
   `;
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
+  // Correct-antwoord inline editor (enkel voor editors)
+  app.querySelectorAll("[data-corr-save]").forEach(btn=>btn.onclick=async()=>{
+    const qid=btn.dataset.corrSave;
+    const q=(questions||[]).find(x=>x.id===qid); if(!q) return;
+    const checked=[...document.querySelectorAll(`[data-corr-qid="${qid}"]:checked`)].map(el=>parseInt(el.value,10)).sort((a,b)=>a-b);
+    const statusEl=document.querySelector(`[data-corr-status="${qid}"]`);
+    if(statusEl) statusEl.textContent="Opslaan…";
+    const { error }=await sb.from("questions").update({ correct_indexes: checked, multi: checked.length>1 }).eq("id",qid);
+    if(error){ if(statusEl) statusEl.innerHTML=`<span style="color:var(--wrong)">${esc(error.message)}</span>`; return; }
+    q.correct_indexes=checked; q.multi=checked.length>1;
+    if(statusEl) statusEl.innerHTML=`<span style="color:var(--correct)">✓ Opgeslagen — de historische poging blijft ongewijzigd</span>`;
+    // Update de "⚠️ Nu:" badge en de check-styling voor deze vraag
+    const block=document.querySelector(`[data-corr-block="${qid}"]`);
+    if(block){
+      block.querySelectorAll(".attempt-opt-corr").forEach(lbl=>{
+        const inp=lbl.querySelector("input");
+        lbl.classList.toggle("is-correct", !!(inp && inp.checked));
+      });
+    }
+  });
 }
 
 async function loadPdfJs(){
