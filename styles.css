@@ -582,3 +582,22 @@ summary .ico,button .ico{color:inherit}
 .game-icon{font-size:1.5rem;line-height:1}
 .game-lock{font-size:.78rem;color:var(--text-muted);padding:.4rem .55rem;background:var(--surface2);
   border-radius:8px;border:1px dashed var(--border)}
+
+.score-mini-card{margin-top:1rem;background:linear-gradient(180deg, var(--surface) 0%, var(--accent-soft) 100%)}
+.score-mini-top{display:flex;justify-content:space-between;align-items:center;gap:.6rem;margin-bottom:.6rem;flex-wrap:wrap}
+.score-mini-title{font-size:.95rem;color:var(--ink)}
+.score-mini-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.6rem}
+.score-mini{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:.55rem .6rem}
+.score-mini-hd{font-size:.82rem;color:var(--ink);margin-bottom:.35rem}
+.score-mini-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.2rem}
+.score-mini-list li{display:flex;align-items:center;gap:.4rem;font-size:.8rem}
+.score-mini-medal{width:1.1rem;text-align:center}
+.score-mini-name{flex:1;color:var(--ink);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.score-mini-num{font-weight:800;color:var(--accent-dark)}
+.score-mini-empty{font-size:.75rem;margin:.1rem 0 0 0}
+
+.score-section{margin:.8rem 0;border:1px solid var(--border);border-radius:10px;padding:.6rem .8rem;background:var(--surface)}
+.score-section > summary{cursor:pointer;list-style:none}
+.score-section > summary::-webkit-details-marker{display:none}
+.score-section-hd{font-size:.95rem;color:var(--ink)}
+.score-table-card{padding:.3rem;overflow-x:auto}

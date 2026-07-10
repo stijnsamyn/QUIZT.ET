@@ -358,7 +358,8 @@ async function route(){
     if(p[0]==="quiz") return viewPlay(p[1]);
     if(p[0]==="stats" && p[1]==="vragen") return viewStatsVragen();
     if(p[0]==="stats" && p[1]==="gebruikers") return viewStatsGebruikers();
-    if(p[0]==="tetris") return viewTetris();
+    if(p[0]==="tetris") return viewScorebord();
+    if(p[0]==="scorebord") return viewScorebord();
     if(p[0]==="meldingen") return viewMeldingen();
     if(p[0]==="account") return viewAccount();
     if(p[0]==="beheer" && p[1]==="vraag") return viewEditQuestion(p[2]);
@@ -408,7 +409,7 @@ async function viewHome(){
     <div class="dev-note">${ICON.info} QUIZT.ET wordt nog volop ontwikkeld — vernieuw af en toe eens de pagina om de laatste functies te hebben. <button class="btn btn-ghost btn-sm" id="hardRefresh" style="margin-left:.5rem">Nu vernieuwen</button></div>
     ${quizzes&&quizzes.length?`<div class="grid" style="margin-top:1rem">${cards}</div>`:`<div class="empty">Nog geen quizzen.</div>`}
     ${renderGamesSection()}
-    <div id="tetrisTop"></div>`;
+    <div id="gamesTop"></div>`;
   app.querySelectorAll("[data-open]").forEach(c=>c.onclick=()=>go("#/quiz/"+c.dataset.open));
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
   app.querySelectorAll("[data-play]").forEach(b=>b.onclick=()=>{
@@ -416,7 +417,7 @@ async function viewHome(){
   });
   const hr=document.getElementById("hardRefresh");
   if(hr) hr.onclick=()=>{ const base=location.href.split("?")[0].split("#")[0]; location.href=base+"?_="+Date.now()+location.hash; };
-  renderTetrisTop3();
+  renderGamesTop3();
 }
 
 async function bestPerUser(limit){
@@ -424,47 +425,109 @@ async function bestPerUser(limit){
   const seen=new Set(); const best=[]; (rows||[]).forEach(r=>{ if(seen.has(r.user_id)) return; seen.add(r.user_id); best.push(r); });
   return best.slice(0, limit||best.length);
 }
-async function renderTetrisTop3(){
-  const el=document.getElementById("tetrisTop"); if(!el) return;
-  const top=await bestPerUser(3);
-  if(!top.length){ el.innerHTML=`<div class="card tetris-top-card"><div class="tetris-top-hd">${ICON.info} <strong>Tetris top-3</strong></div><p class="muted" style="font-size:.85rem">Nog niemand op het bord. Speel Tetris na een sessie van minstens 25 vragen met ≥80% juist en zet jezelf als eerste!</p><a class="ilink" data-nav="#/tetris">Naar het volledige scorebord →</a></div>`; }
-  else {
-    const names=await namesFor(top.map(t=>t.user_id));
-    el.innerHTML=`
-      <div class="card tetris-top-card">
-        <div class="tetris-top-hd">🏆 <strong>Tetris top-3</strong> <span class="muted" style="font-size:.78rem">— beste score per speler</span></div>
-        <ol class="tetris-top-list">${top.map((t,i)=>`<li><span class="tetris-medal">${["🥇","🥈","🥉"][i]}</span><span class="tetris-name">${esc(names[t.user_id]||"?")}</span><span class="tetris-num">${t.score}</span></li>`).join("")}</ol>
-        <div class="muted" style="font-size:.78rem">Tetris is enkel te spelen na een oefensessie van minstens 25 vragen met ≥80% juist. Op die manier verdien je je pauze.</div>
-        <a class="ilink" data-nav="#/tetris" style="font-size:.85rem">Naar het volledige scorebord →</a>
-      </div>`;
-  }
+
+// Generieke best-per-user helper voor game_scores (snake/pong) — hoogste score per speler
+async function bestGameScores(game, limit){
+  const { data:rows }=await sb.from("game_scores").select("user_id,score,meta,created_at").eq("game",game).order("score",{ascending:false}).limit(200);
+  const seen=new Set(); const best=[]; (rows||[]).forEach(r=>{ if(seen.has(r.user_id)) return; seen.add(r.user_id); best.push(r); });
+  return best.slice(0, limit||best.length);
+}
+
+// Compacte top-3 sectie op de home — één card per game
+async function renderGamesTop3(){
+  const el=document.getElementById("gamesTop"); if(!el) return;
+  const [tetris, snake, pong] = await Promise.all([
+    bestPerUser(3),
+    bestGameScores("snake",3),
+    bestGameScores("pong",3),
+  ]);
+  const allIds=[...tetris,...snake,...pong].map(t=>t.user_id);
+  const names = allIds.length ? await namesFor(allIds) : {};
+  const medals=["🥇","🥈","🥉"];
+  const board = (icon, title, top, empty) => `
+    <div class="score-mini">
+      <div class="score-mini-hd">${icon} <strong>${title}</strong></div>
+      ${top.length
+        ? `<ol class="score-mini-list">${top.map((t,i)=>`<li><span class="score-mini-medal">${medals[i]}</span><span class="score-mini-name">${esc(names[t.user_id]||"?")}</span><span class="score-mini-num">${t.score}</span></li>`).join("")}</ol>`
+        : `<p class="muted score-mini-empty">${empty}</p>`
+      }
+    </div>`;
+  el.innerHTML=`
+    <div class="card score-mini-card">
+      <div class="score-mini-top">
+        <div class="score-mini-title">🏆 <strong>High scores</strong> <span class="muted" style="font-size:.78rem">— beste per speler</span></div>
+        <a class="ilink" data-nav="#/scorebord" style="font-size:.85rem">Volledig scorebord →</a>
+      </div>
+      <div class="score-mini-grid">
+        ${board("🧱","Tetris",tetris,"Nog geen scores.")}
+        ${board("🐍","Snake",snake,"Nog geen scores.")}
+        ${board("🏓","Pong",pong,"Nog geen scores.")}
+      </div>
+    </div>`;
   el.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
 }
 
-async function viewTetris(){
+async function viewScorebord(){
   app.innerHTML=`<div class="loading">Scorebord laden…</div>`;
-  const top=await bestPerUser(50);
-  const myRank = top.findIndex(t=>t.user_id===ME.id);
-  const names=await namesFor(top.map(t=>t.user_id));
+  const [tetris, snake, pong] = await Promise.all([
+    bestPerUser(50),
+    bestGameScores("snake",50),
+    bestGameScores("pong",50),
+  ]);
+  const allIds=[...tetris,...snake,...pong].map(t=>t.user_id);
+  const names = allIds.length ? await namesFor(allIds) : {};
+  const myRow=(t,i)=>`<tr${t.user_id===ME.id?' style="background:var(--accent-soft)"':''}>
+    <td><strong>${i+1}</strong></td>
+    <td>${esc(names[t.user_id]||"?")}${t.user_id===ME.id?' <span class="muted" style="font-size:.72rem">(jij)</span>':''}</td>
+    <td><strong>${t.score}</strong></td>
+    <td class="muted" style="font-size:.75rem">${fmtDate(t.created_at)}</td>
+  </tr>`;
+  const tetrisRow=(t,i)=>`<tr${t.user_id===ME.id?' style="background:var(--accent-soft)"':''}>
+    <td><strong>${i+1}</strong></td>
+    <td>${esc(names[t.user_id]||"?")}${t.user_id===ME.id?' <span class="muted" style="font-size:.72rem">(jij)</span>':''}</td>
+    <td><strong>${t.score}</strong></td>
+    <td>${t.lines}</td>
+    <td>${t.level}</td>
+    <td class="muted" style="font-size:.75rem">${fmtDate(t.created_at)}</td>
+  </tr>`;
+  const pongRow=(t,i)=>`<tr${t.user_id===ME.id?' style="background:var(--accent-soft)"':''}>
+    <td><strong>${i+1}</strong></td>
+    <td>${esc(names[t.user_id]||"?")}${t.user_id===ME.id?' <span class="muted" style="font-size:.72rem">(jij)</span>':''}</td>
+    <td><strong>${t.score}</strong></td>
+    <td>${t.meta?`${t.meta.you||"?"}-${t.meta.cpu||"?"}`:"—"}</td>
+    <td class="muted" style="font-size:.75rem">${fmtDate(t.created_at)}</td>
+  </tr>`;
+  const section=(icon,title,list,tableHead,rowFn,empty,tip)=>`
+    <details class="score-section" open>
+      <summary><span class="score-section-hd">${icon} <strong>${title}</strong> <span class="muted" style="font-size:.78rem">(${list.length})</span></span></summary>
+      <div style="margin-top:.5rem">
+        ${list.length
+          ? `<div class="card score-table-card"><table>${tableHead}<tbody>${list.map(rowFn).join("")}</tbody></table></div>`
+          : `<p class="muted">${empty}</p>`
+        }
+        ${tip?`<p class="muted" style="font-size:.78rem;margin-top:.4rem">${tip}</p>`:""}
+      </div>
+    </details>`;
   app.innerHTML=`
     <a class="muted" data-nav="#/">← Quizzen</a>
-    <h1 style="margin:.5rem 0">🧱 Tetris scorebord</h1>
-    <div class="card" style="margin-top:.8rem">
-      <div class="setup-hd">${ICON.info} Spelregels</div>
-      <ul class="tetris-rules">
-        <li>Tetris ontgrendel je na een oefensessie van <strong>minstens 25 vragen</strong>.</li>
-        <li>In die sessie moet je <strong>minstens 80% juist</strong> hebben. Niet gehaald? Dan geen pauze.</li>
-        <li>Elke afspeelde game telt — enkel je <strong>beste score</strong> per speler staat in de ranglijst.</li>
-        <li>Toetsenbord: ← → bewegen, ↑ draaien, ↓ sneller, spatie = plonsen, P = pauze.</li>
-        <li>Op mobiel gebruik je de knoppen onderaan.</li>
-      </ul>
-    </div>
-    <h2>Top ${top.length}</h2>
-    ${top.length?`<div class="card" style="padding:.3rem"><table>
-      <thead><tr><th>#</th><th>Naam</th><th>Score</th><th>Lijnen</th><th>Level</th><th>Datum</th></tr></thead>
-      <tbody>${top.map((t,i)=>`<tr${t.user_id===ME.id?' style="background:var(--accent-soft)"':''}><td><strong>${i+1}</strong></td><td>${esc(names[t.user_id]||"?")}${t.user_id===ME.id?' <span class="muted" style="font-size:.72rem">(jij)</span>':''}</td><td><strong>${t.score}</strong></td><td>${t.lines}</td><td>${t.level}</td><td class="muted" style="font-size:.75rem">${fmtDate(t.created_at)}</td></tr>`).join("")}</tbody>
-    </table></div>`:`<p class="muted">Nog geen scores. Speel een rondje na een geslaagde oefensessie en zet jezelf als eerste op het bord!</p>`}
-    ${myRank>=0?`<p class="muted" style="margin-top:.6rem;font-size:.85rem">Jouw beste score: rang ${myRank+1} met ${top[myRank].score} punten.</p>`:top.length?`<p class="muted" style="margin-top:.6rem;font-size:.85rem">Je staat nog niet op het bord.</p>`:""}`;
+    <h1 style="margin:.5rem 0">🏆 Scorebord</h1>
+    <p class="muted" style="font-size:.85rem;margin:.2rem 0 1rem 0">Beste score per speler, per game. Elke game telt — alleen je persoonlijke topscore staat in de ranglijst.</p>
+    ${section("🧱","Tetris",tetris,
+      `<thead><tr><th>#</th><th>Naam</th><th>Score</th><th>Lijnen</th><th>Level</th><th>Datum</th></tr></thead>`,
+      tetrisRow,
+      "Nog geen scores. Speel een rondje na een geslaagde oefensessie.",
+      "Ontgrendel Tetris via een oefensessie van ≥25 vragen met ≥80% juist (tenzij een beheerder de game vrij zet).")}
+    ${section("🐍","Snake",snake,
+      `<thead><tr><th>#</th><th>Naam</th><th>Score</th><th>Datum</th></tr></thead>`,
+      myRow,
+      "Nog geen scores. Speel Snake en zet jezelf als eerste op het bord.",
+      "Score = het aantal punten dat je haalde. Elke appel is +10.")}
+    ${section("🏓","Pong",pong,
+      `<thead><tr><th>#</th><th>Naam</th><th>Score</th><th>Setstand</th><th>Datum</th></tr></thead>`,
+      pongRow,
+      "Nog geen wedstrijden gewonnen. Versla de CPU en zet je stand.",
+      "Score = 70 − CPU-punten × 10. Schoner gewonnen = hoger. Verlies telt niet mee.")}
+  `;
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
 }
 
@@ -1279,11 +1342,12 @@ function openSnake(){
     dir={x:1,y:0}; nextDir=dir; score=0; over=false; paused=false;
     tickMs=140; tickAcc=0; lastT=0; placeFood();
   };
+  const submitScore=async(s,len)=>{ if(!ME||s<=0) return; try{ await sb.from("game_scores").insert({ user_id:ME.id, game:"snake", score:s, meta:{ length:len } }); }catch(e){} };
   const step=()=>{
     dir=nextDir;
     const head={x:snake[0].x+dir.x, y:snake[0].y+dir.y};
-    if(head.x<0||head.x>=COLS||head.y<0||head.y>=ROWS){ over=true; return; }
-    if(snake.some(s=>s.x===head.x&&s.y===head.y)){ over=true; return; }
+    if(head.x<0||head.x>=COLS||head.y<0||head.y>=ROWS){ over=true; submitScore(score, snake.length); return; }
+    if(snake.some(s=>s.x===head.x&&s.y===head.y)){ over=true; submitScore(score, snake.length); return; }
     snake.unshift(head);
     if(head.x===food.x&&head.y===food.y){
       score+=10;
@@ -1420,9 +1484,10 @@ function openPong(){
         ballV.y += ((ball.y-(cy+PAD_H/2))/PAD_H)*3;
       }
       if(ball.x<0){ scoreCpu++; if(scoreCpu>=WIN_SCORE){ over=true; } else reset("you"); }
-      else if(ball.x>W){ scoreYou++; if(scoreYou>=WIN_SCORE){ over=true; } else reset("cpu"); }
+      else if(ball.x>W){ scoreYou++; if(scoreYou>=WIN_SCORE){ over=true; submitPongScore(); } else reset("cpu"); }
     }
   };
+  const submitPongScore=async()=>{ if(!ME) return; const s=Math.max(0, WIN_SCORE*10 - scoreCpu*10); if(s<=0) return; try{ await sb.from("game_scores").insert({ user_id:ME.id, game:"pong", score:s, meta:{ you:scoreYou, cpu:scoreCpu } }); }catch(e){} };
   const draw=()=>{
     ctx.fillStyle="#0f172a"; ctx.fillRect(0,0,W,H);
     ctx.strokeStyle="rgba(255,255,255,.25)"; ctx.setLineDash([6,6]);
