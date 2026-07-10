@@ -2721,12 +2721,13 @@ async function viewAttemptDetail(quizId, attemptId){
       const nextAnswers={...answers};
       if(picked.length) nextAnswers[qid]=picked; else delete nextAnswers[qid];
       const live=attemptScoreFrom(nextAnswers, currentCorrect);
-      const { error }=await sb.from("quiz_attempts").update({
+      const { data:updated, error }=await sb.from("quiz_attempts").update({
         answers: nextAnswers,
         score: live.score, wrong: live.wrong, overleg: live.overleg,
         total_answered: live.answered, total_questions: qs.length,
-      }).eq("id",attemptId);
+      }).eq("id",attemptId).select();
       if(error){ if(statusEl) statusEl.innerHTML=`<span style="color:var(--wrong)">${esc(error.message)}</span>`; return; }
+      if(!updated||!updated.length){ if(statusEl) statusEl.innerHTML=`<span style="color:var(--wrong)">Niet opgeslagen — geen toegang (RLS)</span>`; return; }
       // Update lokale state en herrender
       Object.keys(answers).forEach(k=>delete answers[k]);
       Object.assign(answers, nextAnswers);
