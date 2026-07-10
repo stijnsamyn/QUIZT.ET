@@ -2569,23 +2569,27 @@ async function renderGamesStatsBlock(){
     Promise.all(list.map(g=>gameStats(g.id, "me"))),
     Promise.all(list.map(g=>gameStats(g.id, "all"))),
   ]);
-  const fmtLast=d=>d?new Date(d).toLocaleDateString("nl-BE",{day:"2-digit",month:"short",year:"numeric"}):"—";
-  mount.innerHTML=`<div class="card" style="padding:.3rem"><table>
-    <thead><tr><th>Game</th><th>Jij: partijen</th><th>Jij: beste</th><th>Jij: laatst</th><th>Iedereen: partijen</th><th>Spelers</th><th>Iedereen: beste</th></tr></thead>
-    <tbody>${list.map((g,i)=>{
-      const m=mine[i], a=all[i];
-      return `<tr>
-        <td>${g.icon} <strong>${esc(g.name)}</strong></td>
-        <td>${m.plays||"—"}</td>
-        <td>${m.plays?m.best:"—"}</td>
-        <td class="muted" style="font-size:.78rem">${fmtLast(m.last)}</td>
-        <td>${a.plays||"—"}</td>
-        <td>${a.players||"—"}</td>
-        <td>${a.plays?a.best:"—"}</td>
-      </tr>`;
-    }).join("")}</tbody>
-  </table></div>
-  <p class="muted" style="font-size:.78rem;margin-top:.4rem">Cumulatief — tellingen negeren de scorereset. Volledige ranglijst per periode: <a class="ilink" data-nav="#/scorebord">Scorebord →</a></p>`;
+  mount.innerHTML=`<div class="games-stats-grid">${list.map((g,i)=>{
+    const m=mine[i], a=all[i];
+    return `<div class="games-stats-tile">
+      <div class="games-stats-hd"><span class="games-stats-icon">${g.icon}</span><strong>${esc(g.name)}</strong></div>
+      <div class="games-stats-tiles">
+        <div class="games-stats-cell">
+          <div class="games-stats-val">${a.plays||0}</div>
+          <div class="games-stats-lab">gespeeld (iedereen)</div>
+        </div>
+        <div class="games-stats-cell">
+          <div class="games-stats-val">${m.plays||0}</div>
+          <div class="games-stats-lab">gespeeld (jij)</div>
+        </div>
+        <div class="games-stats-cell games-stats-hero">
+          <div class="games-stats-val">${m.plays?m.best:"—"}</div>
+          <div class="games-stats-lab">jouw highscore</div>
+        </div>
+      </div>
+    </div>`;
+  }).join("")}</div>
+  <p class="muted" style="font-size:.78rem;margin-top:.6rem">Cumulatief — negeert de scorereset. Volledige ranglijst per periode: <a class="ilink" data-nav="#/scorebord">Scorebord →</a></p>`;
   mount.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
 }
 

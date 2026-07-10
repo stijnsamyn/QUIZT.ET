@@ -588,6 +588,19 @@ summary .ico,button .ico{color:inherit}
 .games-cfg-gate{flex-wrap:wrap;background:var(--surface2);border-radius:8px;padding:.4rem .55rem}
 .games-cfg-gate input[type="number"]{padding:.2rem .35rem;font-size:.85rem}
 
+.games-stats-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:.7rem}
+.games-stats-tile{border:1px solid var(--border);border-radius:12px;background:var(--surface);
+  padding:.7rem .8rem;display:flex;flex-direction:column;gap:.5rem}
+.games-stats-hd{display:flex;align-items:center;gap:.5rem;color:var(--ink);font-size:.95rem}
+.games-stats-icon{font-size:1.3rem;line-height:1}
+.games-stats-tiles{display:grid;grid-template-columns:1fr 1fr 1fr;gap:.35rem}
+.games-stats-cell{background:var(--surface2);border-radius:8px;padding:.4rem .35rem;text-align:center}
+.games-stats-cell.games-stats-hero{background:var(--accent-soft)}
+.games-stats-val{font-weight:800;font-size:1.1rem;color:var(--ink);line-height:1.1}
+.games-stats-hero .games-stats-val{color:var(--accent-dark);font-size:1.25rem}
+.games-stats-lab{font-size:.66rem;color:var(--text-muted);margin-top:.15rem;
+  text-transform:uppercase;letter-spacing:.03em;line-height:1.2}
+
 .score-mini-card{margin-top:1rem;background:linear-gradient(180deg, var(--surface) 0%, var(--accent-soft) 100%)}
 .score-mini-top{display:flex;justify-content:space-between;align-items:center;gap:.6rem;margin-bottom:.6rem;flex-wrap:wrap}
 .score-mini-title{font-size:.95rem;color:var(--ink)}
