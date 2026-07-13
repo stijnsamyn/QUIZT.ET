@@ -4040,10 +4040,12 @@ async function viewBeheer(tab){
   if(tab==="quizzen"){
     content.innerHTML=`
       <div class="stack" style="margin-top:1rem">${(quizzes||[]).map(q=>`
-        <div class="card"><div class="spread">
-          <div><strong>${esc(q.title)}</strong> <span class="badge ${q.status==="gepubliceerd"?"pub":"concept"}">${q.status}</span>
-            <div class="muted">${esc(q.description||"")}</div></div>
-          <div class="btnrow" style="margin:0">
+        <div class="card quiz-row"><div class="spread quiz-row-spread">
+          <div class="quiz-row-info">
+            <strong>${esc(q.title)}</strong> <span class="badge ${q.status==="gepubliceerd"?"pub":"concept"}">${q.status}</span>
+            <div class="muted quiz-row-desc">${esc(q.description||"")}</div>
+          </div>
+          <div class="btnrow quiz-row-btns">
             <button class="btn btn-ghost btn-sm" data-edit="${q.id}">Bewerken</button>
             <button class="btn btn-ghost btn-sm" data-pub="${q.id}" data-status="${q.status}">${q.status==="gepubliceerd"?"Terug naar concept":"Publiceren"}</button>
             <button class="btn btn-danger btn-sm" data-del="${q.id}">Verwijderen</button>

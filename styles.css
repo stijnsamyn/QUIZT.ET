@@ -669,6 +669,16 @@ summary .ico,button .ico{color:inherit}
 /* ============================================================
    Matrix-vraag (rijen × kolommen)
    ============================================================ */
+/* Beheer — quiz-rij: knoppen altijd rechts, ook bij lange beschrijving */
+.quiz-row-spread{flex-wrap:nowrap;align-items:flex-start;gap:1rem}
+.quiz-row-info{flex:1;min-width:0}
+.quiz-row-desc{margin-top:.15rem;white-space:normal}
+.quiz-row-btns{margin:0;flex-shrink:0;flex-wrap:nowrap;white-space:nowrap}
+@media (max-width:640px){
+  .quiz-row-spread{flex-wrap:wrap}
+  .quiz-row-btns{flex-wrap:wrap}
+}
+
 .matrix-wrap{overflow-x:auto;margin:.4rem 0 .6rem}
 .matrix-table{border-collapse:collapse;width:100%;font-size:.9rem}
 .matrix-table th,.matrix-table td{border:1px solid var(--border);padding:.4rem .55rem;text-align:center;vertical-align:middle}
