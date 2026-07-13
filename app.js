@@ -611,18 +611,18 @@ window.addEventListener("hashchange", route);
 async function viewHome(){
   const myGen = currentRouteGen();
   const stale = () => myGen !== currentRouteGen();
-  const { data:quizzes, error } = await sb.from("quizzes").select("*").order("created_at");
+  // Alle drie de queries parallel — scheelt twee volledige round-trips naar Supabase
+  const [{ data:quizzes, error }, { data:qs }, { data:mine }] = await Promise.all([
+    sb.from("quizzes").select("*").order("created_at"),
+    sb.from("questions").select("id,quiz_id"),
+    sb.from("answers").select("question_id").eq("user_id",ME.id),
+  ]);
   if(stale()) return;
   if(error) throw error;
   // aantal vragen per quiz + mijn voortgang
-  const { data:qs } = await sb.from("questions").select("id,quiz_id");
-  if(stale()) return;
   const counts={}, q2quiz={}; (qs||[]).forEach(q=>{ counts[q.quiz_id]=(counts[q.quiz_id]||0)+1; q2quiz[q.id]=q.quiz_id; });
   const myAns={};
-  const qids=(qs||[]).map(q=>q.id);
-  if(qids.length){ const {data:mine}=await sb.from("answers").select("question_id").eq("user_id",ME.id).in("question_id",qids);
-    if(stale()) return;
-    (mine||[]).forEach(a=>{ const qz=q2quiz[a.question_id]; if(qz) myAns[qz]=(myAns[qz]||0)+1; }); }
+  (mine||[]).forEach(a=>{ const qz=q2quiz[a.question_id]; if(qz) myAns[qz]=(myAns[qz]||0)+1; });
   const cards=(quizzes||[]).map(q=>{
     const tot=counts[q.id]||0, done=myAns[q.id]||0;
     const p=pct(done,tot);
@@ -930,19 +930,28 @@ async function refreshNotifyBadge(){
   }catch(e){}
 }
 async function viewPlay(quizId){
-  const { data:quiz } = await sb.from("quizzes").select("*").eq("id",quizId).single();
+  // Alles wat niet van de vraag-ids afhangt parallel ophalen — dat scheelt
+  // meerdere volledige round-trips naar Supabase per quiz-opening.
+  const [{ data:quiz }, { data:questions }, savedSession, { data:wrongEvents }] = await Promise.all([
+    sb.from("quizzes").select("*").eq("id",quizId).single(),
+    sb.from("questions").select("*").eq("quiz_id",quizId).order("sort_order"),
+    loadSession(quizId),
+    sb.from("answer_events").select("question_id").eq("user_id",ME.id).eq("quiz_id",quizId).eq("is_correct",false),
+  ]);
   if(!quiz){ app.innerHTML=`<div class="empty">Quiz niet gevonden.</div>`; return; }
-  const { data:questions } = await sb.from("questions").select("*").eq("quiz_id",quizId).order("sort_order");
   // Docent-antwoorden zichtbaar? Attribuut op elke vraag zodat renderers dat lokaal kunnen checken.
   (questions||[]).forEach(q=>{ q._show_docent = !!(quiz && quiz.show_docent); });
   PLAY.quiz=quiz; PLAY.all=questions||[]; PLAY.i=0; PLAY.answers={}; PLAY.history={}; PLAY.everWrong=new Set();
-  PLAY.savedSession = await loadSession(quizId);
+  PLAY.savedSession = savedSession;
   const ids=PLAY.all.map(q=>q.id);
+  PLAY.openFlags=[]; PLAY.flagNames={};
   if(ids.length){
-    const [{data:mine},{data:wrongEvents}]=await Promise.all([
+    // Antwoorden en open flags parallel (beide hebben de vraag-ids nodig)
+    const [{data:mine},{data:of}]=await Promise.all([
       sb.from("answers").select("*").eq("user_id",ME.id).in("question_id",ids),
-      sb.from("answer_events").select("question_id").eq("user_id",ME.id).eq("quiz_id",quizId).eq("is_correct",false),
+      sb.from("flags").select("id,question_id,type,toelichting,created_at,user_id").eq("status","open").neq("type","juist").in("question_id",ids).order("type").order("created_at",{ascending:false}),
     ]);
+    PLAY.openFlags=of||[]; PLAY.flagNames=await namesFor(PLAY.openFlags.map(f=>f.user_id));
     const qById={}; (PLAY.all||[]).forEach(q=>qById[q.id]=q);
     (mine||[]).forEach(a=>{
       const q=qById[a.question_id];
@@ -960,10 +969,6 @@ async function viewPlay(quizId){
     });
     (wrongEvents||[]).forEach(e=>PLAY.everWrong.add(e.question_id));
   }
-  // open flags voor deze quiz (voor iedereen zichtbaar op het startscherm)
-  PLAY.openFlags=[]; PLAY.flagNames={};
-  if(ids.length){ const {data:of}=await sb.from("flags").select("id,question_id,type,toelichting,created_at,user_id").eq("status","open").neq("type","juist").in("question_id",ids).order("type").order("created_at",{ascending:false});
-    PLAY.openFlags=of||[]; PLAY.flagNames=await namesFor(PLAY.openFlags.map(f=>f.user_id)); }
   if(PLAY.pendingJump){
     const jid=PLAY.pendingJump; PLAY.pendingJump=null;
     PLAY.session={size:"alle",focus:"alle",order:"nummer"}; PLAY.mode="nummer";
