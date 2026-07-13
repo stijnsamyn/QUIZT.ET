@@ -523,6 +523,7 @@ async function route(){
     if(p[0]==="meldingen") return viewMeldingen();
     if(p[0]==="account") return viewAccount();
     if(p[0]==="beheer" && p[1]==="vraag") return viewEditQuestion(p[2]);
+    if(p[0]==="beheer" && p[1]==="quiz" && p[3]==="audit") return viewBeheerAudit(p[2]);
     if(p[0]==="beheer" && p[1]==="quiz") return viewBeheerQuiz(p[2]);
     if(p[0]==="beheer" && p[1]==="import") return viewImport();
     if(p[0]==="beheer") return viewBeheer(p[1]||"quizzen");
@@ -4440,6 +4441,7 @@ async function viewBeheerQuiz(quizId){
         ${infoTip("Alleen aanzetten als de docent regelmatig andere antwoorden geeft dan het wettelijk juiste. Bij aan: extra D-kolom in de editor, docent-toelichting-veld, 'Docent koos…'-reactie-chip en docent-blok na het antwoord in de speler. Bij uit: alles wat met docent te maken heeft blijft verborgen voor spelers en beheerders.")}
       </label>
       <div class="btnrow"><button class="btn btn-primary btn-sm" id="saveQuiz">Quiz opslaan</button>
+        <a class="btn btn-ghost btn-sm" data-nav="#/beheer/quiz/${quizId}/audit">👀 Alles-in-één overzicht</a>
         <span class="badge ${quiz.status==="gepubliceerd"?"pub":"concept"}">${quiz.status}</span></div>
     </div>
     <div class="spread"><h2>Vragen (${(questions||[]).length})</h2>
@@ -4480,6 +4482,144 @@ async function viewBeheerQuiz(quizId){
     const info=document.getElementById("qSearchInfo");
     info.style.display = s?"":"none"; info.textContent = s?`${n} vraag/vragen gevonden`:"";
   };
+}
+
+/* ============================================================
+   ALLES-IN-ÉÉN OVERZICHT — beheerder ziet volledige vraag +
+   volledige antwoorden per rij, kan filteren en direct springen
+   naar de bewerk-pagina van een vraag.
+   ============================================================ */
+async function viewBeheerAudit(quizId){
+  if(!isEditor()){ app.innerHTML=`<div class="empty">Geen toegang.</div>`; return; }
+  const { data:quiz } = await sb.from("quizzes").select("*").eq("id",quizId).single();
+  const { data:questions } = await sb.from("questions").select("*").eq("quiz_id",quizId).order("sort_order");
+  const ids=(questions||[]).map(q=>q.id);
+  let flags=[];
+  if(ids.length){ const {data}=await sb.from("flags").select("id,question_id,type,status,toelichting,user_id,created_at").in("question_id",ids); flags=data||[]; }
+  const fBy={}; flags.forEach(f=>{ (fBy[f.question_id]=fBy[f.question_id]||[]).push(f); });
+  (questions||[]).forEach(q=>{ q._show_docent = !!(quiz && quiz.show_docent); });
+
+  let filter="alle";
+  const matches = q => {
+    const fs=fBy[q.id]||[]; const open=fs.filter(f=>f.status==="open");
+    switch(filter){
+      case "gevalideerd":     return q.validated!==false;
+      case "nietgevalideerd": return q.validated===false;
+      case "openflags":       return open.length>0;
+      case "geenflags":       return fs.length===0;
+      case "docentwijkt":     return q._show_docent && arr(q.docent_indexes).length && !setEq(q.docent_indexes, arr(q.correct_indexes));
+      case "meerkeuze":       return q.question_type==="mcq" && (q.multi || arr(q.correct_indexes).length>1);
+      case "mcq":             return (q.question_type||"mcq")==="mcq";
+      case "matrix":          return q.question_type==="matrix";
+      case "open":            return q.question_type==="open";
+      case "afbeelding":      return !!q.image_url;
+      case "geenafbeelding":  return !q.image_url;
+      case "geenuitleg":      return !q.explanation || !q.explanation.trim();
+      default: return true;
+    }
+  };
+  const renderAnswerBlock = q => {
+    const t=q.question_type||"mcq";
+    if(t==="open"){
+      return `<div class="au-answers"><div class="au-lbl">Modelantwoord</div>
+        <div class="au-open">${q.open_answer?esc(q.open_answer):`<span class="muted">— geen modelantwoord —</span>`}</div></div>`;
+    }
+    if(t==="matrix"){
+      const rows=arr(q.matrix_rows), cols=arr(q.matrix_cols), correct=arr(q.matrix_correct);
+      if(!rows.length||!cols.length) return `<div class="au-answers"><span class="muted">Matrix leeg</span></div>`;
+      const head=`<tr><th></th>${cols.map(c=>`<th>${esc(c)}</th>`).join("")}</tr>`;
+      const body=rows.map((r,ri)=>{
+        const cells=cols.map((_,ci)=>{
+          const isC=correct[ri]===ci;
+          return `<td class="${isC?"is-correct":""}">${isC?"✓":""}</td>`;
+        }).join("");
+        return `<tr><th>${esc(r)}</th>${cells}</tr>`;
+      }).join("");
+      return `<div class="au-answers"><div class="au-lbl">Matrix (juiste kolom per rij is aangeduid)</div>
+        <div class="au-matrix"><table>${head}${body}</table></div></div>`;
+    }
+    // mcq
+    const correct=arr(q.correct_indexes);
+    const docent=arr(q.docent_indexes);
+    const docentDiffers = q._show_docent && docent.length && !setEq(docent, correct);
+    const items=(q.options||[]).map((o,i)=>{
+      const isC=correct.includes(i);
+      const isD=q._show_docent && docent.includes(i);
+      const cls = "au-opt"+(isC?" is-correct":"")+(isD&&!isC?" is-docent":"");
+      const badges = [];
+      if(isC) badges.push(`<span class="pill juist" style="font-size:.68rem">juist</span>`);
+      if(docentDiffers && isD) badges.push(`<span class="pill" style="font-size:.68rem;background:rgba(192,38,211,.12);color:#a21caf">docent</span>`);
+      return `<div class="${cls}"><span class="au-let">${letter(i)}</span><div class="au-otext">${esc(o)}${badges.length?` ${badges.join(" ")}`:""}</div></div>`;
+    }).join("");
+    return `<div class="au-answers"><div class="au-lbl">Antwoorden ${q.multi||correct.length>1?"<span class=\"muted\">(meerkeuze)</span>":""}</div>${items||`<span class="muted">— geen opties —</span>`}</div>`;
+  };
+  const renderCard = q => {
+    const fs=fBy[q.id]||[];
+    const open=fs.filter(f=>f.status==="open").length;
+    const tagRow = questionTags(q) + (q.image_url?` <span class="tag">🖼️ afbeelding</span>`:"") + (fs.length?` <span class="tag tag-warn">${ICON.flag} ${fs.length}${open?` · ${open} open`:""}</span>`:"");
+    const openFlags = fs.filter(f=>f.status==="open" && f.toelichting).slice(0,3);
+    const flagPreview = openFlags.length ? `<details class="au-flags"><summary>${open} open reactie(s) — bekijk</summary>${openFlags.map(f=>`<div class="au-flag"><span class="pill ${esc(f.type)}" style="font-size:.68rem">${esc(f.type)}</span> <span class="cmt">${formatCommentBody(f.toelichting, q.id, q)}</span></div>`).join("")}</details>` : "";
+    return `<div class="au-card" data-qid="${q.id}">
+      <div class="au-hd">
+        <div class="au-hd-left">
+          <span class="q-num">Vraag ${q.qnum}</span>
+          ${tagRow}
+        </div>
+        <div class="au-hd-right">
+          <a class="btn btn-ghost btn-sm" data-nav="#/beheer/vraag/${q.id}">🛠️ Bewerken</a>
+          <a class="btn btn-ghost btn-sm" data-jump="${q.id}">▶ Spelen</a>
+        </div>
+      </div>
+      <div class="au-text">${esc(q.text)}</div>
+      ${q.image_url?`<div class="au-image"><img src="${esc(q.image_url)}" alt="Afbeelding bij vraag ${q.qnum}" loading="lazy"></div>`:""}
+      ${renderAnswerBlock(q)}
+      ${q.explanation?`<details class="au-details"><summary>Uitleg</summary><div class="au-detail-body">${html(q.explanation)}</div></details>`:""}
+      ${q.legal_basis?`<details class="au-details"><summary>Wettelijke basis</summary><div class="au-detail-body">${html(q.legal_basis)}</div></details>`:""}
+      ${q.wettekst?`<details class="au-details"><summary>Wettekst</summary><div class="au-detail-body">${html(q.wettekst)}</div></details>`:""}
+      ${q._show_docent && q.docent_note?`<details class="au-details" open><summary>👨‍🏫 Toelichting docent</summary><div class="au-detail-body">${esc(q.docent_note)}</div></details>`:""}
+      ${flagPreview}
+    </div>`;
+  };
+  const draw = ()=>{
+    const list = (questions||[]).filter(matches);
+    document.getElementById("auList").innerHTML = list.length
+      ? list.map(renderCard).join("")
+      : `<div class="empty">Geen vragen voor dit filter.</div>`;
+    document.querySelectorAll("[data-filter]").forEach(b=>b.classList.toggle("active", b.dataset.filter===filter));
+    document.getElementById("auCount").textContent = `${list.length} van ${questions.length}`;
+    app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
+    app.querySelectorAll("[data-jump]").forEach(b=>b.onclick=()=>PLAY_goto(quizId, b.dataset.jump));
+  };
+  app.innerHTML=`
+    <div class="spread">
+      <a class="muted" data-nav="#/beheer/quiz/${quizId}">← Terug naar quiz-editor</a>
+      <span class="muted au-count" id="auCount">${(questions||[]).length}</span>
+    </div>
+    <h1 style="margin:.5rem 0">Alles-in-één — ${esc(quiz?quiz.title:"")}</h1>
+    <p class="muted" style="font-size:.85rem">Elke vraag met volledige tekst en volledige antwoorden. Klik <strong>Bewerken</strong> om de vraag aan te passen, of <strong>Spelen</strong> om ze in de speler-view te zien met reacties.</p>
+    <div class="filterbar" style="margin-top:.6rem;flex-wrap:wrap">
+      <span class="muted">Filter:</span>
+      ${[
+        ["alle","alle"],
+        ["gevalideerd","✓ gevalideerd"],
+        ["nietgevalideerd","⚠ niet gevalideerd"],
+        ["openflags","open reacties"],
+        ["geenflags","geen reacties"],
+        ["docentwijkt","docent wijkt af"],
+        ["mcq","meerkeuze/enkel"],
+        ["meerkeuze","enkel meerkeuze"],
+        ["matrix","matrix"],
+        ["open","open vragen"],
+        ["afbeelding","🖼️ met afbeelding"],
+        ["geenafbeelding","zonder afbeelding"],
+        ["geenuitleg","zonder uitleg"],
+      ].map(([f,l])=>`<button class="chip-toggle" data-filter="${f}">${l}</button>`).join("")}
+    </div>
+    <div class="au-list" id="auList" style="margin-top:.8rem"></div>
+  `;
+  app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
+  app.querySelectorAll("[data-filter]").forEach(b=>b.onclick=()=>{ filter=b.dataset.filter; draw(); });
+  draw();
 }
 
 function srcToggle(id, val){
