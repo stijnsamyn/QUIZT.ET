@@ -32,11 +32,39 @@ function questionTags(q){
   const t=[];
   if(q.validated===false) t.push(`<span class="tag tag-warn">Niet gevalideerd ${infoTip("Er is nog geen officieel juist antwoord. Kies via de opmerkingen wat volgens jou het juiste antwoord is, en gebruik de flags om erover in overleg te gaan.")}</span>`);
   else t.push(`<span class="tag tag-ok">Gevalideerd ${infoTip("Het juiste antwoord is nagekeken en bevestigd door een beheerder.")}</span>`);
-  if(q.multi || arr(q.correct_indexes).length>1) t.push(`<span class="tag">Meerkeuze ${infoTip("Er kunnen meerdere antwoorden juist zijn — kruis alle juiste aan.")}</span>`);
+  if(q.question_type==="matrix") t.push(`<span class="tag">Matrix ${infoTip("Kies per rij één antwoord in de bijhorende kolom.")}</span>`);
+  else if(q.question_type==="open") t.push(`<span class="tag">Open vraag ${infoTip("Typ je antwoord in vrije tekst. Als er een modelantwoord is en jouw tekst komt exact overeen, wordt de vraag als juist geteld; anders komt hij als 'in overleg' binnen.")}</span>`);
+  else if(q.multi || arr(q.correct_indexes).length>1) t.push(`<span class="tag">Meerkeuze ${infoTip("Er kunnen meerdere antwoorden juist zijn — kruis alle juiste aan.")}</span>`);
   if(arr(q.docent_indexes).length && !setEq(q.docent_indexes, q.correct_indexes)) t.push(`<span class="tag tag-doc">👨‍🏫 Docent wijkt af ${infoTip("De docent koos een ander antwoord dan het wettelijk juiste. Beide worden getoond na je antwoord.")}</span>`);
   return t.join(" ");
 }
-function isRight(q, chosen){ return q.validated===false ? null : setEq(chosen, q.correct_indexes); }
+// Normaliseer open antwoord voor vergelijking: trim, collapse whitespace, lowercase.
+// Diacritics blijven staan — bewust: "artikel 34" ≠ "artkel 34" mag niet gelijk zijn.
+function normalizeOpenText(s){ return String(s||"").toLowerCase().replace(/\s+/g," ").trim(); }
+function isRight(q, chosen){
+  const type=q&&q.question_type||"mcq";
+  if(type==="matrix"){
+    if(q.validated===false) return null;
+    const rows=arr(q.matrix_rows), correct=arr(q.matrix_correct);
+    if(!rows.length || !Array.isArray(chosen)) return null;
+    // Als er geen enkele juiste kolom aangeduid is, kunnen we niet scoren
+    if(!correct.some(c=>c>=0)) return null;
+    // Elke rij die een juist antwoord heeft, moet overeenkomen
+    for(let i=0;i<rows.length;i++){
+      if(correct[i]==null || correct[i]<0) continue;   // rij zonder juist antwoord telt niet mee
+      if(chosen[i]!==correct[i]) return false;
+    }
+    return true;
+  }
+  if(type==="open"){
+    if(q.validated===false) return null;
+    const model=String(q.open_answer||"").trim();
+    const given=typeof chosen==="string" ? chosen : (chosen&&chosen.text)||"";
+    if(!model || !given.trim()) return null;   // geen automatische score mogelijk
+    return normalizeOpenText(model)===normalizeOpenText(given) ? true : null;
+  }
+  return q.validated===false ? null : setEq(chosen, q.correct_indexes);
+}
 function srcBadge(kind, src){
   const t = src === "ai" ? "Door AI bepaald" : "Door een mens bepaald";
   return `<span class="src ${src}" title="${kind}: ${t}">${src==="ai"?ICON.robot:ICON.person}</span>`;
@@ -691,7 +719,21 @@ async function viewPlay(quizId){
       sb.from("answers").select("*").eq("user_id",ME.id).in("question_id",ids),
       sb.from("answer_events").select("question_id").eq("user_id",ME.id).eq("quiz_id",quizId).eq("is_correct",false),
     ]);
-    (mine||[]).forEach(a=>{ PLAY.answers[a.question_id]=a.chosen_indexes||[]; PLAY.history[a.question_id]=a.chosen_indexes||[]; });
+    const qById={}; (PLAY.all||[]).forEach(q=>qById[q.id]=q);
+    (mine||[]).forEach(a=>{
+      const q=qById[a.question_id];
+      // Voor open vragen bewaren we de tekst als "chosen"; voor mcq/matrix de int-array
+      let val;
+      if(q && q.question_type==="open"){
+        if(a.open_answer_text==null || !String(a.open_answer_text).trim()) return; // niet beantwoord
+        val = a.open_answer_text;
+      } else {
+        val = a.chosen_indexes||[];
+        if(!Array.isArray(val) || !val.length) return;                             // niet beantwoord
+      }
+      PLAY.answers[a.question_id]=val;
+      PLAY.history[a.question_id]=val;
+    });
     (wrongEvents||[]).forEach(e=>PLAY.everWrong.add(e.question_id));
   }
   // open flags voor deze quiz (voor iedereen zichtbaar op het startscherm)
@@ -1053,8 +1095,7 @@ async function renderQuestion(){
           ${q.legal_basis?`<div class="prehelp-legal"><strong>Wettelijke basis:</strong> ${html(translateOptRefs(q.legal_basis, q.id, q))}</div>`:""}
           ${q.wettekst?`<div class="wettekst">${html(translateOptRefs(q.wettekst, q.id, q))}</div>`:""}
         </div></details>`:""}
-      <div id="opts">${opts}</div>
-      ${(multi && (examLive || !answered))?`<div class="btnrow"><button class="btn btn-primary btn-sm" id="checkMulti">${examLive?"Bevestig antwoord":"Nakijken"}</button></div>`:""}
+      ${renderQBody(q, chosen, answered, examLive, opts, multi)}
       <div id="afterAnswer"></div>
     </div>`;
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
@@ -1082,6 +1123,10 @@ async function renderQuestion(){
     PLAY.i=Math.max(0, PLAY.questions.findIndex(x=>x.id===curId));
     renderQuestion();
   });
+  // === Type-specifieke bediening ===
+  if(q.question_type==="matrix"){ wireMatrixBody(q, chosen, answered, examLive); return; }
+  if(q.question_type==="open"){   wireOpenBody(q, chosen, answered, examLive);   return; }
+
   if(examLive){
     // Examen: multi = checkbox-set commit met "Bevestig"; single = klik = zet antwoord (lokaal)
     if(multi){
@@ -1122,8 +1167,122 @@ async function renderQuestion(){
   else app.querySelectorAll("[data-opt]").forEach(o=>o.onclick=()=>answerQuestion(q, [+o.dataset.opt]));
 }
 
-function examSetAnswer(q, idxArray){
-  const chosen=arr(idxArray).slice().sort((a,b)=>a-b);
+/* ============================================================
+   Body-rendering per vraag-type
+   ============================================================ */
+function renderQBody(q, chosen, answered, examLive, mcqOpts, multi){
+  if(q.question_type==="matrix") return renderMatrixBody(q, chosen, answered, examLive);
+  if(q.question_type==="open")   return renderOpenBody(q, chosen, answered, examLive);
+  return `<div id="opts">${mcqOpts}</div>
+    ${(multi && (examLive || !answered))?`<div class="btnrow"><button class="btn btn-primary btn-sm" id="checkMulti">${examLive?"Bevestig antwoord":"Nakijken"}</button></div>`:""}`;
+}
+
+function renderMatrixBody(q, chosen, answered, examLive){
+  const rows=arr(q.matrix_rows), cols=arr(q.matrix_cols), correct=arr(q.matrix_correct);
+  const sel = Array.isArray(chosen) ? chosen : new Array(rows.length).fill(-1);
+  const showFeedback = answered && !examLive;
+  const head=`<tr><th></th>${cols.map(c=>`<th>${esc(c)}</th>`).join("")}</tr>`;
+  const body=rows.map((rLabel,ri)=>{
+    const cells=cols.map((_,ci)=>{
+      const chosenHere = sel[ri]===ci;
+      const isCorrect = correct[ri]===ci;
+      let cls="matrix-cell";
+      if(chosenHere) cls+=" chosen";
+      if(showFeedback){
+        if(isCorrect) cls+=" correct";
+        else if(chosenHere) cls+=" wrong";
+      }
+      const disabled = answered && !examLive ? "disabled" : "";
+      const checked = chosenHere ? "checked" : "";
+      return `<td class="${cls}" data-row="${ri}" data-col="${ci}">
+        <label><input type="radio" name="mx-${q.id}-r${ri}" value="${ci}" ${checked} ${disabled}></label>
+      </td>`;
+    }).join("");
+    return `<tr><th class="matrix-row-label">${esc(rLabel)}</th>${cells}</tr>`;
+  }).join("");
+  const showBtn = examLive || !answered;
+  const btnLabel = examLive ? "Bevestig antwoord" : "Nakijken";
+  return `<div class="matrix-wrap"><table class="matrix-table"><thead>${head}</thead><tbody>${body}</tbody></table></div>
+    ${showBtn?`<div class="btnrow"><button class="btn btn-primary btn-sm" id="submitMatrix">${btnLabel}</button></div>`:""}`;
+}
+
+function renderOpenBody(q, chosen, answered, examLive){
+  const val = typeof chosen==="string" ? chosen : "";
+  const showFeedback = answered && !examLive;
+  const isCorrect = showFeedback ? isRight(q, val) : null;
+  const readOnly = answered && !examLive;
+  return `<div class="open-wrap">
+      <textarea id="openAnswer" class="open-answer" rows="4" placeholder="Typ hier je antwoord…" ${readOnly?"readonly":""}>${esc(val)}</textarea>
+      ${(!examLive && answered)?`<div class="open-feedback ${isCorrect===true?"ok":isCorrect===false?"bad":"warn"}">
+        ${isCorrect===true?`${ICON.check} Je antwoord komt exact overeen met het modelantwoord.`
+          :isCorrect===false?`Je antwoord wijkt af van het modelantwoord — bekijk hieronder de vergelijking.`
+          :`Je antwoord is bewaard. Er is ${q.open_answer?"een modelantwoord dat afwijkt":"geen modelantwoord"} — deze vraag wordt als <strong>in overleg</strong> geteld.`}
+      </div>`:""}
+      ${(answered && !examLive && q.open_answer)?`<div class="open-model"><span class="lbl">Modelantwoord ${srcBadge("Modelantwoord",q.answer_source)}</span><div class="open-model-body">${esc(q.open_answer)}</div></div>`:""}
+    </div>
+    ${(examLive || !answered)?`<div class="btnrow"><button class="btn btn-primary btn-sm" id="submitOpen">${examLive?"Bevestig antwoord":"Antwoord indienen"}</button></div>`:""}`;
+}
+
+function wireMatrixBody(q, chosen, answered, examLive){
+  const rows=arr(q.matrix_rows);
+  const readSel=()=>{
+    const sel=new Array(rows.length).fill(-1);
+    for(let ri=0;ri<rows.length;ri++){
+      const checked=app.querySelector(`input[name="mx-${q.id}-r${ri}"]:checked`);
+      if(checked) sel[ri]=+checked.value;
+    }
+    return sel;
+  };
+  // Klik op een cel = radio toggelen (grotere clickable target)
+  app.querySelectorAll(".matrix-cell").forEach(td=>{
+    td.onclick=e=>{
+      if(answered && !examLive) return;
+      if(e.target.tagName!=="INPUT"){
+        const inp=td.querySelector("input");
+        if(inp){ inp.checked=true; inp.dispatchEvent(new Event("change",{bubbles:true})); }
+      }
+      // markeer visueel
+      const ri=+td.dataset.row;
+      app.querySelectorAll(`.matrix-cell[data-row="${ri}"]`).forEach(x=>x.classList.remove("chosen"));
+      td.classList.add("chosen");
+    };
+  });
+  const btn=document.getElementById("submitMatrix");
+  if(btn){
+    btn.onclick=()=>{
+      const sel=readSel();
+      if(sel.every(v=>v<0)) return toast("Duid minstens één rij aan","err");
+      if(examLive) examSetAnswer(q, sel);
+      else answerQuestion(q, sel);
+    };
+  }
+  if(answered && !examLive) renderAfterAnswer(q);
+}
+
+function wireOpenBody(q, chosen, answered, examLive){
+  const ta=document.getElementById("openAnswer");
+  const btn=document.getElementById("submitOpen");
+  if(btn){
+    btn.onclick=()=>{
+      const v=(ta&&ta.value||"").trim();
+      if(!v) return toast("Typ eerst je antwoord","err");
+      if(examLive) examSetAnswer(q, v);
+      else answerQuestion(q, v);
+    };
+  }
+  if(answered && !examLive) renderAfterAnswer(q);
+}
+
+function examSetAnswer(q, idxArrayOrText){
+  let chosen;
+  if(q.question_type==="open"){
+    chosen = String(idxArrayOrText||"").trim();
+    if(!chosen) return;
+  } else if(q.question_type==="matrix"){
+    chosen = arr(idxArrayOrText).slice();       // volgorde = rij-index, NIET sorteren
+  } else {
+    chosen = arr(idxArrayOrText).slice().sort((a,b)=>a-b);
+  }
   PLAY.answers[q.id]=chosen;
   // Ga direct naar de volgende onbeantwoorde vraag, of blijf hier als alles klaar is
   const total=PLAY.questions.length;
@@ -1144,6 +1303,9 @@ async function submitExam(){
   const now=new Date().toISOString();
   const answersRows=qs.filter(x=>PLAY.answers[x.id]!=null).map(x=>{
     const c=PLAY.answers[x.id];
+    if(x.question_type==="open"){
+      return { question_id:x.id, user_id:ME.id, chosen_indexes:[], open_answer_text:String(c||""), is_correct:isRight(x,c), updated_at:now };
+    }
     return { question_id:x.id, user_id:ME.id, chosen_indexes:c, is_correct:isRight(x,c), updated_at:now };
   });
   const eventsRows=qs.filter(x=>PLAY.answers[x.id]!=null).map(x=>{
@@ -1166,16 +1328,30 @@ async function submitExam(){
   renderPlayDone();
 }
 
-async function answerQuestion(q, idxArray){
+async function answerQuestion(q, idxArrayOrText){
   if(PLAY.answering) return;
   PLAY.answering=true;
-  app.querySelectorAll("[data-opt],#checkMulti").forEach(el=>el.style.pointerEvents="none");
-  const chosen=arr(idxArray).slice().sort((a,b)=>a-b);
-  const is_correct = isRight(q, chosen);   // null bij niet-gevalideerde vraag
+  app.querySelectorAll("[data-opt],#checkMulti,#submitOpen,.matrix-cell").forEach(el=>el.style.pointerEvents="none");
+  let chosen, dbRow;
+  if(q.question_type==="open"){
+    chosen = String(idxArrayOrText||"").trim();
+    if(!chosen){ PLAY.answering=false; toast("Typ eerst je antwoord","err"); return; }
+    const is_correct = isRight(q, chosen);
+    dbRow = { question_id:q.id, user_id:ME.id, chosen_indexes:[], open_answer_text:chosen, is_correct, updated_at:new Date().toISOString() };
+  } else if(q.question_type==="matrix"){
+    // idxArrayOrText = array met per rij de gekozen kolom-index (of -1)
+    chosen = arr(idxArrayOrText).slice();
+    const is_correct = isRight(q, chosen);
+    dbRow = { question_id:q.id, user_id:ME.id, chosen_indexes:chosen, open_answer_text:null, is_correct, updated_at:new Date().toISOString() };
+  } else {
+    chosen = arr(idxArrayOrText).slice().sort((a,b)=>a-b);
+    const is_correct = isRight(q, chosen);
+    dbRow = { question_id:q.id, user_id:ME.id, chosen_indexes:chosen, is_correct, updated_at:new Date().toISOString() };
+  }
   try{
-    const { error:e1 } = await sb.from("answers").upsert({ question_id:q.id, user_id:ME.id, chosen_indexes:chosen, is_correct, updated_at:new Date().toISOString() },{ onConflict:"question_id,user_id" });
+    const { error:e1 } = await sb.from("answers").upsert(dbRow,{ onConflict:"question_id,user_id" });
     if(e1) throw e1;
-    await sb.from("answer_events").insert({ question_id:q.id, quiz_id:PLAY.quiz.id, user_id:ME.id, is_correct });
+    await sb.from("answer_events").insert({ question_id:q.id, quiz_id:PLAY.quiz.id, user_id:ME.id, is_correct:dbRow.is_correct });
   }
   catch(e){ toast("Antwoord niet opgeslagen: "+e.message,"err"); PLAY.answering=false; renderQuestion(); return; }
   PLAY.answers[q.id]=chosen;
@@ -2297,6 +2473,9 @@ function renderFlagThread(flags, names, qid){
 async function renderAfterAnswer(q){
   const box=document.getElementById("afterAnswer");
   box.innerHTML=`<div class="muted">Laden…</div>`;
+  if(q.question_type==="matrix" || q.question_type==="open"){
+    return renderAfterAnswerNonMcq(q);
+  }
   const [{data:flags},{data:edits}] = await Promise.all([
     sb.from("flags").select("*").eq("question_id",q.id).order("created_at",{ascending:true}),
     sb.from("question_edits").select("*").eq("question_id",q.id).order("created_at",{ascending:false}),
@@ -2473,6 +2652,71 @@ async function renderAfterAnswer(q){
     if(error) return toast(error.message,"err");
     toast("Reactie verwijderd","ok"); renderAfterAnswer(q);
   });
+}
+
+/* ============================================================
+   Post-antwoord blok voor matrix/open vragen
+   — vereenvoudigde variant zonder shuffle/optie-stemmen
+   ============================================================ */
+async function renderAfterAnswerNonMcq(q){
+  const box=document.getElementById("afterAnswer");
+  const [{data:flags},{data:edits}] = await Promise.all([
+    sb.from("flags").select("*").eq("question_id",q.id).order("created_at",{ascending:true}),
+    sb.from("question_edits").select("*").eq("question_id",q.id).order("created_at",{ascending:false}),
+  ]);
+  const names = await namesFor([...(flags||[]).map(f=>f.user_id),...(edits||[]).map(e=>e.edited_by)]);
+  const chosen = PLAY.answers[q.id];
+  const rightBlock = q.question_type==="matrix"
+    ? renderMatrixResultBlock(q, chosen)
+    : renderOpenResultBlock(q, chosen);
+  const commentFlags = (flags||[]).filter(f=>!f.parent_id);
+  const cmts = commentFlags.map(f=>`<div class="flag-thread">
+    <div class="flag-hd"><span class="pill ${esc(f.type)}">${esc(f.type)}</span> <span class="who">${esc(names[f.user_id]||"?")}</span> <span class="when">${fmtDate(f.created_at)}</span></div>
+    ${f.toelichting?`<div class="cmt">${formatCommentBody(f.toelichting, q.id, q)}</div>`:""}
+  </div>`).join("");
+  box.innerHTML=`
+    ${q.validated===false?`<div class="notice">${ICON.info} <strong>Nog geen gevalideerd juist antwoord.</strong> Gebruik de reacties hieronder om erover in overleg te gaan.</div>`:""}
+    ${rightBlock}
+    <div class="explain">
+      <span class="lbl">Uitleg ${srcBadge("Uitleg",q.explanation_source)}</span>${html(q.explanation||"— geen uitleg —")}
+      ${q.legal_basis?`<div class="legal-inline"><strong>Wettelijke basis:</strong> ${srcBadge("Wettelijke basis",q.legal_basis_source)} ${html(q.legal_basis)}</div>`:""}
+      ${q.wettekst?`<details class="wettekst-d"><summary>${ICON.info} Toon wettekst</summary><div class="wettekst">${html(q.wettekst)}</div></details>`:""}
+    </div>
+    <details><summary>${ICON.chat} Reacties (${commentFlags.length})</summary>
+      <div class="body">
+        ${cmts||`<p class="muted">Nog geen reacties.</p>`}
+        <div class="btnrow" style="margin-top:.6rem">
+          <textarea id="nonMcqCmt" placeholder="Schrijf een korte reactie…" style="min-height:70px"></textarea>
+        </div>
+        <div class="btnrow"><button class="btn btn-primary btn-sm" id="sendNonMcqCmt">Reactie plaatsen</button></div>
+      </div>
+    </details>`;
+  const btn=document.getElementById("sendNonMcqCmt");
+  if(btn) btn.onclick=async()=>{
+    const t=(document.getElementById("nonMcqCmt").value||"").trim();
+    if(!t) return toast("Typ eerst je reactie","err");
+    const { error } = await sb.from("flags").insert({ question_id:q.id, user_id:ME.id, type:"commentaar", toelichting:t, preferred_indexes:[] });
+    if(error) return toast(error.message,"err");
+    toast("Reactie geplaatst","ok"); renderAfterAnswerNonMcq(q);
+  };
+}
+function renderMatrixResultBlock(q, chosen){
+  const rows=arr(q.matrix_rows), cols=arr(q.matrix_cols), correct=arr(q.matrix_correct);
+  const sel = Array.isArray(chosen) ? chosen : new Array(rows.length).fill(-1);
+  const lis = rows.map((r,ri)=>{
+    const c=correct[ri], s=sel[ri];
+    if(c<0) return `<li><strong>${esc(r)}</strong>: geen juist antwoord bepaald.</li>`;
+    const good = s===c;
+    return `<li class="${good?"ok":"bad"}"><strong>${esc(r)}</strong>: juist = <em>${esc(cols[c]||"?")}</em>${s>=0?` — jouw keuze: <em>${esc(cols[s]||"—")}</em> ${good?"✓":"✗"}`:` — nog geen keuze gemaakt`}</li>`;
+  }).join("");
+  return `<div class="matrix-result"><div class="lbl">Overzicht per rij</div><ul>${lis}</ul></div>`;
+}
+function renderOpenResultBlock(q, chosen){
+  const given = typeof chosen==="string" ? chosen : "";
+  return `<div class="open-result">
+    <div><span class="lbl">Jouw antwoord</span><div class="open-given">${esc(given)}</div></div>
+    ${q.open_answer?`<div style="margin-top:.6rem"><span class="lbl">Modelantwoord ${srcBadge("Modelantwoord",q.answer_source)}</span><div class="open-model-body">${esc(q.open_answer)}</div></div>`:`<div class="muted" style="margin-top:.4rem">Er is geen modelantwoord ingesteld — deze vraag wordt als "in overleg" geteld.</div>`}
+  </div>`;
 }
 
 /* haal weergavenamen op voor een set user-ids */
@@ -4098,15 +4342,30 @@ function srcToggle(id, val){
     <button type="button" class="chip-toggle ${val==="mens"?"active":""}" data-src="${id}" data-val="mens">${ICON.person} mens</button>
     <button type="button" class="chip-toggle ${val==="ai"?"active":""}" data-src="${id}" data-val="ai">${ICON.robot} AI</button></div>`;
 }
+function renderMatrixEditor(q){
+  const rows=arr(q.matrix_rows), cols=arr(q.matrix_cols), correct=arr(q.matrix_correct);
+  const colHeaders=cols.map((c,ci)=>`<th class="mx-colhead"><input data-mx-col="${ci}" value="${esc(c)}"><button type="button" class="mx-x" data-mx-delcol="${ci}" title="Kolom verwijderen">×</button></th>`).join("");
+  const rowsHtml=rows.map((r,ri)=>{
+    const cells=cols.map((_,ci)=>{
+      const checked=correct[ri]===ci?"checked":"";
+      return `<td class="mx-cell"><label><input type="radio" name="mx-edit-${q.id}-r${ri}" data-mx-corr-row="${ri}" data-mx-corr-col="${ci}" ${checked}></label></td>`;
+    }).join("");
+    return `<tr><th class="mx-rowhead"><input data-mx-row="${ri}" value="${esc(r)}"><button type="button" class="mx-x" data-mx-delrow="${ri}" title="Rij verwijderen">×</button></th>${cells}</tr>`;
+  }).join("");
+  return `<label>Matrix — vink per rij de juiste kolom aan (radiobutton). ${infoTip("Elke rij mag hoogstens één juist antwoord hebben. Als een rij geen aangevinkte kolom heeft, wordt hij als 'geen juist antwoord bepaald' geïmporteerd; de vraag komt dan als niet-gevalideerd binnen.")}</label>
+    <div class="matrix-edit-wrap"><table class="matrix-edit-table" data-mx="${q.id}"><thead><tr><th></th>${colHeaders}</tr></thead><tbody>${rowsHtml}</tbody></table></div>
+    <div class="btnrow"><button class="btn btn-ghost btn-sm" data-mx-addrow="${q.id}">+ rij</button><button class="btn btn-ghost btn-sm" data-mx-addcol="${q.id}">+ kolom</button></div>`;
+}
+function renderOpenEditor(q){
+  return `<label>Modelantwoord (referentie) ${infoTip("Optioneel. Als de speler exact deze tekst typt (extra spaties/hoofdletters worden genegeerd) wordt de vraag als juist geteld. Anders komt hij als 'in overleg' binnen en kan een beheerder achteraf beoordelen.")}</label>
+    <textarea data-f="open_answer" data-q="${q.id}" placeholder="Modelantwoord — bv. 'Binnen de maand na de vaststelling.'">${esc(q.open_answer||"")}</textarea>`;
+}
 function questionEditor(q){
   const corr=arr(q.correct_indexes);
   const doc=arr(q.docent_indexes);
-  return `<div class="card" data-qcard="${q.id}">
-    <div class="spread"><span class="q-num">Vraag ${q.qnum}</span>
-      <button class="btn btn-danger btn-sm" data-delq="${q.id}">Verwijderen</button></div>
-    <label>Vraagtekst</label><textarea data-f="text" data-q="${q.id}">${esc(q.text)}</textarea>
-    <label style="display:flex;align-items:center;gap:.5rem;font-weight:400"><input type="checkbox" data-valid="${q.id}" style="width:auto" ${q.validated!==false?"checked":""}> Gevalideerd juist antwoord ${infoTip("Uit = er is nog geen officieel juist antwoord; de groep bepaalt het via opmerkingen en flags. De vraag krijgt dan de tag 'Niet gevalideerd'. Als J (juridisch) en D (docent) verschillen, staat deze vlag standaard uit tot een beheerder bewust bevestigt.")}</label>
-    <div data-valid-warn="${q.id}" class="valid-mismatch" hidden>⚠️ J en D verschillen — vragen worden standaard <strong>niet-gevalideerd</strong> bewaard tot je hier bewust bevestigt door dit vinkje aan te zetten.</div>
+  const qtype=q.question_type||"mcq";
+  const typeChip=(v,label)=>`<button type="button" class="chip-toggle ${qtype===v?"active":""}" data-qtype="${q.id}" data-typeval="${v}">${label}</button>`;
+  const mcqBlock = qtype==="mcq" ? `
     <label style="display:flex;align-items:center;gap:.5rem;font-weight:400"><input type="checkbox" data-multi="${q.id}" style="width:auto" ${q.multi?"checked":""}> Meerkeuze (meerdere juiste antwoorden)</label>
     <label>Antwoordopties — vink <strong>J</strong> aan voor het wettelijk juiste antwoord, en <strong>D</strong> voor het antwoord dat de docent koos (indien verschillend) ${infoTip("J = juridisch/officieel juist antwoord. D = wat de docent aanduidde — enkel invullen als die afwijkt van J. Als beide leeg blijven bij één optie, telt die niet mee.")}</label>
     <div data-opts="${q.id}">${(q.options||[]).map((o,i)=>`
@@ -4119,7 +4378,23 @@ function questionEditor(q){
       </div>`).join("")}</div>
     <button class="btn btn-ghost btn-sm" data-addopt="${q.id}">+ optie</button>
     <label>Toelichting docent (optioneel) ${infoTip("Korte uitleg waarom de docent een ander antwoord kiest dan wat wettelijk juist is. Wordt getoond in het docent-blok bij de vraag. Verwijs naar antwoordopties met {A} {B} {C} … — die worden vertaald naar de letter die de speler ziet.")}</label>
-    <textarea data-f="docent_note" data-q="${q.id}" placeholder="bv. De docent noteert antwoord {B} als praktijk-antwoord…">${esc(q.docent_note||"")}</textarea>
+    <textarea data-f="docent_note" data-q="${q.id}" placeholder="bv. De docent noteert antwoord {B} als praktijk-antwoord…">${esc(q.docent_note||"")}</textarea>` : "";
+  const matrixBlock = qtype==="matrix" ? renderMatrixEditor(q) : "";
+  const openBlock   = qtype==="open"   ? renderOpenEditor(q)   : "";
+  return `<div class="card" data-qcard="${q.id}" data-qtype-current="${qtype}">
+    <div class="spread"><span class="q-num">Vraag ${q.qnum}</span>
+      <button class="btn btn-danger btn-sm" data-delq="${q.id}">Verwijderen</button></div>
+    <label>Vraagtype</label>
+    <div class="btnrow" style="margin:.2rem 0 .4rem">
+      ${typeChip("mcq","Meerkeuze")} ${typeChip("matrix","Matrix")} ${typeChip("open","Open vraag")}
+      <span class="muted" style="font-size:.75rem;margin-left:.4rem">Wisselen bewaart eerst de andere velden van deze vraag.</span>
+    </div>
+    <label>Vraagtekst</label><textarea data-f="text" data-q="${q.id}">${esc(q.text)}</textarea>
+    <label style="display:flex;align-items:center;gap:.5rem;font-weight:400"><input type="checkbox" data-valid="${q.id}" style="width:auto" ${q.validated!==false?"checked":""}> Gevalideerd juist antwoord ${infoTip("Uit = er is nog geen officieel juist antwoord; de groep bepaalt het via opmerkingen en flags. De vraag krijgt dan de tag 'Niet gevalideerd'. Als J (juridisch) en D (docent) verschillen, staat deze vlag standaard uit tot een beheerder bewust bevestigt.")}</label>
+    <div data-valid-warn="${q.id}" class="valid-mismatch" hidden>⚠️ J en D verschillen — vragen worden standaard <strong>niet-gevalideerd</strong> bewaard tot je hier bewust bevestigt door dit vinkje aan te zetten.</div>
+    ${mcqBlock}
+    ${matrixBlock}
+    ${openBlock}
     <label>Herkomst juist antwoord</label>${srcToggle("as-"+q.id, q.answer_source)}
     <label>Wettelijke basis ${infoTip("Verwijs naar antwoordopties met {A} {B} {C} … De app vertaalt die naar de letter die de gebruiker in zijn geschudde volgorde ziet.")}</label>
     <textarea data-f="legal_basis" data-q="${q.id}">${esc(q.legal_basis||"")}</textarea>
@@ -4141,6 +4416,7 @@ function questionEditor(q){
 }
 function wireQuestionEditor(q, quizId){
   const card=document.querySelector(`[data-qcard="${q.id}"]`);
+  const qtype=q.question_type||"mcq";
   const srcVals={ answer_source:q.answer_source, explanation_source:q.explanation_source, legal_basis_source:q.legal_basis_source };
   card.querySelectorAll("[data-src]").forEach(b=>b.onclick=()=>{
     const grp=b.dataset.src; card.querySelectorAll(`[data-src="${grp}"]`).forEach(x=>x.classList.toggle("active",x===b));
@@ -4148,8 +4424,18 @@ function wireQuestionEditor(q, quizId){
     else if(grp.startsWith("ls-")) srcVals.legal_basis_source=b.dataset.val;
     else srcVals.explanation_source=b.dataset.val;
   });
+  // Type-wissel: schrijf question_type weg en herlaad de editor met de juiste sub-editor
+  card.querySelectorAll(`[data-qtype="${q.id}"]`).forEach(btn=>btn.onclick=async()=>{
+    const nv=btn.dataset.typeval;
+    if(nv===qtype) return;
+    if(!confirm(`Vraagtype wisselen naar "${nv}"? Bewaar eerst je andere wijzigingen (uitleg, wettekst, …) — die worden nu overschreven met wat er in de databank staat.`)) return;
+    const { error }=await sb.from("questions").update({ question_type:nv }).eq("id",q.id);
+    if(error) return toast(error.message,"err");
+    toast("Type gewisseld","ok"); viewEditQuestion(q.id);
+  });
   const addRm=el=>{ el.querySelector("[data-rmopt]").onclick=()=>el.remove(); };
-  card.querySelector(`[data-addopt="${q.id}"]`).onclick=()=>{
+  const addOptBtn = card.querySelector(`[data-addopt="${q.id}"]`);
+  if(addOptBtn) addOptBtn.onclick=()=>{
     const wrap=card.querySelector(`[data-opts="${q.id}"]`);
     const nextIdx=wrap.querySelectorAll(".optrow").length;
     const div=document.createElement("div"); div.className="spread optrow"; div.style="gap:.4rem;margin:.2rem 0";
@@ -4245,27 +4531,103 @@ function wireQuestionEditor(q, quizId){
     if(!confirm("Vraag verwijderen?")) return;
     await sb.from("questions").delete().eq("id",q.id); toast("Verwijderd","ok"); viewBeheerQuiz(quizId);
   };
+  // ---- Matrix-editor wiring (indien van toepassing) ----
+  if(qtype==="matrix"){
+    const table=card.querySelector(`[data-mx="${q.id}"]`);
+    // In-memory model dat we live bijwerken en bij Save wegschrijven
+    const state = {
+      rows: arr(q.matrix_rows).slice(),
+      cols: arr(q.matrix_cols).slice(),
+      correct: arr(q.matrix_correct).slice(),
+    };
+    // Zorg dat correct-array evenlang is als rows
+    while(state.correct.length < state.rows.length) state.correct.push(-1);
+    state.correct.length = state.rows.length;
+    const rerenderMatrix=()=>{
+      const wrap=card.querySelector(".matrix-edit-wrap");
+      if(!wrap) return;
+      // Tijdelijk in q injecteren en HTML opnieuw genereren
+      const tmp={...q, matrix_rows:state.rows, matrix_cols:state.cols, matrix_correct:state.correct};
+      const parser=new DOMParser();
+      const html=renderMatrixEditor(tmp);
+      const doc=parser.parseFromString(`<div>${html}</div>`,"text/html");
+      const newWrap=doc.querySelector(".matrix-edit-wrap");
+      const newBtnrow=doc.querySelectorAll(".btnrow")[0];
+      wrap.replaceWith(newWrap);
+      // Vervang ook de bestaande btnrow (de "+rij/+kolom" knoppen)
+      const btnRows=card.querySelectorAll(".btnrow");
+      // De laatste btnrow met "+rij" hoort bij de matrix-editor — vind ze via het "data-mx-addrow" attribuut
+      const existingAdd=card.querySelector(`[data-mx-addrow="${q.id}"]`);
+      if(existingAdd && existingAdd.parentElement) existingAdd.parentElement.replaceWith(newBtnrow);
+      wireMatrixEditor();
+    };
+    function wireMatrixEditor(){
+      card.querySelectorAll(`[data-mx-row]`).forEach(inp=>inp.oninput=e=>{ state.rows[+inp.dataset.mxRow]=e.target.value; });
+      card.querySelectorAll(`[data-mx-col]`).forEach(inp=>inp.oninput=e=>{ state.cols[+inp.dataset.mxCol]=e.target.value; });
+      card.querySelectorAll(`[data-mx-corr-row]`).forEach(rb=>rb.onchange=()=>{
+        const ri=+rb.dataset.mxCorrRow, ci=+rb.dataset.mxCorrCol;
+        state.correct[ri]=ci;
+      });
+      const addRow=card.querySelector(`[data-mx-addrow="${q.id}"]`);
+      if(addRow) addRow.onclick=()=>{ state.rows.push(""); state.correct.push(-1); rerenderMatrix(); };
+      const addCol=card.querySelector(`[data-mx-addcol="${q.id}"]`);
+      if(addCol) addCol.onclick=()=>{ state.cols.push(""); rerenderMatrix(); };
+      card.querySelectorAll(`[data-mx-delrow]`).forEach(b=>b.onclick=()=>{
+        const ri=+b.dataset.mxDelrow;
+        state.rows.splice(ri,1); state.correct.splice(ri,1); rerenderMatrix();
+      });
+      card.querySelectorAll(`[data-mx-delcol]`).forEach(b=>b.onclick=()=>{
+        const ci=+b.dataset.mxDelcol;
+        state.cols.splice(ci,1);
+        // rijen die deze kolom als juist hadden → -1; hogere indexen -1
+        state.correct = state.correct.map(c=> c===ci ? -1 : (c>ci ? c-1 : c));
+        rerenderMatrix();
+      });
+    }
+    wireMatrixEditor();
+    // Bind zo we bij Save direct de meest recente state hebben
+    card.__matrixState = state;
+  }
+
   card.querySelector(`[data-saveq="${q.id}"]`).onclick=async()=>{
     const text=card.querySelector(`[data-f="text"][data-q="${q.id}"]`).value.trim();
-    const rows=[...card.querySelectorAll(`[data-opts="${q.id}"] .optrow`)];
-    const opts=[]; const correct=[]; const docent=[];
-    rows.forEach(r=>{ const v=r.querySelector(`[data-opt="${q.id}"]`).value.trim(); if(!v) return;
-      const idx=opts.length; opts.push(v);
-      if(r.querySelector(".corr").checked) correct.push(idx);
-      if(r.querySelector(".doc").checked) docent.push(idx);
-    });
-    if(opts.length<2) return toast("Minstens 2 opties","err");
     const validated=card.querySelector(`[data-valid="${q.id}"]`).checked;
-    if(validated && !correct.length) return toast("Vink een juist antwoord aan, of zet 'Gevalideerd' uit.","err");
-    const multi=card.querySelector(`[data-multi="${q.id}"]`).checked || correct.length>1;
-    const docent_note=card.querySelector(`[data-f="docent_note"][data-q="${q.id}"]`).value;
-    const payload={ text, options:opts, correct_indexes:correct, multi, validated,
-      docent_indexes: docent.length? docent : null,
-      docent_note: docent.length? docent_note : null,
+    const common={ text, validated,
       legal_basis:card.querySelector(`[data-f="legal_basis"][data-q="${q.id}"]`).value,
       wettekst:card.querySelector(`[data-f="wettekst"][data-q="${q.id}"]`).value,
       explanation:card.querySelector(`[data-f="explanation"][data-q="${q.id}"]`).value,
       answer_source:srcVals.answer_source, explanation_source:srcVals.explanation_source, legal_basis_source:srcVals.legal_basis_source };
+    let payload;
+    if(qtype==="matrix"){
+      const st=card.__matrixState||{rows:[],cols:[],correct:[]};
+      if(!st.rows.length || !st.cols.length) return toast("Voeg minstens één rij en één kolom toe","err");
+      if(st.rows.some(r=>!String(r).trim())) return toast("Alle rij-labels invullen","err");
+      if(st.cols.some(c=>!String(c).trim())) return toast("Alle kolom-labels invullen","err");
+      payload={ ...common, question_type:"matrix", multi:false,
+        options:[], correct_indexes:[], docent_indexes:null, docent_note:null,
+        matrix_rows:st.rows, matrix_cols:st.cols, matrix_correct:st.correct };
+    } else if(qtype==="open"){
+      const modelAnswer=card.querySelector(`[data-f="open_answer"][data-q="${q.id}"]`).value;
+      payload={ ...common, question_type:"open", multi:false,
+        options:[], correct_indexes:[], docent_indexes:null, docent_note:null,
+        matrix_rows:null, matrix_cols:null, matrix_correct:null,
+        open_answer:modelAnswer };
+    } else {
+      const rows=[...card.querySelectorAll(`[data-opts="${q.id}"] .optrow`)];
+      const opts=[]; const correct=[]; const docent=[];
+      rows.forEach(r=>{ const v=r.querySelector(`[data-opt="${q.id}"]`).value.trim(); if(!v) return;
+        const idx=opts.length; opts.push(v);
+        if(r.querySelector(".corr").checked) correct.push(idx);
+        if(r.querySelector(".doc").checked) docent.push(idx);
+      });
+      if(opts.length<2) return toast("Minstens 2 opties","err");
+      if(validated && !correct.length) return toast("Vink een juist antwoord aan, of zet 'Gevalideerd' uit.","err");
+      const multi=card.querySelector(`[data-multi="${q.id}"]`).checked || correct.length>1;
+      const docent_note=card.querySelector(`[data-f="docent_note"][data-q="${q.id}"]`).value;
+      payload={ ...common, question_type:"mcq", options:opts, correct_indexes:correct, multi,
+        docent_indexes: docent.length? docent : null,
+        docent_note: docent.length? docent_note : null };
+    }
     const { error }=await sb.from("questions").update(payload).eq("id",q.id);
     if(error) return toast(error.message,"err");
     toast("Vraag opgeslagen (wijzigingen gelogd)","ok");
@@ -4278,6 +4640,15 @@ function wireQuestionEditor(q, quizId){
 // Laat de beheerder de vraag "spelen" om de weergave te controleren zonder DB-writes
 function renderTestPreview(q, chosen){
   const el=document.getElementById("testPreview"); if(!el) return;
+  // Voor matrix/open is de test-preview beperkt tot een niet-interactieve samenvatting —
+  // de beheerder kan altijd op "Opslaan & bekijken" klikken om de echte spelerweergave te zien.
+  if(q.question_type==="matrix" || q.question_type==="open"){
+    const summary = q.question_type==="matrix"
+      ? `<div class="muted">Matrix met ${arr(q.matrix_rows).length} rijen × ${arr(q.matrix_cols).length} kolommen. Test de speler-weergave via "Opslaan & bekijken".</div>`
+      : `<div class="muted">Open vraag${q.open_answer?" (modelantwoord ingesteld)":" (geen modelantwoord)"}. Test de speler-weergave via "Opslaan & bekijken".</div>`;
+    el.innerHTML=`<div class="preview-hd"><div>${ICON.info} <strong>Preview</strong></div></div><div class="card" style="margin-top:.4rem"><div class="q-meta"><span class="q-num">Vraag ${q.qnum}</span>${questionTags(q)}</div><div class="q-text">${esc(q.text)}</div>${summary}</div>`;
+    return;
+  }
   const correct=arr(q.correct_indexes);
   const docent=arr(q.docent_indexes);
   const docentDiffers=docent.length>0 && !setEq(docent,correct);
@@ -4417,17 +4788,67 @@ function parseQuizMarkdown(text){
   const lines=text.split(/\r?\n/);
   let title="", desc=""; const questions=[]; const errors=[];
   let cur=null, field=null;
-  const push=()=>{ if(cur){ questions.push(cur); cur=null; } };
+  // Matrix-tabel wordt regel per regel opgebouwd: onthou headerrij + rijenbuffer
+  let matrixHeaderSeen=false;
+  const splitPipeRow=raw=>{
+    // "| a | b |" → ["a","b"]  (haal buitenste pipes weg, split op |)
+    let s=raw.trim();
+    if(s.startsWith("|")) s=s.slice(1);
+    if(s.endsWith("|")) s=s.slice(0,-1);
+    return s.split("|").map(c=>c.trim());
+  };
+  const isSeparatorRow=cells=>cells.every(c=>/^:?-{2,}:?$/.test(c) || c===""|| /^-+$/.test(c));
+  const push=()=>{ if(cur){ questions.push(cur); cur=null; } matrixHeaderSeen=false; };
   for(let raw of lines){
     const line=raw.trim();
     if(/^#\s*Titel:/i.test(line)){ title=line.replace(/^#\s*Titel:/i,"").trim(); continue; }
     if(/^#\s+/.test(line)&&!title){ title=line.replace(/^#+\s*/,"").trim(); continue; }
     if(/^Beschrijving:/i.test(line)){ desc=line.replace(/^Beschrijving:/i,"").trim(); continue; }
-    if(/^##\s*/.test(line)){ push(); cur={ text:"", options:[], correct_indexes:[], docent_indexes:[], docent_note:"", legal_basis:"", wettekst:"", explanation:"", source:"mens", validated:true }; field="text"; continue; }
+    if(/^##\s*/.test(line)){
+      push();
+      cur={
+        text:"", question_type:"mcq",
+        options:[], correct_indexes:[], docent_indexes:[], docent_note:"",
+        matrix_rows:[], matrix_cols:[], matrix_correct:[],
+        open_answer:"",
+        legal_basis:"", wettekst:"", explanation:"", source:"mens", validated:true
+      };
+      field="text"; continue;
+    }
     if(!cur) continue;
     let m;
-    // Optie: - [x] [d] tekst — [x/X] = juridisch juist (J), [d/D] = docent koos dit (D)
-    if((m=line.match(/^-\s*\[( |x|X)\]\s*(?:\[( |d|D)\]\s*)?(.+)$/))){
+    // Type-schakelaar: **Type:** matrix | open | mcq (default mcq)
+    if((m=line.match(/^\*\*Type:\*\*\s*(\w+)/i))){
+      const t=m[1].toLowerCase();
+      if(t==="matrix" || t==="open" || t==="mcq") cur.question_type=t;
+      field=null; continue;
+    }
+    // Modelantwoord voor open vragen
+    if(/^\*\*Modelantwoord:\*\*/i.test(line)){
+      cur.open_answer=line.replace(/^\*\*Modelantwoord:\*\*/i,"").trim();
+      field="modelantwoord"; continue;
+    }
+    // Matrix-tabel: elke regel begint met "|"
+    if(cur.question_type==="matrix" && line.startsWith("|")){
+      const cells=splitPipeRow(line);
+      if(isSeparatorRow(cells)) continue;  // markdown-tabelscheider negeren
+      if(!matrixHeaderSeen){
+        // eerste rij = kolomlabels (eerste cel mag leeg zijn = hoek)
+        cur.matrix_cols=cells.slice(1);
+        matrixHeaderSeen=true;
+        field="matrix";
+        continue;
+      }
+      // Datarij: eerste cel = rijlabel, andere cellen bevatten evt. "x"/"X" voor juist
+      const rowLabel=cells[0];
+      const marks=cells.slice(1);
+      const correctIdx=marks.findIndex(c=>/^[xX✓✔]$/.test(c.trim()));
+      cur.matrix_rows.push(rowLabel);
+      cur.matrix_correct.push(correctIdx>=0 ? correctIdx : -1);
+      field="matrix"; continue;
+    }
+    // Optie (MCQ): - [x] [d] tekst — enkel voor mcq
+    if(cur.question_type==="mcq" && (m=line.match(/^-\s*\[( |x|X)\]\s*(?:\[( |d|D)\]\s*)?(.+)$/))){
       const idx=cur.options.length;
       if(m[1].toLowerCase()==="x") cur.correct_indexes.push(idx);
       if(m[2] && m[2].toLowerCase()==="d") cur.docent_indexes.push(idx);
@@ -4444,6 +4865,7 @@ function parseQuizMarkdown(text){
       if(field==="legal") cur.legal_basis+="\n\n";
       else if(field==="wettekst") cur.wettekst+="\n\n";
       else if(field==="uitleg") cur.explanation+="\n\n";
+      else if(field==="modelantwoord") cur.open_answer+="\n\n";
       continue;
     }
     // vervolgtekst bij het lopende veld
@@ -4451,15 +4873,29 @@ function parseQuizMarkdown(text){
     else if(field==="legal") cur.legal_basis+=(cur.legal_basis.endsWith("\n\n")?"":" ")+line;
     else if(field==="wettekst") cur.wettekst+=(cur.wettekst.endsWith("\n\n")?"":" ")+line;
     else if(field==="uitleg") cur.explanation+=(cur.explanation.endsWith("\n\n")?"":" ")+line;
+    else if(field==="modelantwoord") cur.open_answer+=(cur.open_answer.endsWith("\n\n")?"":" ")+line;
   }
   push();
   questions.forEach((q,i)=>{
     if(!q.text) errors.push(`Vraag ${i+1}: geen vraagtekst.`);
-    if(q.options.length<2) errors.push(`Vraag ${i+1}: minder dan 2 opties.`);
-    if(!q.correct_indexes.length) q.validated=false;   // geen [x] ⇒ niet gevalideerd
-    // Bij afwijkend docent-antwoord blijft de vraag "niet gevalideerd" tot een beheerder ze bevestigt.
-    if(q.docent_indexes && q.docent_indexes.length && !setEq(q.docent_indexes, q.correct_indexes)) q.validated=false;
-    q.multi=q.correct_indexes.length>1;
+    if(q.question_type==="matrix"){
+      if(!q.matrix_rows.length || !q.matrix_cols.length){
+        errors.push(`Vraag ${i+1} (matrix): geen rijen/kolommen gevonden — voeg een tabel toe.`);
+      }
+      // matrix zonder aangeduid juist antwoord (alle -1) ⇒ niet-gevalideerd
+      if(q.matrix_correct.every(c=>c===-1)) q.validated=false;
+      q.multi=false;
+    } else if(q.question_type==="open"){
+      // Open vragen worden manueel/naderhand beoordeeld — geen "juist" tenzij modelantwoord
+      if(!q.open_answer.trim()) q.validated=false;
+      q.multi=false;
+    } else {
+      if(q.options.length<2) errors.push(`Vraag ${i+1}: minder dan 2 opties.`);
+      if(!q.correct_indexes.length) q.validated=false;   // geen [x] ⇒ niet gevalideerd
+      // Bij afwijkend docent-antwoord blijft de vraag "niet gevalideerd" tot een beheerder ze bevestigt.
+      if(q.docent_indexes && q.docent_indexes.length && !setEq(q.docent_indexes, q.correct_indexes)) q.validated=false;
+      q.multi=q.correct_indexes.length>1;
+    }
   });
   if(!title) errors.push("Geen titel gevonden (# Titel: ...).");
   if(!questions.length) errors.push("Geen vragen gevonden (## Vraag ...).");
@@ -4516,7 +4952,14 @@ async function viewImport(){
       ${relevantErrors.length?`<div style="color:var(--wrong)"><strong>Aandachtspunten:</strong><ul>${relevantErrors.map(e=>`<li>${esc(e)}</li>`).join("")}</ul></div>`:`<p style="color:var(--correct)">${ICON.check} Geen fouten gevonden.</p>`}
       <p><strong>${dest==="existing"?"Doelquiz":"Nieuwe quiz"}:</strong> ${esc(targetTitle)} — ${parsed.questions.length} vragen ${dest==="existing"?"<span class=\"muted\">(titel/beschrijving uit bestand worden genegeerd)</span>":""}</p>
       ${parsed.questions.filter(q=>!q.validated).length?`<p class="muted">${parsed.questions.filter(q=>!q.validated).length} vraag/vragen zonder aangeduid juist antwoord → komen binnen als <strong>niet gevalideerd</strong>.</p>`:""}
-      <ol>${parsed.questions.slice(0,8).map(q=>`<li>${esc(q.text).slice(0,80)}… <span class="muted">(juist: ${q.validated?lettersOf(q.correct_indexes):"in overleg"}${q.multi?" · meerkeuze":""})</span></li>`).join("")}</ol>
+      <ol>${parsed.questions.slice(0,8).map(q=>{
+        const t=q.question_type||"mcq";
+        let bad="";
+        if(t==="matrix") bad=`matrix ${q.matrix_rows.length}×${q.matrix_cols.length}`;
+        else if(t==="open") bad=`open${q.open_answer?" · modelantwoord":""}`;
+        else bad=`juist: ${q.validated?lettersOf(q.correct_indexes):"in overleg"}${q.multi?" · meerkeuze":""}`;
+        return `<li>${esc(q.text).slice(0,80)}… <span class="muted">(${bad})</span></li>`;
+      }).join("")}</ol>
       ${parsed.questions.length>8?`<p class="muted">…en ${parsed.questions.length-8} meer.</p>`:""}
     </div>`;
     return parsed;
@@ -4554,10 +4997,29 @@ async function viewImport(){
       const rows=parsed.questions.map((q,i)=>{
         const src = q.source==="ai" ? "ai" : (aiAll ? "ai" : "mens");
         const doc = (q.docent_indexes && q.docent_indexes.length) ? q.docent_indexes : null;
-        return { quiz_id:quizId, sort_order:startOrder+i+1, text:q.text, options:q.options, correct_indexes:q.correct_indexes, multi:!!q.multi, validated:q.validated!==false,
-          docent_indexes:doc, docent_note: doc ? (q.docent_note||null) : null,
+        const base={ quiz_id:quizId, sort_order:startOrder+i+1, text:q.text,
+          question_type:q.question_type||"mcq",
+          multi:!!q.multi, validated:q.validated!==false,
           legal_basis:q.legal_basis, wettekst:q.wettekst, explanation:q.explanation,
           answer_source:src, explanation_source:src, legal_basis_source: q.legal_basis ? src : null };
+        if(q.question_type==="matrix"){
+          return Object.assign(base, {
+            options:[], correct_indexes:[],
+            matrix_rows:q.matrix_rows, matrix_cols:q.matrix_cols, matrix_correct:q.matrix_correct,
+            docent_indexes:null, docent_note:null,
+          });
+        }
+        if(q.question_type==="open"){
+          return Object.assign(base, {
+            options:[], correct_indexes:[],
+            open_answer:q.open_answer || null,
+            docent_indexes:null, docent_note:null,
+          });
+        }
+        return Object.assign(base, {
+          options:q.options, correct_indexes:q.correct_indexes,
+          docent_indexes:doc, docent_note: doc ? (q.docent_note||null) : null,
+        });
       });
       const CHUNK=40;
       for(let i=0;i<rows.length;i+=CHUNK){

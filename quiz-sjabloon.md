@@ -29,7 +29,11 @@ FORMAATREGELS (de importer leest hierop)
   • Bovenaan: "# Titel: ..." en "Beschrijving: ..." (één quiz per bestand).
   • Elke vraag begint met "## Vraag" (nummering mag, is niet verplicht).
   • Daaronder de vraagtekst (één of meerdere regels).
-  • Dan de antwoordopties, elk op een eigen regel beginnend met "- [ ]".
+  • Vraag-type kies je met "**Type:** mcq" (standaard), "**Type:** matrix" of
+    "**Type:** open". Als je geen Type-regel zet, is de vraag een meerkeuze (mcq).
+    Zie de blokken MATRIX en OPEN onderaan voor de exacte syntax van die types.
+  • Voor een MCQ-vraag zet je daaronder de antwoordopties, elk op een eigen regel
+    beginnend met "- [ ]".
     Zet bij ELK juridisch juist antwoord een x tussen de haakjes: "- [x]".
     Optioneel volgt een tweede paar haakjes voor het DOCENT-antwoord:
        "- [x] [ ] tekst"   — juridisch juist, docent volgt niet dit antwoord
@@ -65,7 +69,25 @@ FORMAATREGELS (de importer leest hierop)
     J en D verschillen wordt de vraag standaard niet-gevalideerd bewaard.
   • Scheid vragen met een lege regel. Laat de labels exact zoals hier geschreven.
 
-Verwijder de twee VOORBEELDVRAGEN voor je uploadt (of laat de AI ze vervangen).
+MATRIX (rijen × kolommen, per rij één juist antwoord)
+  Zet "**Type:** matrix" onder de vraagtekst en plak een gewone Markdown-tabel:
+    |          | KolomA | KolomB | KolomC |
+    | Rij 1    | x      |        |        |
+    | Rij 2    |        |        | x      |
+  De eerste rij bevat de kolomlabels (linker hoekcel mag leeg blijven of een titel
+  hebben). Elke datarij begint met het rij-label; markeer de juiste kolom met "x"
+  (of laat alle cellen leeg als er nog geen juist antwoord is — de vraag komt dan
+  binnen als "niet gevalideerd"). Zowel Markdown-scheiders (|---|---|) als extra
+  spaties zijn OK. Voorbeeld: Vraag 4 hieronder.
+
+OPEN (vrije tekst)
+  Zet "**Type:** open" onder de vraagtekst. Optioneel: geef een modelantwoord met
+  "**Modelantwoord:** ...". Als een speler exact het modelantwoord typt (letters
+  case-insensitive, extra spaties genegeerd) wordt de vraag als juist geteld;
+  anders wordt het antwoord bewaard en gemarkeerd als "in overleg" — beheerders
+  kunnen dat via de vraag-editor of flags nakijken. Voorbeeld: Vraag 5 hieronder.
+
+Verwijder de VOORBEELDVRAGEN voor je uploadt (of laat de AI ze vervangen).
 Alles tussen deze <!-- --> haakjes is commentaar en wordt genegeerd.
 ============================================================
 -->
@@ -113,6 +135,33 @@ Wat is de maximale duur van een gerechtelijke arrestatie (art. 1 WVH)?
 **Wettelijke basis:** Art. 1 WVH.
 **Uitleg:** Juridisch is dat antwoord {B} — 48 uur — sinds de grondwetswijziging van 2017.
 **Docent:** Onze docent bevestigt {B} als juist, in overeenstemming met de wet.
+**Bron:** mens
+
+
+## Vraag 4 (voorbeeld matrix)
+Bij welke pijler van het politie-EEEF-model hoort elk van de volgende actiepunten?
+
+**Type:** matrix
+
+|          | Education | Engineering | Enforce | Fout |
+| Mens     | x         |             |         |      |
+| Milieu   |           | x           |         |      |
+| Middel   |           |             | x       |      |
+
+**Uitleg:** Elke pijler heeft één juiste kolom; "Fout" gebruik je enkel als geen
+enkele van de andere kolommen klopt.
+**Bron:** mens
+
+
+## Vraag 5 (voorbeeld open vraag)
+Binnen welke termijn moet de politie een proces-verbaal overmaken aan het parket?
+
+**Type:** open
+**Modelantwoord:** Binnen de maand na de vaststelling van de feiten.
+
+**Wettelijke basis:** Art. 40 Wet Politieambt.
+**Uitleg:** De richttermijn is één maand; het pv wordt zo snel mogelijk aan het
+bevoegde parket overgemaakt.
 **Bron:** mens
 
 
