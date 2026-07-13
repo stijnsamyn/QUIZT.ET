@@ -174,6 +174,34 @@ document.addEventListener("keydown", e=>{
   else if(k==="k"){ e.preventDefault(); fmtApply(e.target,"code"); }
 });
 
+/* Auto-grow voor textareas in de vraag-editor — fallback wanneer field-sizing niet werkt.
+   Draait alleen wanneer het CSS-recept 'field-sizing:content' NIET ondersteund wordt. */
+const _supportsFieldSizing = (()=>{ try{ return CSS && CSS.supports && CSS.supports("field-sizing: content"); }catch(_){ return false; } })();
+function autoGrowTextarea(ta){
+  if(_supportsFieldSizing) return;
+  if(!ta || ta.tagName!=="TEXTAREA") return;
+  ta.style.height = "auto";
+  ta.style.height = (ta.scrollHeight + 2) + "px";
+}
+function bindAutoGrow(root){
+  if(_supportsFieldSizing) return;
+  const tas = (root||document).querySelectorAll(".qe-card textarea");
+  tas.forEach(ta=>{
+    if(ta.__autoGrowBound) return;
+    ta.__autoGrowBound = true;
+    ta.addEventListener("input", ()=>autoGrowTextarea(ta));
+    // Initial sizing na een frame (zodat er content en juiste width is)
+    requestAnimationFrame(()=>autoGrowTextarea(ta));
+  });
+}
+document.addEventListener("input", e=>{
+  if(_supportsFieldSizing) return;
+  const t = e.target;
+  if(t && t.tagName==="TEXTAREA" && t.closest && t.closest(".qe-card")) autoGrowTextarea(t);
+});
+// Wanneer een editor-card wordt gerenderd, bind alle textareas erin.
+// We voegen dit toe aan wireQuestionEditor door bindAutoGrow op de card aan te roepen (zie hieronder).
+
 /* ---------- Supabase client ---------- */
 const CFG = window.CONFIG || {};
 const configOk = CFG.SUPABASE_URL && !CFG.SUPABASE_URL.startsWith("VUL_") &&
@@ -4745,7 +4773,7 @@ function questionEditor(q){
     </div>
 
     <section class="qe-section qe-sec-question">
-      <div class="qe-sec-hd"><span class="qe-sec-icon">❓</span><span class="qe-sec-title">Vraag</span></div>
+      <div class="qe-sec-hd"><span class="qe-sec-title">Vraag</span></div>
       <label>Vraagtype</label>
       <div class="btnrow" style="margin:.2rem 0 .4rem">
         ${typeChip("mcq","Meerkeuze")} ${typeChip("matrix","Matrix")} ${typeChip("open","Open vraag")}
@@ -4770,7 +4798,7 @@ function questionEditor(q){
     </section>
 
     <section class="qe-section qe-sec-answers">
-      <div class="qe-sec-hd"><span class="qe-sec-icon">✅</span><span class="qe-sec-title">Antwoorden</span></div>
+      <div class="qe-sec-hd"><span class="qe-sec-title">Antwoorden</span></div>
       ${sectionToolbar("as-"+q.id, q.answer_source, "Juist antwoord")}
       ${mcqBlock}
       ${matrixBlock}
@@ -4778,7 +4806,7 @@ function questionEditor(q){
     </section>
 
     <section class="qe-section qe-sec-explain">
-      <div class="qe-sec-hd"><span class="qe-sec-icon">💡</span><span class="qe-sec-title">Uitleg</span></div>
+      <div class="qe-sec-hd"><span class="qe-sec-title">Uitleg</span></div>
       ${sectionToolbar("es-"+q.id, q.explanation_source, "Uitleg")}
       <label>Uitleg ${infoTip("Waarom is dit antwoord juist? Verwijs naar antwoordopties met {A} {B} {C} … De app vertaalt die naar de letter die de gebruiker daadwerkelijk ziet. Klik op een {A}-chip naast een optie om die op je cursorpositie in te voegen. Shift+klik om aan een lopende {A,B}-groep toe te voegen. Speciale tokens: {juist}, {docent}.")}</label>
       <div class="ref-chip-row">
@@ -4791,7 +4819,7 @@ function questionEditor(q){
     </section>
 
     <section class="qe-section qe-sec-legal">
-      <div class="qe-sec-hd"><span class="qe-sec-icon">⚖️</span><span class="qe-sec-title">Wetgeving</span></div>
+      <div class="qe-sec-hd"><span class="qe-sec-title">Wetgeving</span></div>
       ${sectionToolbar("ls-"+q.id, q.legal_basis_source, "Wettelijke basis")}
       <label>Wettelijke basis ${infoTip("Verwijs naar antwoordopties met {A} {B} {C} … De app vertaalt die naar de letter die de gebruiker in zijn geschudde volgorde ziet.")}</label>
       <textarea data-f="legal_basis" data-q="${q.id}">${esc(q.legal_basis||"")}</textarea>
@@ -4804,6 +4832,7 @@ function questionEditor(q){
 }
 function wireQuestionEditor(q, quizId){
   const card=document.querySelector(`[data-qcard="${q.id}"]`);
+  bindAutoGrow(card);
   const qtype=q.question_type||"mcq";
   const srcVals={ answer_source:q.answer_source, explanation_source:q.explanation_source, legal_basis_source:q.legal_basis_source };
   card.querySelectorAll("[data-src]").forEach(b=>b.onclick=()=>{

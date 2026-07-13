@@ -712,17 +712,19 @@ summary .ico,button .ico{color:inherit}
 .fmt-toolbar .fmt-sep{width:auto;height:1px;background:var(--border);margin:.15rem 0}
 
 /* Vraag-editor sectie-styling */
-.qe-card{padding:0}
-.qe-topbar{padding:.7rem .9rem;border-bottom:1px solid var(--border);background:var(--surface2);border-radius:12px 12px 0 0}
-.qe-section{padding:.85rem 1rem;border-bottom:1px solid var(--border)}
-.qe-section:last-of-type{border-bottom:none}
-.qe-sec-hd{display:flex;align-items:center;gap:.4rem;font-weight:700;color:var(--ink);margin-bottom:.5rem;padding-bottom:.35rem;border-bottom:1px dashed var(--border)}
-.qe-sec-icon{font-size:1.05rem}
-.qe-sec-title{font-size:.95rem;letter-spacing:.01em}
-.qe-sec-question{background:linear-gradient(180deg, var(--surface2) 0%, transparent 60%)}
-.qe-sec-answers{background:transparent}
-.qe-sec-explain,.qe-sec-legal{background:transparent}
-.qe-savebar{padding:.7rem 1rem;background:var(--surface2);border-radius:0 0 12px 12px;justify-content:flex-end}
+.qe-card{padding:0;overflow:hidden}
+.qe-topbar{padding:.7rem .9rem;border-bottom:1px solid var(--border);background:var(--surface2)}
+.qe-section{padding:1rem 1.1rem;margin:1rem 0;border:1px solid var(--border);border-radius:10px;background:var(--surface)}
+.qe-section:first-of-type{margin-top:1rem}
+.qe-section:last-of-type{margin-bottom:1rem}
+.qe-sec-hd{font-weight:700;color:var(--ink);margin-bottom:.7rem;padding-bottom:.4rem;border-bottom:1px solid var(--border)}
+.qe-sec-title{font-size:1rem;letter-spacing:.01em;text-transform:uppercase;color:var(--accent-dark);font-size:.82rem}
+.qe-savebar{padding:.8rem 1.1rem;background:var(--surface2);border-top:1px solid var(--border);justify-content:flex-end;margin:0}
+/* Tekstvakken in de bewerkmodus tonen altijd alle inhoud — nooit interne scroll */
+.qe-card textarea{
+  overflow:hidden;resize:none;min-height:2.6em;
+  field-sizing:content;                        /* moderne browsers: auto-grow */
+}
 
 /* Inline toolbar boven een tekstveld: Gevalideerd + AI/mens op één lijn */
 .qe-inline-toolbar{
