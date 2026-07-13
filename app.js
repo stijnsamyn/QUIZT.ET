@@ -1090,6 +1090,7 @@ async function renderQuestion(){
     <div class="card">
       <div class="q-meta"><span class="q-num">Vraag ${q.qnum}</span>${examLive?"":questionTags(q)}${examLive?(answered?`<span class="pill" style="background:var(--accent-soft);color:var(--accent-dark)">antwoord genoteerd</span>`:""):(answered?(isRight(q,chosen)===true?`<span class="pill juist">juist beantwoord</span>`:isRight(q,chosen)===false?`<span class="pill fout">fout beantwoord</span>`:`<span class="pill twijfel">antwoord genoteerd — in overleg</span>`):((PLAY.history&&PLAY.history[q.id]!=null)?(isRight(q,PLAY.history[q.id])===true?`<span class="pill" style="background:var(--correct-soft);color:var(--correct);opacity:.75">eerder juist</span>`:isRight(q,PLAY.history[q.id])===false?`<span class="pill" style="background:var(--wrong-soft);color:var(--wrong);opacity:.75">eerder fout</span>`:`<span class="pill" style="background:var(--warn-soft);color:var(--warn);opacity:.75">eerder beantwoord</span>`):`<span class="pill" style="background:var(--surface2);color:var(--text-muted)">nieuwe vraag voor jou</span>`))}</div>
       <div class="q-text">${esc(q.text)}</div>
+      ${q.image_url?`<div class="q-image"><img src="${esc(q.image_url)}" alt="Afbeelding bij vraag ${q.qnum}" loading="lazy"></div>`:""}
       ${(!answered && (q.wettekst || q.legal_basis)) ? `<details class="prehelp"><summary>${ICON.info} Raadpleeg wettekst voor je antwoordt</summary>
         <div class="prehelp-body">
           ${q.legal_basis?`<div class="prehelp-legal"><strong>Wettelijke basis:</strong> ${html(translateOptRefs(q.legal_basis, q.id, q))}</div>`:""}
@@ -3217,6 +3218,7 @@ async function viewNewAttempt(quizId){
       return `<div class="card attempt-q" data-q-block="${q.id}">
         <div class="attempt-q-hd"><span class="q-num">${q.qnum}</span>${multi?`<span class="pill" style="background:var(--surface2);color:var(--text-muted);font-size:.68rem">meerkeuze</span>`:""}${correct.length?`<span class="muted" style="font-size:.75rem">juist: <strong>${lettersOf(correct)}</strong></span>`:`<span class="pill twijfel" style="font-size:.68rem">nog geen juist antwoord</span>`}</div>
         <div class="q-text" style="margin:.3rem 0 .5rem 0">${esc(q.text)}</div>
+        ${q.image_url?`<div class="q-image"><img src="${esc(q.image_url)}" alt="Vraag-afbeelding"></div>`:""}
         <div>${opts}</div>
         ${correctEditor}
       </div>`;
@@ -4392,6 +4394,17 @@ function questionEditor(q){
       <span class="muted" style="font-size:.75rem;margin-left:.4rem">Wisselen bewaart eerst de andere velden van deze vraag.</span>
     </div>
     <label>Vraagtekst</label><textarea data-f="text" data-q="${q.id}">${esc(q.text)}</textarea>
+    <label>Afbeelding (optioneel) ${infoTip("Upload een PNG/JPG/WebP. Wordt bovenaan de vraag getoond bij de speler. Max ~5 MB.")}</label>
+    <div class="qimg-editor" data-qimg="${q.id}">
+      <div class="qimg-preview" ${q.image_url?"":"hidden"}>
+        ${q.image_url?`<img src="${esc(q.image_url)}" alt="Vraag-afbeelding">`:""}
+      </div>
+      <div class="btnrow" style="margin:.3rem 0">
+        <input type="file" accept="image/png,image/jpeg,image/webp" data-qimg-file="${q.id}" style="flex:1">
+        <button type="button" class="btn btn-ghost btn-sm" data-qimg-remove="${q.id}" ${q.image_url?"":"hidden"}>Verwijderen</button>
+      </div>
+      <div class="qimg-status muted" data-qimg-status="${q.id}" style="font-size:.75rem"></div>
+    </div>
     <label style="display:flex;align-items:center;gap:.5rem;font-weight:400"><input type="checkbox" data-valid="${q.id}" style="width:auto" ${q.validated!==false?"checked":""}> Gevalideerd juist antwoord ${infoTip("Uit = er is nog geen officieel juist antwoord; de groep bepaalt het via opmerkingen en flags. De vraag krijgt dan de tag 'Niet gevalideerd'. Als J (juridisch) en D (docent) verschillen, staat deze vlag standaard uit tot een beheerder bewust bevestigt.")}</label>
     <div data-valid-warn="${q.id}" class="valid-mismatch" hidden>⚠️ J en D verschillen — vragen worden standaard <strong>niet-gevalideerd</strong> bewaard tot je hier bewust bevestigt door dit vinkje aan te zetten.</div>
     ${mcqBlock}
@@ -4426,6 +4439,49 @@ function wireQuestionEditor(q, quizId){
     else if(grp.startsWith("ls-")) srcVals.legal_basis_source=b.dataset.val;
     else srcVals.explanation_source=b.dataset.val;
   });
+  // Afbeelding-upload: direct naar Supabase Storage → URL wegschrijven op de vraag
+  const qimgFile   = card.querySelector(`[data-qimg-file="${q.id}"]`);
+  const qimgRemove = card.querySelector(`[data-qimg-remove="${q.id}"]`);
+  const qimgWrap   = card.querySelector(`[data-qimg="${q.id}"]`);
+  const qimgStatus = card.querySelector(`[data-qimg-status="${q.id}"]`);
+  const qimgPreview= qimgWrap ? qimgWrap.querySelector(".qimg-preview") : null;
+  const setQimgStatus=(msg,kind)=>{ if(!qimgStatus) return; qimgStatus.textContent=msg||""; qimgStatus.style.color = kind==="err"?"var(--wrong)":kind==="ok"?"var(--correct)":""; };
+  const refreshQimgPreview=(url)=>{
+    q.image_url=url||null;
+    if(qimgPreview){
+      if(url){ qimgPreview.innerHTML=`<img src="${url}" alt="Vraag-afbeelding">`; qimgPreview.hidden=false; }
+      else   { qimgPreview.innerHTML=""; qimgPreview.hidden=true; }
+    }
+    if(qimgRemove) qimgRemove.hidden = !url;
+  };
+  if(qimgFile) qimgFile.onchange=async e=>{
+    const f=e.target.files && e.target.files[0]; if(!f) return;
+    if(f.size > 5*1024*1024){ setQimgStatus("Bestand te groot (max 5 MB)","err"); qimgFile.value=""; return; }
+    setQimgStatus("Uploaden…");
+    const ext = (f.name.split(".").pop()||"bin").toLowerCase().replace(/[^a-z0-9]/g,"");
+    const path = `q_${q.id}/${Date.now()}.${ext}`;
+    const { error:upErr } = await sb.storage.from("question-images").upload(path, f, { upsert:true, contentType:f.type });
+    if(upErr){ setQimgStatus("Upload mislukt: "+upErr.message,"err"); return; }
+    const { data:pub } = sb.storage.from("question-images").getPublicUrl(path);
+    const url = pub && pub.publicUrl;
+    const { error:dbErr } = await sb.from("questions").update({ image_url:url }).eq("id",q.id);
+    if(dbErr){ setQimgStatus("Opslaan mislukt: "+dbErr.message,"err"); return; }
+    refreshQimgPreview(url);
+    qimgFile.value="";
+    setQimgStatus("Afbeelding opgeslagen","ok");
+  };
+  if(qimgRemove) qimgRemove.onclick=async()=>{
+    if(!q.image_url) return;
+    if(!confirm("Afbeelding verwijderen?")) return;
+    // Probeer ook uit storage te wissen — path is alles na "/question-images/"
+    const m = /\/question-images\/(.+)$/.exec(q.image_url||"");
+    if(m) sb.storage.from("question-images").remove([decodeURIComponent(m[1])]).catch(()=>{});
+    const { error:dbErr } = await sb.from("questions").update({ image_url:null }).eq("id",q.id);
+    if(dbErr){ setQimgStatus("Wissen mislukt: "+dbErr.message,"err"); return; }
+    refreshQimgPreview(null);
+    setQimgStatus("Afbeelding verwijderd","ok");
+  };
+
   // Type-wissel: schrijf question_type weg en herlaad de editor met de juiste sub-editor
   card.querySelectorAll(`[data-qtype="${q.id}"]`).forEach(btn=>btn.onclick=async()=>{
     const nv=btn.dataset.typeval;
@@ -4648,7 +4704,7 @@ function renderTestPreview(q, chosen){
     const summary = q.question_type==="matrix"
       ? `<div class="muted">Matrix met ${arr(q.matrix_rows).length} rijen × ${arr(q.matrix_cols).length} kolommen. Test de speler-weergave via "Opslaan & bekijken".</div>`
       : `<div class="muted">Open vraag${q.open_answer?" (modelantwoord ingesteld)":" (geen modelantwoord)"}. Test de speler-weergave via "Opslaan & bekijken".</div>`;
-    el.innerHTML=`<div class="preview-hd"><div>${ICON.info} <strong>Preview</strong></div></div><div class="card" style="margin-top:.4rem"><div class="q-meta"><span class="q-num">Vraag ${q.qnum}</span>${questionTags(q)}</div><div class="q-text">${esc(q.text)}</div>${summary}</div>`;
+    el.innerHTML=`<div class="preview-hd"><div>${ICON.info} <strong>Preview</strong></div></div><div class="card" style="margin-top:.4rem"><div class="q-meta"><span class="q-num">Vraag ${q.qnum}</span>${questionTags(q)}</div><div class="q-text">${esc(q.text)}</div>${q.image_url?`<div class="q-image"><img src="${esc(q.image_url)}" alt="Vraag-afbeelding"></div>`:""}${summary}</div>`;
     return;
   }
   const correct=arr(q.correct_indexes);
@@ -4686,6 +4742,7 @@ function renderTestPreview(q, chosen){
     <div class="card" style="margin-top:.4rem">
       <div class="q-meta"><span class="q-num">Vraag ${q.qnum}</span>${questionTags(q)}${statusPill}</div>
       <div class="q-text">${esc(q.text)}</div>
+      ${q.image_url?`<div class="q-image"><img src="${esc(q.image_url)}" alt="Vraag-afbeelding"></div>`:""}
       ${(!answered && (q.wettekst || q.legal_basis)) ? `<details class="prehelp"><summary>${ICON.info} Raadpleeg wettekst voor je antwoordt</summary>
         <div class="prehelp-body">
           ${q.legal_basis?`<div class="prehelp-legal"><strong>Wettelijke basis:</strong> ${html(translateOptRefs(q.legal_basis, q.id, q))}</div>`:""}
@@ -4875,7 +4932,7 @@ function parseQuizMarkdown(text){
     if(/^##\s*/.test(line)){
       push();
       cur={
-        text:"", question_type:"mcq",
+        text:"", question_type:"mcq", image_url:"",
         options:[], correct_indexes:[], docent_indexes:[], docent_note:"",
         matrix_rows:[], matrix_cols:[], matrix_correct:[],
         open_answer:"",
@@ -4926,6 +4983,7 @@ function parseQuizMarkdown(text){
     if(/^\*\*Wettekst:\*\*/i.test(line)){ cur.wettekst=line.replace(/^\*\*Wettekst:\*\*/i,"").trim(); field="wettekst"; continue; }
     if(/^\*\*Uitleg:\*\*/i.test(line)){ cur.explanation=line.replace(/^\*\*Uitleg:\*\*/i,"").trim(); field="uitleg"; continue; }
     if(/^\*\*Docent(-toelichting)?:\*\*/i.test(line)){ cur.docent_note=line.replace(/^\*\*Docent(-toelichting)?:\*\*/i,"").trim(); field="docent"; continue; }
+    if(/^\*\*Afbeelding:\*\*/i.test(line)){ cur.image_url=line.replace(/^\*\*Afbeelding:\*\*/i,"").trim(); field=null; continue; }
     if(/^\*\*Bron:\*\*/i.test(line)){ cur.source=/\b(ai|robot)\b/i.test(line)?"ai":"mens"; field=null; continue; }
     if(/^\*\*Gevalideerd:\*\*/i.test(line)){ cur.validated=!/nee|neen|geen|no|uit|false/i.test(line); field=null; continue; }
     if(line===""){
@@ -5067,6 +5125,7 @@ async function viewImport(){
         const doc = (q.docent_indexes && q.docent_indexes.length) ? q.docent_indexes : null;
         const base={ quiz_id:quizId, sort_order:startOrder+i+1, text:q.text,
           question_type:q.question_type||"mcq",
+          image_url:q.image_url||null,
           multi:!!q.multi, validated:q.validated!==false,
           legal_basis:q.legal_basis, wettekst:q.wettekst, explanation:q.explanation,
           answer_source:src, explanation_source:src, legal_basis_source: q.legal_basis ? src : null };

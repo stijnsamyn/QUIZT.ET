@@ -61,6 +61,10 @@ FORMAATREGELS (de importer leest hierop)
   • "**Docent:**" of "**Docent-toelichting:**" — korte uitleg waarom de docent afwijkt
     van het juridische antwoord (optioneel; enkel zinvol als er ook een [d]-optie is).
     Ook hier mag je {A} {B} … gebruiken.
+  • "**Afbeelding:** <url>" — optionele URL naar een afbeelding die bovenaan de
+    vraag getoond wordt. Werkt met eender welke publieke http(s)-URL. Voor eigen
+    uploads gebruik je bij voorkeur de knop in de vraag-editor (die uploadt naar
+    de Supabase-bucket 'question-images' en zet de juiste URL).
   • "**Bron:**" — mens of AI (optioneel; standaard mens).
   • "**Gevalideerd:**" — ja of nee (optioneel; standaard ja). Zet "nee" als er nog
     geen zeker juist antwoord is: de vraag krijgt dan de tag "Niet gevalideerd" en de

@@ -669,6 +669,16 @@ summary .ico,button .ico{color:inherit}
 /* ============================================================
    Matrix-vraag (rijen × kolommen)
    ============================================================ */
+/* Vraag-afbeelding (speler + preview) */
+.q-image{margin:.4rem 0 .6rem;text-align:center}
+.q-image img{max-width:100%;max-height:360px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);display:inline-block}
+
+/* Afbeelding-editor in de vraag-editor */
+.qimg-editor{margin:.3rem 0 .5rem}
+.qimg-preview{margin:.3rem 0;text-align:center}
+.qimg-preview img{max-width:100%;max-height:200px;border-radius:8px;border:1px solid var(--border);background:var(--surface2)}
+.qimg-status{min-height:1em}
+
 /* Beheer — quiz-rij: knoppen altijd rechts, ook bij lange beschrijving */
 .quiz-row-spread{flex-wrap:nowrap;align-items:flex-start;gap:1rem}
 .quiz-row-info{flex:1;min-width:0}
