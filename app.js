@@ -4752,7 +4752,32 @@ async function viewEditQuestion(qid){
     <div class="stack" id="qList">${questionEditor(q)}</div>
 
     <h2>Reacties (${(flags||[]).length})</h2>
-    <div class="stack">${(flags||[]).map(f=>`<div class="card"><div class="spread">
+    <div class="card" id="beheerReactieCompose">
+      <div class="spread" style="align-items:center;margin-bottom:.4rem">
+        <strong>${ICON.chat} Reactie of opmerking starten</strong>
+        <span class="muted" style="font-size:.75rem">Wordt zichtbaar voor iedereen die deze vraag speelt.</span>
+      </div>
+      <div class="btnrow" id="beheerReactBtns" style="flex-wrap:wrap">
+        <button type="button" class="chip-toggle active" data-ftype="commentaar">💬 Commentaar</button>
+        <button type="button" class="chip-toggle" data-ftype="twijfel">Twijfel</button>
+        <button type="button" class="chip-toggle" data-ftype="fout">Antwoord is fout</button>
+        <button type="button" class="chip-toggle" data-ftype="juist">Antwoord is juist</button>
+        <button type="button" class="chip-toggle" data-ftype="docent">👨‍🏫 Docent koos…</button>
+      </div>
+      ${q.question_type==="mcq" && (q.options||[]).length ? `
+        <div id="beheerReactPref" hidden style="margin-top:.5rem">
+          <label id="beheerRPrefLabel" style="font-size:.82rem">Welk antwoord vind jij dan juist?</label>
+          <div class="opref-list">
+            ${(q.options||[]).map((o,i)=>`<label class="opref-item"><input type="checkbox" class="beheer-opref" value="${i}"><span><strong>${letter(i)}.</strong> ${esc(o)}</span></label>`).join("")}
+          </div>
+        </div>` : ""}
+      <label style="margin-top:.5rem;font-size:.82rem" id="beheerRMotLabel">Commentaar</label>
+      <textarea id="beheerRMot" placeholder="Typ je reactie…" style="min-height:80px"></textarea>
+      <div class="btnrow" style="margin-top:.4rem">
+        <button class="btn btn-primary btn-sm" id="beheerRSubmit">Reactie plaatsen</button>
+      </div>
+    </div>
+    <div class="stack" style="margin-top:.6rem">${(flags||[]).map(f=>`<div class="card"><div class="spread">
       <div><span class="pill ${f.type}">${f.type}</span> ${f.status==="afgehandeld"?`<span class="pill afgehandeld">afgehandeld</span>`:""} <span class="who">${esc(names[f.user_id]||"?")}</span>${arr(f.preferred_indexes).length?` <span class="muted">· verkiest <strong>${lettersOf(f.preferred_indexes)}</strong></span>`:""} <span class="when">${fmtDate(f.created_at)}</span>${f.toelichting?`<div class="cmt">${formatCommentBody(f.toelichting, qid, q)}</div>`:""}</div>
       <div class="btnrow" style="margin:0">${f.status==="open"?`<button class="btn btn-ghost btn-sm" data-resolve="${f.id}">${ICON.check} Afhandelen</button>`:""}<button class="btn btn-danger btn-sm" data-delflag="${f.id}">Verwijderen</button></div>
     </div></div>`).join("")||`<p class="muted">Geen reacties.</p>`}</div>
@@ -4770,6 +4795,47 @@ async function viewEditQuestion(qid){
     saveBtn.click();
     // De bestaande save is async — geef de UI even tijd om een toast op te bouwen en dan navigeren.
     setTimeout(()=>PLAY_goto(q.quiz_id, q.id), 600);
+  };
+  // Beheerder start reactie/commentaar direct vanuit de editor
+  let beheerFtype = "commentaar";
+  const beheerReactBtns = document.getElementById("beheerReactBtns");
+  const beheerPrefBox   = document.getElementById("beheerReactPref");
+  const beheerPrefLabel = document.getElementById("beheerRPrefLabel");
+  const beheerMotLabel  = document.getElementById("beheerRMotLabel");
+  const beheerMotTA     = document.getElementById("beheerRMot");
+  const syncBeheerReactUI=()=>{
+    const needsPref = (beheerFtype==="twijfel"||beheerFtype==="fout"||beheerFtype==="docent") && q.question_type==="mcq" && (q.options||[]).length;
+    if(beheerPrefBox) beheerPrefBox.hidden = !needsPref;
+    if(beheerPrefLabel) beheerPrefLabel.textContent = beheerFtype==="docent" ? "Welk antwoord duidde de docent aan?" : "Welk antwoord vind jij dan juist?";
+    if(beheerMotLabel){
+      beheerMotLabel.textContent = beheerFtype==="commentaar" ? "Commentaar"
+        : beheerFtype==="juist" ? "Waarom is dit antwoord juist? (optioneel)"
+        : beheerFtype==="docent" ? "Wat zei de docent (optioneel)"
+        : "Leg uit waarom";
+    }
+    if(beheerMotTA){
+      beheerMotTA.placeholder = beheerFtype==="docent"
+        ? "bv. 'Docent Peeters zei tijdens de les van 3/3 dat B correcter is'"
+        : (beheerFtype==="commentaar" ? "Typ je reactie…" : "Leg uit waarom…");
+    }
+  };
+  if(beheerReactBtns) beheerReactBtns.querySelectorAll("[data-ftype]").forEach(btn=>btn.onclick=()=>{
+    beheerFtype = btn.dataset.ftype;
+    beheerReactBtns.querySelectorAll("[data-ftype]").forEach(x=>x.classList.toggle("active", x===btn));
+    syncBeheerReactUI();
+  });
+  syncBeheerReactUI();
+  const beheerRSubmit = document.getElementById("beheerRSubmit");
+  if(beheerRSubmit) beheerRSubmit.onclick=async()=>{
+    const mot = (beheerMotTA && beheerMotTA.value || "").trim();
+    const pref = [...document.querySelectorAll(".beheer-opref:checked")].map(c=>+c.value).sort((a,b)=>a-b);
+    const needsPref = (beheerFtype==="twijfel"||beheerFtype==="fout"||beheerFtype==="docent") && q.question_type==="mcq" && (q.options||[]).length;
+    if(beheerFtype==="docent" && needsPref && !pref.length) return toast("Duid aan welk antwoord de docent koos","err");
+    if((beheerFtype==="twijfel"||beheerFtype==="fout"||beheerFtype==="commentaar") && !mot) return toast("Typ eerst een korte toelichting","err");
+    beheerRSubmit.disabled=true;
+    const { error } = await sb.from("flags").insert({ question_id:qid, user_id:ME.id, type:beheerFtype, toelichting:mot, preferred_indexes:pref });
+    if(error){ beheerRSubmit.disabled=false; return toast(error.message,"err"); }
+    toast("Reactie geplaatst","ok"); viewEditQuestion(qid);
   };
   app.querySelectorAll("[data-resolve]").forEach(b=>b.onclick=async()=>{
     const { error }=await sb.from("flags").update({status:"afgehandeld"}).eq("id",b.dataset.resolve);
