@@ -82,11 +82,14 @@ function fmtEnsureBar(){
     <button type="button" data-fmt="number" title="Genummerde lijst">1. Nr</button>
     <span class="fmt-sep"></span>
     <button type="button" data-fmt="br"     title="Nieuwe regel">↵</button>
-    <button type="button" data-fmt="para"   title="Nieuwe paragraaf">¶</button>`;
+    <button type="button" data-fmt="para"   title="Nieuwe paragraaf">¶</button>
+    <span class="fmt-sep"></span>
+    <button type="button" data-fmt-close title="Sluit (Esc)">×</button>`;
   document.body.appendChild(_fmtBar);
   // Voorkom dat een klik in de toolbar de focus van de textarea steelt
   _fmtBar.addEventListener("mousedown", e=>e.preventDefault());
   _fmtBar.addEventListener("click", e=>{
+    if(e.target.closest("[data-fmt-close]")){ fmtHideNow(); return; }
     const btn = e.target.closest("[data-fmt]");
     if(!btn || !_fmtTa) return;
     fmtApply(_fmtTa, btn.dataset.fmt);
@@ -103,8 +106,13 @@ function fmtPositionBar(ta){
   bar.style.left = (window.scrollX + r.left) + "px";
   bar.style.top  = useTop ? top + "px" : (window.scrollY + r.bottom + 6) + "px";
 }
+function fmtHideNow(){
+  if(_fmtBar) _fmtBar.hidden=true;
+  _fmtTa=null;
+  clearTimeout(_fmtHideT);
+}
 function fmtShowFor(ta){
-  if(ta.dataset.noFormat==="1") return;
+  if(ta.dataset.noFormat==="1" || ta.readOnly || ta.disabled) return;
   clearTimeout(_fmtHideT);
   _fmtTa = ta;
   const bar = fmtEnsureBar();
@@ -113,17 +121,37 @@ function fmtShowFor(ta){
 }
 function fmtScheduleHide(){
   clearTimeout(_fmtHideT);
-  _fmtHideT = setTimeout(()=>{ if(_fmtBar){ _fmtBar.hidden=true; _fmtTa=null; } }, 200);
+  _fmtHideT = setTimeout(()=>{ if(_fmtBar){ _fmtBar.hidden=true; _fmtTa=null; } }, 180);
 }
 document.addEventListener("focusin", e=>{
   if(e.target && e.target.tagName==="TEXTAREA") fmtShowFor(e.target);
+  else if(_fmtBar && !_fmtBar.hidden && (!_fmtTa || !document.body.contains(_fmtTa))) fmtHideNow();
 });
 document.addEventListener("focusout", e=>{
   if(e.target && e.target.tagName==="TEXTAREA") fmtScheduleHide();
 });
-window.addEventListener("scroll", ()=>{ if(_fmtTa && _fmtBar && !_fmtBar.hidden) fmtPositionBar(_fmtTa); }, {passive:true});
-window.addEventListener("resize", ()=>{ if(_fmtTa && _fmtBar && !_fmtBar.hidden) fmtPositionBar(_fmtTa); });
+// Klik buiten toolbar én buiten de gefocuste textarea → onmiddellijk verbergen
+document.addEventListener("mousedown", e=>{
+  if(!_fmtBar || _fmtBar.hidden) return;
+  const t = e.target;
+  if(_fmtBar.contains(t)) return;
+  if(_fmtTa && (t===_fmtTa || (t.contains && t.contains(_fmtTa)))) return;
+  fmtHideNow();
+}, true);
+// Verberg bij navigatie of route-wissel
+window.addEventListener("hashchange", fmtHideNow);
+window.addEventListener("scroll", ()=>{
+  if(!_fmtTa || !_fmtBar || _fmtBar.hidden) return;
+  if(!document.body.contains(_fmtTa)) return fmtHideNow();
+  fmtPositionBar(_fmtTa);
+}, {passive:true});
+window.addEventListener("resize", ()=>{
+  if(!_fmtTa || !_fmtBar || _fmtBar.hidden) return;
+  if(!document.body.contains(_fmtTa)) return fmtHideNow();
+  fmtPositionBar(_fmtTa);
+});
 document.addEventListener("keydown", e=>{
+  if(e.key==="Escape" && _fmtBar && !_fmtBar.hidden){ fmtHideNow(); return; }
   if(!e.target || e.target.tagName!=="TEXTAREA") return;
   if(!(e.ctrlKey || e.metaKey)) return;
   const k = e.key.toLowerCase();
