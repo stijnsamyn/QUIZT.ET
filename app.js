@@ -1219,7 +1219,6 @@ function renderOpenBody(q, chosen, answered, examLive){
           :isCorrect===false?`Je antwoord wijkt af van het modelantwoord — bekijk hieronder de vergelijking.`
           :`Je antwoord is bewaard. Er is ${q.open_answer?"een modelantwoord dat afwijkt":"geen modelantwoord"} — deze vraag wordt als <strong>in overleg</strong> geteld.`}
       </div>`:""}
-      ${(answered && !examLive && q.open_answer)?`<div class="open-model"><span class="lbl">Modelantwoord ${srcBadge("Modelantwoord",q.answer_source)}</span><div class="open-model-body">${esc(q.open_answer)}</div></div>`:""}
     </div>
     ${(examLive || !answered)?`<div class="btnrow"><button class="btn btn-primary btn-sm" id="submitOpen">${examLive?"Bevestig antwoord":"Antwoord indienen"}</button></div>`:""}`;
 }
