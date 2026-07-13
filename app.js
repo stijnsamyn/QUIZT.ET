@@ -99,12 +99,26 @@ function fmtEnsureBar(){
 function fmtPositionBar(ta){
   const bar = fmtEnsureBar();
   const r = ta.getBoundingClientRect();
-  // Bepaal boven- of onder-plaatsing: als er te weinig ruimte boven is, plaats onder
-  const barH = bar.offsetHeight || 34;
-  const top = (window.scrollY + r.top - barH - 6);
-  const useTop = r.top >= barH + 10;
-  bar.style.left = (window.scrollX + r.left) + "px";
-  bar.style.top  = useTop ? top + "px" : (window.scrollY + r.bottom + 6) + "px";
+  const barW = bar.offsetWidth  || 48;
+  const barH = bar.offsetHeight || 220;
+  const gap = 6;
+  const spaceRight = window.innerWidth - r.right;
+  const spaceLeft  = r.left;
+  let left;
+  if(spaceRight >= barW + gap + 4){
+    left = window.scrollX + r.right + gap;
+  } else if(spaceLeft >= barW + gap + 4){
+    left = window.scrollX + r.left - barW - gap;
+  } else {
+    // Val terug op bovenaan als er geen ruimte is aan beide kanten
+    left = window.scrollX + Math.max(4, r.right - barW);
+  }
+  // Verticaal: probeer bar bovenaan de textarea uit te lijnen, maar houd hem in het viewport
+  let top = window.scrollY + Math.max(r.top, 8);
+  const maxTop = window.scrollY + window.innerHeight - barH - 8;
+  if(top > maxTop) top = maxTop;
+  bar.style.left = left + "px";
+  bar.style.top  = top + "px";
 }
 function fmtHideNow(){
   if(_fmtBar) _fmtBar.hidden=true;
@@ -4700,6 +4714,14 @@ function questionEditor(q){
   const qtype=q.question_type||"mcq";
   const typeChip=(v,label)=>`<button type="button" class="chip-toggle ${qtype===v?"active":""}" data-qtype="${q.id}" data-typeval="${v}">${label}</button>`;
   const showDocent = !!q._show_docent;
+  // Compacte kop-rij per sectie: Gevalideerd (per vraag, gedeelde staat) + Herkomst mens/AI (per veld)
+  const sectionToolbar = (srcId, srcVal, srcLabel) => `
+    <div class="qe-inline-toolbar">
+      <label class="qe-tool-check"><input type="checkbox" class="qe-valid-mirror" data-valid-mirror="${q.id}" ${q.validated!==false?"checked":""}> Gevalideerd</label>
+      <span class="qe-tool-sep"></span>
+      <span class="qe-tool-lbl">${esc(srcLabel)}:</span>
+      <span class="qe-tool-src">${srcToggle(srcId, srcVal)}</span>
+    </div>`;
   const mcqBlock = qtype==="mcq" ? `
     <label style="display:flex;align-items:center;gap:.5rem;font-weight:400"><input type="checkbox" data-multi="${q.id}" style="width:auto" ${q.multi?"checked":""}> Meerkeuze (meerdere juiste antwoorden)</label>
     <label>Antwoordopties — vink <strong>J</strong> aan voor het wettelijk juiste antwoord${showDocent?", en <strong>D</strong> voor het antwoord dat de docent koos (indien verschillend)":""} ${infoTip(showDocent?"J = juridisch/officieel juist antwoord. D = wat de docent aanduidde — enkel invullen als die afwijkt van J.":"J = juridisch/officieel juist antwoord. Docent-antwoorden staan uit voor deze quiz — zet ze aan bovenaan (Beheer → Quiz) als je ze nodig hebt.")}</label>
@@ -4716,48 +4738,68 @@ function questionEditor(q){
     <textarea data-f="docent_note" data-q="${q.id}" placeholder="bv. De docent noteert antwoord {B} als praktijk-antwoord…">${esc(q.docent_note||"")}</textarea>`:""}` : "";
   const matrixBlock = qtype==="matrix" ? renderMatrixEditor(q) : "";
   const openBlock   = qtype==="open"   ? renderOpenEditor(q)   : "";
-  return `<div class="card" data-qcard="${q.id}" data-qtype-current="${qtype}">
-    <div class="spread"><span class="q-num">Vraag ${q.qnum}</span>
-      <button class="btn btn-danger btn-sm" data-delq="${q.id}">Verwijderen</button></div>
-    <label>Vraagtype</label>
-    <div class="btnrow" style="margin:.2rem 0 .4rem">
-      ${typeChip("mcq","Meerkeuze")} ${typeChip("matrix","Matrix")} ${typeChip("open","Open vraag")}
-      <span class="muted" style="font-size:.75rem;margin-left:.4rem">Wisselen bewaart eerst de andere velden van deze vraag.</span>
+  return `<div class="card qe-card" data-qcard="${q.id}" data-qtype-current="${qtype}">
+    <div class="spread qe-topbar">
+      <span class="q-num">Vraag ${q.qnum}</span>
+      <button class="btn btn-danger btn-sm" data-delq="${q.id}">Verwijderen</button>
     </div>
-    <label>Vraagtekst</label><textarea data-f="text" data-q="${q.id}">${esc(q.text)}</textarea>
-    <label>Afbeelding (optioneel) ${infoTip("Upload een PNG/JPG/WebP. Wordt bovenaan de vraag getoond bij de speler. Max ~5 MB.")}</label>
-    <div class="qimg-editor" data-qimg="${q.id}">
-      <div class="qimg-preview" ${q.image_url?"":"hidden"}>
-        ${q.image_url?`<img src="${esc(q.image_url)}" alt="Vraag-afbeelding">`:""}
+
+    <section class="qe-section qe-sec-question">
+      <div class="qe-sec-hd"><span class="qe-sec-icon">❓</span><span class="qe-sec-title">Vraag</span></div>
+      <label>Vraagtype</label>
+      <div class="btnrow" style="margin:.2rem 0 .4rem">
+        ${typeChip("mcq","Meerkeuze")} ${typeChip("matrix","Matrix")} ${typeChip("open","Open vraag")}
+        <span class="muted" style="font-size:.75rem;margin-left:.4rem">Wisselen bewaart eerst de andere velden van deze vraag.</span>
       </div>
-      <div class="btnrow" style="margin:.3rem 0">
-        <input type="file" accept="image/png,image/jpeg,image/webp" data-qimg-file="${q.id}" style="flex:1">
-        <button type="button" class="btn btn-ghost btn-sm" data-qimg-remove="${q.id}" ${q.image_url?"":"hidden"}>Verwijderen</button>
+      <label>Vraagtekst</label>
+      <textarea data-f="text" data-q="${q.id}">${esc(q.text)}</textarea>
+      <label>Afbeelding (optioneel) ${infoTip("Upload een PNG/JPG/WebP. Wordt bovenaan de vraag getoond bij de speler. Max ~5 MB.")}</label>
+      <div class="qimg-editor" data-qimg="${q.id}">
+        <div class="qimg-preview" ${q.image_url?"":"hidden"}>
+          ${q.image_url?`<img src="${esc(q.image_url)}" alt="Vraag-afbeelding">`:""}
+        </div>
+        <div class="btnrow" style="margin:.3rem 0">
+          <input type="file" accept="image/png,image/jpeg,image/webp" data-qimg-file="${q.id}" style="flex:1">
+          <button type="button" class="btn btn-ghost btn-sm" data-qimg-remove="${q.id}" ${q.image_url?"":"hidden"}>Verwijderen</button>
+        </div>
+        <div class="qimg-status muted" data-qimg-status="${q.id}" style="font-size:.75rem"></div>
       </div>
-      <div class="qimg-status muted" data-qimg-status="${q.id}" style="font-size:.75rem"></div>
-    </div>
-    <label style="display:flex;align-items:center;gap:.5rem;font-weight:400"><input type="checkbox" data-valid="${q.id}" style="width:auto" ${q.validated!==false?"checked":""}> Gevalideerd juist antwoord ${infoTip("Uit = er is nog geen officieel juist antwoord; de groep bepaalt het via opmerkingen en flags. De vraag krijgt dan de tag 'Niet gevalideerd'. Als J (juridisch) en D (docent) verschillen, staat deze vlag standaard uit tot een beheerder bewust bevestigt.")}</label>
-    <div data-valid-warn="${q.id}" class="valid-mismatch" hidden>⚠️ J en D verschillen — vragen worden standaard <strong>niet-gevalideerd</strong> bewaard tot je hier bewust bevestigt door dit vinkje aan te zetten.</div>
-    ${mcqBlock}
-    ${matrixBlock}
-    ${openBlock}
-    <label>Herkomst juist antwoord</label>${srcToggle("as-"+q.id, q.answer_source)}
-    <label>Wettelijke basis ${infoTip("Verwijs naar antwoordopties met {A} {B} {C} … De app vertaalt die naar de letter die de gebruiker in zijn geschudde volgorde ziet.")}</label>
-    <textarea data-f="legal_basis" data-q="${q.id}">${esc(q.legal_basis||"")}</textarea>
-    <label>Herkomst wettelijke basis</label>${srcToggle("ls-"+q.id, q.legal_basis_source)}
-    <label>Wettekst (volledige artikels, uitklapbaar bij de vraag) ${infoTip("Volledige artikeltekst. Verwijs naar antwoordopties met {A} {B} {C} … indien nodig.")}</label>
-    <textarea data-f="wettekst" data-q="${q.id}">${esc(q.wettekst||"")}</textarea>
-    <label>Uitleg ${infoTip("Waarom is dit antwoord juist? Verwijs naar antwoordopties met {A} {B} {C} … De app vertaalt die naar de letter die de gebruiker daadwerkelijk ziet. Klik op een {A}-chip naast een optie om die op je cursorpositie in te voegen. Shift+klik om aan een lopende {A,B}-groep toe te voegen. Meerdere letters kunnen ook manueel: {A,B} of {A,C}. Speciale tokens: {juist} = altijd de juiste antwoordletter(s), {docent} = het antwoord dat de docent koos.")}</label>
-    <div class="ref-chip-row">
-      <span class="muted" style="font-size:.72rem">Snel invoegen:</span>
-      <button type="button" class="opt-ref-chip opt-ref-special" data-insert-special="juist" title="Voeg {juist} in — verwijst altijd naar het juiste antwoord, ongeacht shuffle">{juist}</button>
-      <button type="button" class="opt-ref-chip opt-ref-special" data-insert-special="docent" title="Voeg {docent} in — verwijst naar het antwoord dat de docent koos">{docent}</button>
-      <button type="button" class="btn btn-ghost btn-sm ref-picker-btn" data-editor-picker="${q.id}" style="padding:.15rem .55rem;font-size:.72rem">${ICON.info} Verwijs via popup…</button>
-      <span class="muted" style="font-size:.72rem;margin-left:.4rem">Tip: shift+klik op een {A}-chip om een groep {A,B} te maken.</span>
-    </div>
-    <textarea data-f="explanation" data-q="${q.id}">${esc(q.explanation||"")}</textarea>
-    <label>Herkomst uitleg</label>${srcToggle("es-"+q.id, q.explanation_source)}
-    <div class="btnrow"><button class="btn btn-primary btn-sm" data-saveq="${q.id}">Vraag opslaan</button></div>
+      <!-- (hoofd-gevalideerd checkbox verplaatst naar de sectie-toolbars hieronder) -->
+      <input type="checkbox" data-valid="${q.id}" ${q.validated!==false?"checked":""} hidden>
+      <div data-valid-warn="${q.id}" class="valid-mismatch" hidden>⚠️ J en D verschillen — vragen worden standaard <strong>niet-gevalideerd</strong> bewaard tot je hier bewust bevestigt door dit vinkje aan te zetten.</div>
+    </section>
+
+    <section class="qe-section qe-sec-answers">
+      <div class="qe-sec-hd"><span class="qe-sec-icon">✅</span><span class="qe-sec-title">Antwoorden</span></div>
+      ${sectionToolbar("as-"+q.id, q.answer_source, "Juist antwoord")}
+      ${mcqBlock}
+      ${matrixBlock}
+      ${openBlock}
+    </section>
+
+    <section class="qe-section qe-sec-explain">
+      <div class="qe-sec-hd"><span class="qe-sec-icon">💡</span><span class="qe-sec-title">Uitleg</span></div>
+      ${sectionToolbar("es-"+q.id, q.explanation_source, "Uitleg")}
+      <label>Uitleg ${infoTip("Waarom is dit antwoord juist? Verwijs naar antwoordopties met {A} {B} {C} … De app vertaalt die naar de letter die de gebruiker daadwerkelijk ziet. Klik op een {A}-chip naast een optie om die op je cursorpositie in te voegen. Shift+klik om aan een lopende {A,B}-groep toe te voegen. Speciale tokens: {juist}, {docent}.")}</label>
+      <div class="ref-chip-row">
+        <span class="muted" style="font-size:.72rem">Snel invoegen:</span>
+        <button type="button" class="opt-ref-chip opt-ref-special" data-insert-special="juist" title="Voeg {juist} in — verwijst altijd naar het juiste antwoord, ongeacht shuffle">{juist}</button>
+        ${showDocent?`<button type="button" class="opt-ref-chip opt-ref-special" data-insert-special="docent" title="Voeg {docent} in — verwijst naar het antwoord dat de docent koos">{docent}</button>`:""}
+        <button type="button" class="btn btn-ghost btn-sm ref-picker-btn" data-editor-picker="${q.id}" style="padding:.15rem .55rem;font-size:.72rem">${ICON.info} Verwijs via popup…</button>
+      </div>
+      <textarea data-f="explanation" data-q="${q.id}">${esc(q.explanation||"")}</textarea>
+    </section>
+
+    <section class="qe-section qe-sec-legal">
+      <div class="qe-sec-hd"><span class="qe-sec-icon">⚖️</span><span class="qe-sec-title">Wetgeving</span></div>
+      ${sectionToolbar("ls-"+q.id, q.legal_basis_source, "Wettelijke basis")}
+      <label>Wettelijke basis ${infoTip("Verwijs naar antwoordopties met {A} {B} {C} … De app vertaalt die naar de letter die de gebruiker in zijn geschudde volgorde ziet.")}</label>
+      <textarea data-f="legal_basis" data-q="${q.id}">${esc(q.legal_basis||"")}</textarea>
+      <label>Wettekst (volledige artikels, uitklapbaar bij de vraag) ${infoTip("Volledige artikeltekst. Verwijs naar antwoordopties met {A} {B} {C} … indien nodig.")}</label>
+      <textarea data-f="wettekst" data-q="${q.id}">${esc(q.wettekst||"")}</textarea>
+    </section>
+
+    <div class="btnrow qe-savebar"><button class="btn btn-primary btn-sm" data-saveq="${q.id}">Vraag opslaan</button></div>
   </div>`;
 }
 function wireQuestionEditor(q, quizId){
@@ -4770,6 +4812,15 @@ function wireQuestionEditor(q, quizId){
     else if(grp.startsWith("ls-")) srcVals.legal_basis_source=b.dataset.val;
     else srcVals.explanation_source=b.dataset.val;
   });
+  // Alle "Gevalideerd"-mirrors op de sectie-toolbars houden dezelfde staat aan
+  const mainValid = card.querySelector(`[data-valid="${q.id}"]`);
+  const mirrors = card.querySelectorAll(`[data-valid-mirror="${q.id}"]`);
+  const syncValidFrom = (src, val)=>{
+    if(mainValid && mainValid!==src) mainValid.checked = val;
+    mirrors.forEach(m=>{ if(m!==src) m.checked = val; });
+  };
+  mirrors.forEach(m=>m.onchange=()=>syncValidFrom(m, m.checked));
+  if(mainValid) mainValid.onchange=()=>syncValidFrom(mainValid, mainValid.checked);
   // Afbeelding-upload: direct naar Supabase Storage → URL wegschrijven op de vraag
   const qimgFile   = card.querySelector(`[data-qimg-file="${q.id}"]`);
   const qimgRemove = card.querySelector(`[data-qimg-remove="${q.id}"]`);
