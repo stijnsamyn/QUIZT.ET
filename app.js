@@ -571,10 +571,13 @@ function renderHeader(){
   nav.querySelectorAll("a").forEach(a=>a.classList.toggle("active", a.dataset.nav===cur || (a.dataset.nav==="#/"&&cur.startsWith("#/quiz"))));
 }
 
+let ROUTE_GEN = 0;
+function currentRouteGen(){ return ROUTE_GEN; }
 async function route(){
   if(!sb){ app.innerHTML=`<div class="card"><h1>Nog niet geconfigureerd</h1><p class="muted">Vul je Supabase-gegevens in <code>config.js</code> in. Zie SETUP.md.</p></div>`; return; }
   if(!ME){ document.getElementById("appHeader").hidden=true; return viewLogin(); }
   renderHeader();
+  ROUTE_GEN++;
   const h=(location.hash||"#/").slice(1);
   const p=h.split("/").filter(Boolean);   // ["quiz","<id>","overzicht"]
   app.innerHTML=`<div class="loading">Laden…</div>`;
@@ -606,14 +609,19 @@ window.addEventListener("hashchange", route);
    HOME — quizoverzicht
    ============================================================ */
 async function viewHome(){
+  const myGen = currentRouteGen();
+  const stale = () => myGen !== currentRouteGen();
   const { data:quizzes, error } = await sb.from("quizzes").select("*").order("created_at");
+  if(stale()) return;
   if(error) throw error;
   // aantal vragen per quiz + mijn voortgang
   const { data:qs } = await sb.from("questions").select("id,quiz_id");
+  if(stale()) return;
   const counts={}, q2quiz={}; (qs||[]).forEach(q=>{ counts[q.quiz_id]=(counts[q.quiz_id]||0)+1; q2quiz[q.id]=q.quiz_id; });
   const myAns={};
   const qids=(qs||[]).map(q=>q.id);
   if(qids.length){ const {data:mine}=await sb.from("answers").select("question_id").eq("user_id",ME.id).in("question_id",qids);
+    if(stale()) return;
     (mine||[]).forEach(a=>{ const qz=q2quiz[a.question_id]; if(qz) myAns[qz]=(myAns[qz]||0)+1; }); }
   const cards=(quizzes||[]).map(q=>{
     const tot=counts[q.id]||0, done=myAns[q.id]||0;
@@ -634,24 +642,38 @@ async function viewHome(){
         <div class="progress-thin"><span style="width:${p}%"></span></div>
       </div>
     </div>`;}).join("");
-  await loadGamesConfig();
-  const active=activeGames();
-  const myStatsArr = active.length ? await Promise.all(active.map(g=>gameStats(g.id, "me"))) : [];
-  const myStats={}; active.forEach((g,i)=>{ myStats[g.id]=myStatsArr[i]; });
+  // Paint de quizzen zo snel mogelijk; games-sectie wordt achteraf ingeladen zodat
+  // trage game-queries de quizzen-lijst niet blokkeren en geen stale renders kunnen veroorzaken.
+  if(stale()) return;
   app.innerHTML=`
     <div class="spread"><h1>Quizzen</h1>${isEditor()?`<button class="btn btn-primary btn-sm" data-nav="#/beheer">Beheer</button>`:""}</div>
     <div class="dev-note">${ICON.info} QUIZT.ET wordt nog volop ontwikkeld — vernieuw af en toe eens de pagina om de laatste functies te hebben. <button class="btn btn-ghost btn-sm" id="hardRefresh" style="margin-left:.5rem">Nu vernieuwen</button></div>
     ${quizzes&&quizzes.length?`<div class="grid" style="margin-top:1rem">${cards}</div>`:`<div class="empty">Nog geen quizzen.</div>`}
-    ${renderGamesSection(myStats)}
+    <div id="gamesSection"></div>
     <div id="gamesTop"></div>`;
   app.querySelectorAll("[data-open]").forEach(c=>c.onclick=()=>go("#/quiz/"+c.dataset.open));
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
-  app.querySelectorAll("[data-play]").forEach(b=>b.onclick=()=>{
-    const g=GAMES.find(x=>x.id===b.dataset.play); if(g && typeof g.open==="function") g.open();
-  });
   const hr=document.getElementById("hardRefresh");
   if(hr) hr.onclick=()=>{ const base=location.href.split("?")[0].split("#")[0]; location.href=base+"?_="+Date.now()+location.hash; };
-  renderGamesTop3();
+  // Games-sectie laden en achteraf inspuiten — enkel als de gebruiker nog steeds op home is
+  (async()=>{
+    try{
+      await loadGamesConfig();
+      if(stale()) return;
+      const active=activeGames();
+      const myStatsArr = active.length ? await Promise.all(active.map(g=>gameStats(g.id, "me"))) : [];
+      if(stale()) return;
+      const myStats={}; active.forEach((g,i)=>{ myStats[g.id]=myStatsArr[i]; });
+      const gs = document.getElementById("gamesSection");
+      if(gs){
+        gs.innerHTML = renderGamesSection(myStats);
+        gs.querySelectorAll("[data-play]").forEach(b=>b.onclick=()=>{
+          const g=GAMES.find(x=>x.id===b.dataset.play); if(g && typeof g.open==="function") g.open();
+        });
+      }
+      if(!stale()) renderGamesTop3();
+    }catch(_){ /* stil falen op de games-sectie is oké */ }
+  })();
 }
 
 async function bestPerUser(limit, since){
