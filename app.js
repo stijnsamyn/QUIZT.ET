@@ -4810,10 +4810,7 @@ function questionEditor(q){
       ${sectionToolbar("es-"+q.id, q.explanation_source, "Uitleg")}
       <label>Uitleg ${infoTip("Waarom is dit antwoord juist? Verwijs naar antwoordopties met {A} {B} {C} … De app vertaalt die naar de letter die de gebruiker daadwerkelijk ziet. Klik op een {A}-chip naast een optie om die op je cursorpositie in te voegen. Shift+klik om aan een lopende {A,B}-groep toe te voegen. Speciale tokens: {juist}, {docent}.")}</label>
       <div class="ref-chip-row">
-        <span class="muted" style="font-size:.72rem">Snel invoegen:</span>
-        <button type="button" class="opt-ref-chip opt-ref-special" data-insert-special="juist" title="Voeg {juist} in — verwijst altijd naar het juiste antwoord, ongeacht shuffle">{juist}</button>
-        ${showDocent?`<button type="button" class="opt-ref-chip opt-ref-special" data-insert-special="docent" title="Voeg {docent} in — verwijst naar het antwoord dat de docent koos">{docent}</button>`:""}
-        <button type="button" class="btn btn-ghost btn-sm ref-picker-btn" data-editor-picker="${q.id}" style="padding:.15rem .55rem;font-size:.72rem">${ICON.info} Verwijs via popup…</button>
+        <button type="button" class="btn btn-ghost btn-sm ref-picker-btn" data-editor-picker="${q.id}" style="padding:.2rem .6rem;font-size:.78rem">${ICON.info} Verwijs naar een antwoord…</button>
       </div>
       <textarea data-f="explanation" data-q="${q.id}">${esc(q.explanation||"")}</textarea>
     </section>

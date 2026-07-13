@@ -714,11 +714,14 @@ summary .ico,button .ico{color:inherit}
 /* Vraag-editor sectie-styling */
 .qe-card{padding:0;overflow:hidden;background:var(--surface2)}
 .qe-topbar{padding:.7rem .9rem;border-bottom:1px solid var(--border);background:var(--surface)}
-.qe-section{padding:1rem 1.1rem;margin:1rem;border:1px solid var(--border);border-radius:10px;background:var(--surface)}
+.qe-section{padding:0;margin:1rem;border:1px solid var(--border);border-radius:10px;background:var(--surface);overflow:hidden}
 .qe-section:first-of-type{margin-top:1rem}
 .qe-section:last-of-type{margin-bottom:1rem}
-.qe-sec-hd{font-weight:700;color:var(--ink);margin-bottom:.7rem;padding-bottom:.4rem;border-bottom:1px solid var(--border)}
-.qe-sec-title{font-size:1rem;letter-spacing:.01em;text-transform:uppercase;color:var(--accent-dark);font-size:.82rem}
+.qe-section > *{padding-left:1.1rem;padding-right:1.1rem}
+.qe-section > *:not(.qe-sec-hd):first-of-type{margin-top:.8rem}
+.qe-section > *:last-child{margin-bottom:.9rem}
+.qe-sec-hd{padding:.55rem 1.1rem;margin:0;background:var(--accent);color:#fff;border-bottom:1px solid var(--accent-dark)}
+.qe-sec-title{font-size:.85rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#fff}
 .qe-savebar{padding:.8rem 1.1rem;background:var(--surface2);border-top:1px solid var(--border);justify-content:flex-end;margin:0}
 /* Tekstvakken in de bewerkmodus tonen altijd alle inhoud — nooit interne scroll */
 .qe-card textarea{
