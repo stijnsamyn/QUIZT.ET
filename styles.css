@@ -669,6 +669,20 @@ summary .ico,button .ico{color:inherit}
 /* ============================================================
    Matrix-vraag (rijen × kolommen)
    ============================================================ */
+/* Zwevende opmaak-toolbar boven de gefocuste textarea */
+.fmt-toolbar{
+  position:absolute;z-index:9999;display:flex;gap:.15rem;align-items:center;
+  background:var(--surface);border:1px solid var(--border);border-radius:8px;
+  padding:.2rem .3rem;box-shadow:0 2px 8px rgba(0,0,0,.12);
+}
+.fmt-toolbar button{
+  background:transparent;border:none;padding:.2rem .45rem;border-radius:5px;
+  cursor:pointer;color:var(--ink);font-size:.82rem;line-height:1
+}
+.fmt-toolbar button:hover{background:var(--surface2)}
+.fmt-toolbar button code{font-size:.72rem}
+.fmt-sep{width:1px;height:1.1rem;background:var(--border);margin:0 .15rem}
+
 /* Vraag-afbeelding (speler + preview) */
 .q-image{margin:.4rem 0 .6rem;text-align:center}
 .q-image img{max-width:100%;max-height:360px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);display:inline-block}

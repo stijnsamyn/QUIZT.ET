@@ -3,6 +3,135 @@
    ============================================================ */
 "use strict";
 
+/* ============================================================
+   TEKST-OPMAAK — floating toolbar boven elke gefocuste <textarea>
+   Formatteringen zijn identiek aan wat formatCommentBody() rendert:
+   **vet**, *cursief*, `code`, "- " bullets, "1. " genummerd,
+   \n voor volgende lijn, \n\n voor nieuwe paragraaf.
+   Textareas met data-no-format="1" krijgen de toolbar niet.
+   ============================================================ */
+function fmtApply(ta, action){
+  if(!ta || ta.tagName!=="TEXTAREA") return;
+  const start=ta.selectionStart, end=ta.selectionEnd;
+  const v=ta.value;
+  const sel=v.slice(start,end);
+  const before=v.slice(0,start), after=v.slice(end);
+  const wrap=(l,r,ph)=>{
+    const inside = sel || ph;
+    const out = before + l + inside + r + after;
+    ta.value=out; ta.focus();
+    const p = sel ? start+l.length+inside.length+r.length : start+l.length+ph.length+r.length;
+    const s = sel ? p : start+l.length;
+    ta.setSelectionRange(sel?p:s, p);
+    ta.dispatchEvent(new Event("input",{bubbles:true}));
+  };
+  const linePrefix=(prefixFn)=>{
+    // Vind begin van huidige regel; als er selectie is, doe elke regel apart.
+    const lineStart = before.lastIndexOf("\n")+1;
+    const block = v.slice(lineStart, end);
+    const lines = block.split("\n");
+    let n=1;
+    const transformed = lines.map((ln,i)=>{
+      const p = prefixFn(n, ln); if(!ln.trim()) return ln;
+      n++;
+      // vermijd dubbele prefixen
+      const cleaned = ln.replace(/^(\s*(?:[-*]\s+|\d+\.\s+))+/,"");
+      return p + cleaned;
+    }).join("\n");
+    const out = v.slice(0,lineStart) + transformed + after;
+    ta.value=out; ta.focus();
+    const p = lineStart + transformed.length;
+    ta.setSelectionRange(lineStart, p);
+    ta.dispatchEvent(new Event("input",{bubbles:true}));
+  };
+  switch(action){
+    case "bold":   wrap("**","**","vet");      break;
+    case "italic": wrap("*","*","cursief");    break;
+    case "code":   wrap("`","`","code");       break;
+    case "bullet": linePrefix(()=> "- ");      break;
+    case "number": linePrefix((n)=> n+". ");   break;
+    case "br":     {
+      const out = before + "  \n" + after;    // dubbele spatie + newline = harde regel
+      ta.value=out; ta.focus();
+      const p = start+3;
+      ta.setSelectionRange(p,p);
+      ta.dispatchEvent(new Event("input",{bubbles:true}));
+      break;
+    }
+    case "para":   {
+      const out = before + "\n\n" + after;
+      ta.value=out; ta.focus();
+      const p = start+2;
+      ta.setSelectionRange(p,p);
+      ta.dispatchEvent(new Event("input",{bubbles:true}));
+      break;
+    }
+  }
+}
+let _fmtBar=null, _fmtTa=null, _fmtHideT=null;
+function fmtEnsureBar(){
+  if(_fmtBar) return _fmtBar;
+  _fmtBar = document.createElement("div");
+  _fmtBar.className="fmt-toolbar"; _fmtBar.hidden=true;
+  _fmtBar.innerHTML=`
+    <button type="button" data-fmt="bold"   title="Vet (Ctrl+B)"><b>B</b></button>
+    <button type="button" data-fmt="italic" title="Cursief (Ctrl+I)"><i>I</i></button>
+    <button type="button" data-fmt="code"   title="Code"><code>&lt;/&gt;</code></button>
+    <span class="fmt-sep"></span>
+    <button type="button" data-fmt="bullet" title="Opsomming">• Lijst</button>
+    <button type="button" data-fmt="number" title="Genummerde lijst">1. Nr</button>
+    <span class="fmt-sep"></span>
+    <button type="button" data-fmt="br"     title="Nieuwe regel">↵</button>
+    <button type="button" data-fmt="para"   title="Nieuwe paragraaf">¶</button>`;
+  document.body.appendChild(_fmtBar);
+  // Voorkom dat een klik in de toolbar de focus van de textarea steelt
+  _fmtBar.addEventListener("mousedown", e=>e.preventDefault());
+  _fmtBar.addEventListener("click", e=>{
+    const btn = e.target.closest("[data-fmt]");
+    if(!btn || !_fmtTa) return;
+    fmtApply(_fmtTa, btn.dataset.fmt);
+  });
+  return _fmtBar;
+}
+function fmtPositionBar(ta){
+  const bar = fmtEnsureBar();
+  const r = ta.getBoundingClientRect();
+  // Bepaal boven- of onder-plaatsing: als er te weinig ruimte boven is, plaats onder
+  const barH = bar.offsetHeight || 34;
+  const top = (window.scrollY + r.top - barH - 6);
+  const useTop = r.top >= barH + 10;
+  bar.style.left = (window.scrollX + r.left) + "px";
+  bar.style.top  = useTop ? top + "px" : (window.scrollY + r.bottom + 6) + "px";
+}
+function fmtShowFor(ta){
+  if(ta.dataset.noFormat==="1") return;
+  clearTimeout(_fmtHideT);
+  _fmtTa = ta;
+  const bar = fmtEnsureBar();
+  bar.hidden = false;
+  fmtPositionBar(ta);
+}
+function fmtScheduleHide(){
+  clearTimeout(_fmtHideT);
+  _fmtHideT = setTimeout(()=>{ if(_fmtBar){ _fmtBar.hidden=true; _fmtTa=null; } }, 200);
+}
+document.addEventListener("focusin", e=>{
+  if(e.target && e.target.tagName==="TEXTAREA") fmtShowFor(e.target);
+});
+document.addEventListener("focusout", e=>{
+  if(e.target && e.target.tagName==="TEXTAREA") fmtScheduleHide();
+});
+window.addEventListener("scroll", ()=>{ if(_fmtTa && _fmtBar && !_fmtBar.hidden) fmtPositionBar(_fmtTa); }, {passive:true});
+window.addEventListener("resize", ()=>{ if(_fmtTa && _fmtBar && !_fmtBar.hidden) fmtPositionBar(_fmtTa); });
+document.addEventListener("keydown", e=>{
+  if(!e.target || e.target.tagName!=="TEXTAREA") return;
+  if(!(e.ctrlKey || e.metaKey)) return;
+  const k = e.key.toLowerCase();
+  if(k==="b"){ e.preventDefault(); fmtApply(e.target,"bold"); }
+  else if(k==="i"){ e.preventDefault(); fmtApply(e.target,"italic"); }
+  else if(k==="k"){ e.preventDefault(); fmtApply(e.target,"code"); }
+});
+
 /* ---------- Supabase client ---------- */
 const CFG = window.CONFIG || {};
 const configOk = CFG.SUPABASE_URL && !CFG.SUPABASE_URL.startsWith("VUL_") &&
@@ -35,7 +164,7 @@ function questionTags(q){
   if(q.question_type==="matrix") t.push(`<span class="tag">Matrix ${infoTip("Kies per rij één antwoord in de bijhorende kolom.")}</span>`);
   else if(q.question_type==="open") t.push(`<span class="tag">Open vraag ${infoTip("Typ je antwoord in vrije tekst. Als er een modelantwoord is en jouw tekst komt exact overeen, wordt de vraag als juist geteld; anders komt hij als 'in overleg' binnen.")}</span>`);
   else if(q.multi || arr(q.correct_indexes).length>1) t.push(`<span class="tag">Meerkeuze ${infoTip("Er kunnen meerdere antwoorden juist zijn — kruis alle juiste aan.")}</span>`);
-  if(arr(q.docent_indexes).length && !setEq(q.docent_indexes, q.correct_indexes)) t.push(`<span class="tag tag-doc">👨‍🏫 Docent wijkt af ${infoTip("De docent koos een ander antwoord dan het wettelijk juiste. Beide worden getoond na je antwoord.")}</span>`);
+  if(q._show_docent && arr(q.docent_indexes).length && !setEq(q.docent_indexes, q.correct_indexes)) t.push(`<span class="tag tag-doc">👨‍🏫 Docent wijkt af ${infoTip("De docent koos een ander antwoord dan het wettelijk juiste. Beide worden getoond na je antwoord.")}</span>`);
   return t.join(" ");
 }
 // Normaliseer open antwoord voor vergelijking: trim, collapse whitespace, lowercase.
@@ -711,6 +840,8 @@ async function viewPlay(quizId){
   const { data:quiz } = await sb.from("quizzes").select("*").eq("id",quizId).single();
   if(!quiz){ app.innerHTML=`<div class="empty">Quiz niet gevonden.</div>`; return; }
   const { data:questions } = await sb.from("questions").select("*").eq("quiz_id",quizId).order("sort_order");
+  // Docent-antwoorden zichtbaar? Attribuut op elke vraag zodat renderers dat lokaal kunnen checken.
+  (questions||[]).forEach(q=>{ q._show_docent = !!(quiz && quiz.show_docent); });
   PLAY.quiz=quiz; PLAY.all=questions||[]; PLAY.i=0; PLAY.answers={}; PLAY.history={}; PLAY.everWrong=new Set();
   PLAY.savedSession = await loadSession(quizId);
   const ids=PLAY.all.map(q=>q.id);
@@ -2500,7 +2631,7 @@ async function renderAfterAnswer(q){
   const officialDocent=arr(q.docent_indexes);
   const hasOfficialDocent=officialDocent.length>0;
   const hasDocentConsensus=!hasOfficialDocent && docentUsers.size>=1;
-  const docentBlock=(hasOfficialDocent || hasDocentConsensus) ? (()=>{
+  const docentBlock=(q._show_docent && (hasOfficialDocent || hasDocentConsensus)) ? (()=>{
     const idxs = hasOfficialDocent ? officialDocent : Object.keys(docentVotes).map(Number).sort((a,b)=>docentVotes[b]-docentVotes[a]);
     const differs = !setEq(idxs, arr(q.correct_indexes));
     const items=idxs.map(i=>`<li><strong>${letterForOrig(q.id, i)}.</strong> ${esc((q.options||[])[i]||"")}</li>`).join("");
@@ -2530,7 +2661,7 @@ async function renderAfterAnswer(q){
           <button class="chip-toggle" data-ftype="twijfel">Ik twijfel</button>
           <button class="chip-toggle" data-ftype="fout">Antwoord is fout</button>
           <button class="chip-toggle" data-ftype="juist">Antwoord is juist</button>
-          <button class="chip-toggle" data-ftype="docent">👨‍🏫 Onze docent koos…</button>
+          ${q._show_docent?`<button class="chip-toggle" data-ftype="docent">👨‍🏫 Onze docent koos…</button>`:""}
         </div>
         <div id="reactPref" hidden>
           <label id="rPrefLabel">Welk antwoord vind jij dan juist?</label>
@@ -4296,11 +4427,18 @@ async function viewBeheerQuiz(quizId){
   if(!isEditor()){ app.innerHTML=`<div class="empty">Geen toegang.</div>`; return; }
   const { data:quiz } = await sb.from("quizzes").select("*").eq("id",quizId).single();
   const { data:questions } = await sb.from("questions").select("*").eq("quiz_id",quizId).order("sort_order");
+  // Zichtbaarheid van docent-antwoorden — maak ze bereikbaar voor de editor
+  (questions||[]).forEach(q=>{ q._show_docent = !!quiz.show_docent; });
   app.innerHTML=`
     <a class="muted" data-nav="#/beheer">← Beheer</a>
     <div class="card" style="margin-top:.6rem">
       <label>Titel</label><input id="qzTitle" value="${esc(quiz.title)}">
       <label>Beschrijving</label><textarea id="qzDesc">${esc(quiz.description||"")}</textarea>
+      <label style="display:flex;align-items:center;gap:.5rem;font-weight:400;margin-top:.5rem">
+        <input type="checkbox" id="qzShowDocent" style="width:auto" ${quiz.show_docent?"checked":""}>
+        👨‍🏫 Docent-antwoorden inschakelen voor deze quiz
+        ${infoTip("Alleen aanzetten als de docent regelmatig andere antwoorden geeft dan het wettelijk juiste. Bij aan: extra D-kolom in de editor, docent-toelichting-veld, 'Docent koos…'-reactie-chip en docent-blok na het antwoord in de speler. Bij uit: alles wat met docent te maken heeft blijft verborgen voor spelers en beheerders.")}
+      </label>
       <div class="btnrow"><button class="btn btn-primary btn-sm" id="saveQuiz">Quiz opslaan</button>
         <span class="badge ${quiz.status==="gepubliceerd"?"pub":"concept"}">${quiz.status}</span></div>
     </div>
@@ -4311,8 +4449,12 @@ async function viewBeheerQuiz(quizId){
     <div class="stack" id="qList"></div>`;
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
   document.getElementById("saveQuiz").onclick=async()=>{
-    await sb.from("quizzes").update({ title:document.getElementById("qzTitle").value, description:document.getElementById("qzDesc").value }).eq("id",quizId);
-    toast("Opgeslagen","ok");
+    await sb.from("quizzes").update({
+      title:document.getElementById("qzTitle").value,
+      description:document.getElementById("qzDesc").value,
+      show_docent:document.getElementById("qzShowDocent").checked,
+    }).eq("id",quizId);
+    toast("Opgeslagen","ok"); viewBeheerQuiz(quizId);
   };
   document.getElementById("addQ").onclick=async()=>{
     const { data, error }=await sb.from("questions").insert({ quiz_id:quizId, text:"Nieuwe vraag", options:["Optie A","Optie B"], correct_indexes:[0] }).select().single();
@@ -4368,20 +4510,21 @@ function questionEditor(q){
   const doc=arr(q.docent_indexes);
   const qtype=q.question_type||"mcq";
   const typeChip=(v,label)=>`<button type="button" class="chip-toggle ${qtype===v?"active":""}" data-qtype="${q.id}" data-typeval="${v}">${label}</button>`;
+  const showDocent = !!q._show_docent;
   const mcqBlock = qtype==="mcq" ? `
     <label style="display:flex;align-items:center;gap:.5rem;font-weight:400"><input type="checkbox" data-multi="${q.id}" style="width:auto" ${q.multi?"checked":""}> Meerkeuze (meerdere juiste antwoorden)</label>
-    <label>Antwoordopties — vink <strong>J</strong> aan voor het wettelijk juiste antwoord, en <strong>D</strong> voor het antwoord dat de docent koos (indien verschillend) ${infoTip("J = juridisch/officieel juist antwoord. D = wat de docent aanduidde — enkel invullen als die afwijkt van J. Als beide leeg blijven bij één optie, telt die niet mee.")}</label>
+    <label>Antwoordopties — vink <strong>J</strong> aan voor het wettelijk juiste antwoord${showDocent?", en <strong>D</strong> voor het antwoord dat de docent koos (indien verschillend)":""} ${infoTip(showDocent?"J = juridisch/officieel juist antwoord. D = wat de docent aanduidde — enkel invullen als die afwijkt van J.":"J = juridisch/officieel juist antwoord. Docent-antwoorden staan uit voor deze quiz — zet ze aan bovenaan (Beheer → Quiz) als je ze nodig hebt.")}</label>
     <div data-opts="${q.id}">${(q.options||[]).map((o,i)=>`
       <div class="spread optrow" style="gap:.4rem;margin:.2rem 0" data-opt-row="${i}">
         <label class="cbxlab" title="Juridisch juist"><input type="checkbox" class="corr" data-q="${q.id}" value="${i}" ${corr.includes(i)?"checked":""} style="width:auto"><span>J</span></label>
-        <label class="cbxlab cbxlab-doc" title="Volgens de docent"><input type="checkbox" class="doc" data-q="${q.id}" value="${i}" ${doc.includes(i)?"checked":""} style="width:auto"><span>D</span></label>
+        ${showDocent?`<label class="cbxlab cbxlab-doc" title="Volgens de docent"><input type="checkbox" class="doc" data-q="${q.id}" value="${i}" ${doc.includes(i)?"checked":""} style="width:auto"><span>D</span></label>`:""}
         <input data-opt="${q.id}" value="${esc(o)}" style="flex:1">
         <button type="button" class="opt-ref-chip" data-insert="${letter(i)}" data-opt-idx="${i}" title="Klik: voeg {${letter(i)}} in — verwijst naar de tekst hierlinks. Shift+klik: voeg toe aan een lopende {A,B,…} groep.">{${letter(i)}}</button>
         <button class="btn btn-ghost btn-sm" data-rmopt="${q.id}">×</button>
       </div>`).join("")}</div>
     <button class="btn btn-ghost btn-sm" data-addopt="${q.id}">+ optie</button>
-    <label>Toelichting docent (optioneel) ${infoTip("Korte uitleg waarom de docent een ander antwoord kiest dan wat wettelijk juist is. Wordt getoond in het docent-blok bij de vraag. Verwijs naar antwoordopties met {A} {B} {C} … — die worden vertaald naar de letter die de speler ziet.")}</label>
-    <textarea data-f="docent_note" data-q="${q.id}" placeholder="bv. De docent noteert antwoord {B} als praktijk-antwoord…">${esc(q.docent_note||"")}</textarea>` : "";
+    ${showDocent?`<label>Toelichting docent (optioneel) ${infoTip("Korte uitleg waarom de docent een ander antwoord kiest dan wat wettelijk juist is. Wordt getoond in het docent-blok bij de vraag. Verwijs naar antwoordopties met {A} {B} {C} … — die worden vertaald naar de letter die de speler ziet.")}</label>
+    <textarea data-f="docent_note" data-q="${q.id}" placeholder="bv. De docent noteert antwoord {B} als praktijk-antwoord…">${esc(q.docent_note||"")}</textarea>`:""}` : "";
   const matrixBlock = qtype==="matrix" ? renderMatrixEditor(q) : "";
   const openBlock   = qtype==="open"   ? renderOpenEditor(q)   : "";
   return `<div class="card" data-qcard="${q.id}" data-qtype-current="${qtype}">
@@ -4497,7 +4640,8 @@ function wireQuestionEditor(q, quizId){
     const nextIdx=wrap.querySelectorAll(".optrow").length;
     const div=document.createElement("div"); div.className="spread optrow"; div.style="gap:.4rem;margin:.2rem 0";
     const l=letter(nextIdx);
-    div.innerHTML=`<label class="cbxlab" title="Juridisch juist"><input type="checkbox" class="corr" data-q="${q.id}" style="width:auto"><span>J</span></label><label class="cbxlab cbxlab-doc" title="Volgens de docent"><input type="checkbox" class="doc" data-q="${q.id}" style="width:auto"><span>D</span></label><input data-opt="${q.id}" value="" style="flex:1"><button type="button" class="opt-ref-chip" data-insert="${l}" title="Klik om {${l}} in te voegen op je cursorpositie in het laatst gefocuste tekstvak">{${l}}</button><button class="btn btn-ghost btn-sm" data-rmopt="${q.id}">×</button>`;
+    const docBox = q._show_docent ? `<label class="cbxlab cbxlab-doc" title="Volgens de docent"><input type="checkbox" class="doc" data-q="${q.id}" style="width:auto"><span>D</span></label>` : "";
+    div.innerHTML=`<label class="cbxlab" title="Juridisch juist"><input type="checkbox" class="corr" data-q="${q.id}" style="width:auto"><span>J</span></label>${docBox}<input data-opt="${q.id}" value="" style="flex:1"><button type="button" class="opt-ref-chip" data-insert="${l}" title="Klik om {${l}} in te voegen op je cursorpositie in het laatst gefocuste tekstvak">{${l}}</button><button class="btn btn-ghost btn-sm" data-rmopt="${q.id}">×</button>`;
     wrap.appendChild(div); addRm(div);
     wireRefChip(div.querySelector(".opt-ref-chip"));
   };
@@ -4577,7 +4721,10 @@ function wireQuestionEditor(q, quizId){
   const paintMismatchWarn=()=>{
     const rows=[...card.querySelectorAll(`[data-opts="${q.id}"] .optrow`)];
     const jIdxs=[], dIdxs=[];
-    rows.forEach((r,i)=>{ if(r.querySelector(".corr").checked) jIdxs.push(i); if(r.querySelector(".doc").checked) dIdxs.push(i); });
+    rows.forEach((r,i)=>{
+      const c=r.querySelector(".corr"); if(c && c.checked) jIdxs.push(i);
+      const d=r.querySelector(".doc");  if(d && d.checked) dIdxs.push(i);
+    });
     const differs = dIdxs.length>0 && !setEq(jIdxs, dIdxs);
     const warn=card.querySelector(`[data-valid-warn="${q.id}"]`);
     if(warn) warn.hidden = !differs;
@@ -4675,15 +4822,22 @@ function wireQuestionEditor(q, quizId){
       rows.forEach(r=>{ const v=r.querySelector(`[data-opt="${q.id}"]`).value.trim(); if(!v) return;
         const idx=opts.length; opts.push(v);
         if(r.querySelector(".corr").checked) correct.push(idx);
-        if(r.querySelector(".doc").checked) docent.push(idx);
+        const dc=r.querySelector(".doc"); if(dc && dc.checked) docent.push(idx);
       });
       if(opts.length<2) return toast("Minstens 2 opties","err");
       if(validated && !correct.length) return toast("Vink een juist antwoord aan, of zet 'Gevalideerd' uit.","err");
       const multi=card.querySelector(`[data-multi="${q.id}"]`).checked || correct.length>1;
-      const docent_note=card.querySelector(`[data-f="docent_note"][data-q="${q.id}"]`).value;
-      payload={ ...common, question_type:"mcq", options:opts, correct_indexes:correct, multi,
-        docent_indexes: docent.length? docent : null,
-        docent_note: docent.length? docent_note : null };
+      const docentNoteEl=card.querySelector(`[data-f="docent_note"][data-q="${q.id}"]`);
+      const docent_note = docentNoteEl ? docentNoteEl.value : (q.docent_note||"");
+      // Als docent uit staat, laat bestaande waarden onaangeraakt (geen nieuwe D-input beschikbaar)
+      const preserveDocent = !q._show_docent;
+      payload={ ...common, question_type:"mcq", options:opts, correct_indexes:correct, multi };
+      if(preserveDocent){
+        // niets meegeven → bestaande docent_indexes/docent_note blijven zoals ze zijn
+      } else {
+        payload.docent_indexes = docent.length ? docent : null;
+        payload.docent_note    = docent.length ? docent_note : null;
+      }
     }
     const { error }=await sb.from("questions").update(payload).eq("id",q.id);
     if(error) return toast(error.message,"err");
@@ -4755,7 +4909,7 @@ function renderTestPreview(q, chosen){
         ${q.legal_basis?`<div class="legal-inline"><strong>Wettelijke basis:</strong> ${srcBadge("Wettelijke basis",q.legal_basis_source)} ${html(translateOptRefs(q.legal_basis, q.id, q))}</div>`:""}
         ${q.wettekst?`<details class="wettekst-d"><summary>${ICON.info} Toon wettekst</summary><div class="wettekst">${html(translateOptRefs(q.wettekst, q.id, q))}</div></details>`:""}
       </div>
-      ${docentDiffers ? `<div class="docent-block differs">
+      ${(q._show_docent && docentDiffers) ? `<div class="docent-block differs">
         <div class="docent-hd">👨‍🏫 <strong>Volgens de docent</strong> <span class="pill" style="background:var(--warn-soft);color:var(--warn)">wijkt af van wettelijk antwoord</span></div>
         <ul class="docent-items">${docent.map(i=>`<li><strong>${letter(i)}.</strong> ${esc((q.options||[])[i]||"")}</li>`).join("")}</ul>
         ${q.docent_note?`<div class="docent-note">${esc(translateOptRefs(q.docent_note, q.id, q))}</div>`:""}
@@ -4792,7 +4946,8 @@ async function viewEditQuestion(qid){
   if(!isEditor()){ app.innerHTML=`<div class="empty">Geen toegang.</div>`; return; }
   const { data:q } = await sb.from("questions").select("*").eq("id",qid).single();
   if(!q){ app.innerHTML=`<div class="empty">Vraag niet gevonden.</div>`; return; }
-  const { data:quiz } = await sb.from("quizzes").select("id,title").eq("id",q.quiz_id).single();
+  const { data:quiz } = await sb.from("quizzes").select("id,title,show_docent").eq("id",q.quiz_id).single();
+  q._show_docent = !!(quiz && quiz.show_docent);
   const [{data:flags},{data:edits}] = await Promise.all([
     sb.from("flags").select("*").eq("question_id",qid).order("created_at",{ascending:false}),
     sb.from("question_edits").select("*").eq("question_id",qid).order("created_at",{ascending:false}),
@@ -4820,7 +4975,7 @@ async function viewEditQuestion(qid){
         <button type="button" class="chip-toggle" data-ftype="twijfel">Twijfel</button>
         <button type="button" class="chip-toggle" data-ftype="fout">Antwoord is fout</button>
         <button type="button" class="chip-toggle" data-ftype="juist">Antwoord is juist</button>
-        <button type="button" class="chip-toggle" data-ftype="docent">👨‍🏫 Docent koos…</button>
+        ${q._show_docent?`<button type="button" class="chip-toggle" data-ftype="docent">👨‍🏫 Docent koos…</button>`:""}
       </div>
       ${q.question_type==="mcq" && (q.options||[]).length ? `
         <div id="beheerReactPref" hidden style="margin-top:.5rem">
