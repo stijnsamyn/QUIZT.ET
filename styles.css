@@ -707,6 +707,7 @@ summary .ico,button .ico{color:inherit}
   background:var(--surface);border:1px solid var(--border);border-radius:8px;
   padding:.2rem .3rem;box-shadow:0 2px 8px rgba(0,0,0,.12);
 }
+.fmt-toolbar[hidden]{display:none !important}
 .fmt-toolbar button{
   background:transparent;border:none;padding:.2rem .45rem;border-radius:5px;
   cursor:pointer;color:var(--ink);font-size:.82rem;line-height:1
