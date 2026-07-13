@@ -712,9 +712,9 @@ summary .ico,button .ico{color:inherit}
 .fmt-toolbar .fmt-sep{width:auto;height:1px;background:var(--border);margin:.15rem 0}
 
 /* Vraag-editor sectie-styling */
-.qe-card{padding:0;overflow:hidden}
-.qe-topbar{padding:.7rem .9rem;border-bottom:1px solid var(--border);background:var(--surface2)}
-.qe-section{padding:1rem 1.1rem;margin:1rem 0;border:1px solid var(--border);border-radius:10px;background:var(--surface)}
+.qe-card{padding:0;overflow:hidden;background:var(--surface2)}
+.qe-topbar{padding:.7rem .9rem;border-bottom:1px solid var(--border);background:var(--surface)}
+.qe-section{padding:1rem 1.1rem;margin:1rem;border:1px solid var(--border);border-radius:10px;background:var(--surface)}
 .qe-section:first-of-type{margin-top:1rem}
 .qe-section:last-of-type{margin-bottom:1rem}
 .qe-sec-hd{font-weight:700;color:var(--ink);margin-bottom:.7rem;padding-bottom:.4rem;border-bottom:1px solid var(--border)}
