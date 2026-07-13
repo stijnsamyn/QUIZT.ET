@@ -4615,10 +4615,31 @@ async function viewBeheerAudit(quizId){
         ["geenuitleg","zonder uitleg"],
       ].map(([f,l])=>`<button class="chip-toggle" data-filter="${f}">${l}</button>`).join("")}
     </div>
+    <div class="btnrow" style="margin-top:.5rem;flex-wrap:wrap">
+      <span class="muted" style="align-self:center;font-size:.82rem">Bulk-actie op zichtbare vragen:</span>
+      <button class="btn btn-ghost btn-sm" id="auValidateAll">✓ Valideren</button>
+      <button class="btn btn-ghost btn-sm" id="auUnvalidateAll">✗ Validatie weghalen</button>
+    </div>
     <div class="au-list" id="auList" style="margin-top:.8rem"></div>
   `;
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
   app.querySelectorAll("[data-filter]").forEach(b=>b.onclick=()=>{ filter=b.dataset.filter; draw(); });
+  const bulkValidate = async(newVal)=>{
+    const visible = (questions||[]).filter(matches);
+    const target  = visible.filter(q => (q.validated!==false) !== newVal); // enkel wijzigen
+    if(!target.length) return toast(newVal?"Alle zichtbare vragen zijn al gevalideerd":"Alle zichtbare vragen staan al op niet-gevalideerd","ok");
+    const label = newVal ? "valideren" : "op 'niet gevalideerd' zetten";
+    if(!confirm(`${target.length} vraag/vragen ${label}? Dit past filter "${filter}" toe op de hele quiz.`)) return;
+    const ids = target.map(q=>q.id);
+    const { error } = await sb.from("questions").update({ validated:newVal }).in("id",ids);
+    if(error) return toast(error.message,"err");
+    toast(`${ids.length} vraag/vragen ${newVal?"gevalideerd":"op 'niet gevalideerd' gezet"}`,"ok");
+    // Lokaal state updaten en hertekenen — geen volledige refetch nodig
+    target.forEach(q=>{ q.validated=newVal; });
+    draw();
+  };
+  document.getElementById("auValidateAll").onclick   = ()=>bulkValidate(true);
+  document.getElementById("auUnvalidateAll").onclick = ()=>bulkValidate(false);
   draw();
 }
 
