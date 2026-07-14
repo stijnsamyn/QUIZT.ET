@@ -851,6 +851,33 @@ summary .ico,button .ico{color:inherit}
 .open-model .lbl,.open-result .lbl{display:block;font-weight:600;color:var(--ink);font-size:.82rem;margin-bottom:.2rem}
 .open-model-body,.open-given{font-size:.9rem;color:var(--ink);white-space:pre-wrap}
 
+/* Studeermodus */
+.study-progress{height:5px;background:var(--surface2);border-radius:99px;overflow:hidden;margin:.5rem 0 1rem}
+.study-progress span{display:block;height:100%;background:var(--accent);border-radius:99px;transition:width .2s}
+.study-card{padding:1.1rem 1.2rem}
+.study-opts{margin:.7rem 0}
+.study-opt{display:flex;gap:.6rem;align-items:baseline;padding:.5rem .65rem;border:1px solid var(--border);
+  border-radius:8px;margin:.35rem 0;background:var(--surface)}
+.study-opt.is-correct{border-color:var(--correct);background:var(--correct-soft)}
+.study-opt.is-docent{border-color:#c026d3;background:rgba(192,38,211,.06)}
+.study-let{font-weight:800;color:var(--text-muted);min-width:1.3rem;flex:0 0 auto}
+.study-opt.is-correct .study-let{color:var(--correct)}
+.study-otext{flex:1}
+.study-block{margin-top:.8rem;padding:.6rem .8rem;background:var(--surface2);border-radius:8px}
+.study-block.docent{background:rgba(192,38,211,.06);border-left:3px solid #c026d3}
+.study-block .lbl,.study-model .lbl{display:block;font-weight:700;color:var(--ink);font-size:.8rem;margin-bottom:.25rem}
+.study-model{margin-top:.7rem;padding:.6rem .8rem;background:var(--correct-soft);border-radius:8px}
+.study-matrix{margin:.7rem 0;overflow-x:auto}
+.study-matrix table{border-collapse:collapse;width:100%;font-size:.88rem}
+.study-matrix th,.study-matrix td{border:1px solid var(--border);padding:.35rem .5rem;text-align:center}
+.study-matrix th{background:var(--surface2)}
+.study-matrix td.is-correct{background:var(--correct-soft);color:var(--correct);font-weight:800}
+.study-wettekst{margin-top:.8rem}
+.study-wettekst summary{cursor:pointer;color:var(--accent-dark);font-size:.85rem;font-weight:600}
+.study-nav{display:flex;align-items:center;justify-content:space-between;gap:.6rem;margin:1.2rem 0 3rem;position:sticky;bottom:.6rem}
+.study-nav .btn{flex:0 0 auto}
+.study-nav input{flex:0 0 auto}
+
 /* Markdown-lijstjes in uitleg / wettelijke basis / wettekst — netjes ingesprongen */
 .md-list{margin:.35rem 0 .35rem 1.2rem;padding:0}
 .md-list li{margin:.15rem 0;line-height:1.45}

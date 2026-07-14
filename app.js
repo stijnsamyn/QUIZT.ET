@@ -617,6 +617,7 @@ async function route(){
   app.innerHTML=`<div class="loading">Laden…</div>`;
   try{
     if(p.length===0) return viewHome();
+    if(p[0]==="quiz" && p[2]==="studeer") return viewStudy(p[1]);
     if(p[0]==="quiz" && p[2]==="overzicht") return viewOverview(p[1]);
     if(p[0]==="quiz" && p[2]==="stats") return viewQuizStats(p[1]);
     if(p[0]==="quiz" && p[2]==="pogingen") return viewAttemptsList(p[1]);
@@ -1092,7 +1093,10 @@ function renderPlaySetup(){
     <a class="muted" data-nav="#/">← Quizzen</a>
     <h1 style="margin:.5rem 0">${esc(PLAY.quiz.title)}</h1>
     <p class="muted">${esc(PLAY.quiz.description||"")}</p>
-    <div class="muted" style="font-size:.82rem;margin:.4rem 0 1.2rem">
+    <div class="btnrow" style="margin:.2rem 0 1rem">
+      <button class="btn btn-ghost btn-sm" data-nav="#/quiz/${PLAY.quiz.id}/studeer">📖 Studeermodus — lees alles door met uitleg</button>
+    </div>
+    <div class="muted" style="font-size:.82rem;margin:0 0 1.2rem">
       Meer over deze quiz: <a class="ilink" data-nav="#/quiz/${PLAY.quiz.id}/overzicht">Overzicht van alle vragen</a> · <a class="ilink" data-nav="#/quiz/${PLAY.quiz.id}/stats">Statistiek van deze quiz</a> · <a class="ilink" data-nav="#/quiz/${PLAY.quiz.id}/pogingen">📜 Historische pogingen</a>
     </div>
     ${resumeBanner}
@@ -3085,6 +3089,90 @@ async function viewOverview(quizId){
 function PLAY_goto(quizId, qid){ PLAY.pendingJump=qid; go("#/quiz/"+quizId); }
 
 /* ============================================================
+   STUDEERMODUS — lees alle vragen mét antwoord en uitleg door,
+   vraag per vraag. Geen scoren, geen shuffle: puur om te leren.
+   ============================================================ */
+async function viewStudy(quizId){
+  const { data:quiz } = await sb.from("quizzes").select("id,title,show_docent").eq("id",quizId).single();
+  if(!quiz){ app.innerHTML=`<div class="empty">Quiz niet gevonden.</div>`; return; }
+  const { data:questions } = await sb.from("questions").select("*").eq("quiz_id",quizId).order("sort_order");
+  const qs=questions||[];
+  qs.forEach(q=>{ q._show_docent = !!quiz.show_docent; });
+  if(!qs.length){ app.innerHTML=`<a class="muted" data-nav="#/quiz/${quizId}">← Terug</a><div class="empty">Deze quiz heeft nog geen vragen.</div>`; app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav)); return; }
+  let i=0;
+
+  const renderAnswers = q => {
+    const t=q.question_type||"mcq";
+    if(t==="open"){
+      return `<div class="study-model"><span class="lbl">Modelantwoord</span>
+        <div>${q.open_answer?esc(q.open_answer):`<span class="muted">— geen modelantwoord ingesteld —</span>`}</div></div>`;
+    }
+    if(t==="matrix"){
+      const rows=arr(q.matrix_rows), cols=arr(q.matrix_cols), mc=arr(q.matrix_correct);
+      if(!rows.length||!cols.length) return `<div class="muted">Matrix leeg</div>`;
+      return `<div class="study-matrix"><table><thead><tr><th></th>${cols.map(c=>`<th>${esc(c)}</th>`).join("")}</tr></thead>
+        <tbody>${rows.map((r,ri)=>`<tr><th>${esc(r)}</th>${cols.map((_,ci)=>`<td class="${mc[ri]===ci?"is-correct":""}">${mc[ri]===ci?"✓":""}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+    }
+    const correct=arr(q.correct_indexes);
+    const docent=arr(q.docent_indexes);
+    const docentDiffers=q._show_docent && docent.length && !setEq(docent,correct);
+    return `<div class="study-opts">${(q.options||[]).map((o,idx)=>{
+      const isC=correct.includes(idx);
+      const isD=docentDiffers && docent.includes(idx);
+      const badges=[];
+      if(isC) badges.push(`<span class="pill juist" style="font-size:.68rem">juist</span>`);
+      if(isD) badges.push(`<span class="pill" style="font-size:.68rem;background:rgba(192,38,211,.12);color:#a21caf">docent</span>`);
+      return `<div class="study-opt ${isC?"is-correct":""} ${isD&&!isC?"is-docent":""}">
+        <span class="study-let">${letter(idx)}</span><span class="study-otext">${esc(o)} ${badges.join(" ")}</span></div>`;
+    }).join("")}</div>`;
+  };
+
+  const draw=()=>{
+    const q=qs[i];
+    const correct=arr(q.correct_indexes);
+    const docent=arr(q.docent_indexes);
+    const docentDiffers=q._show_docent && docent.length && !setEq(docent,correct);
+    app.innerHTML=`
+      <div class="spread" style="align-items:center;flex-wrap:wrap;gap:.5rem">
+        <a class="muted" data-nav="#/quiz/${quizId}">← ${esc(quiz.title)}</a>
+        <span class="muted" style="font-size:.85rem">Studeren · vraag ${i+1} van ${qs.length}</span>
+      </div>
+      <div class="study-progress"><span style="width:${Math.round((i+1)/qs.length*100)}%"></span></div>
+      <div class="card study-card">
+        <div class="q-meta"><span class="q-num">Vraag ${q.qnum}</span>${questionTags(q)}</div>
+        <div class="q-text">${esc(q.text)}</div>
+        ${q.image_url?`<div class="q-image"><img src="${esc(q.image_url)}" alt="Afbeelding bij vraag ${q.qnum}" loading="lazy"></div>`:""}
+        ${renderAnswers(q)}
+        ${q.explanation?`<div class="study-block"><span class="lbl">Uitleg ${srcBadge("Uitleg",q.explanation_source)}</span><div>${html(translateOptRefs(q.explanation, q.id, q))}</div></div>`:""}
+        ${q.legal_basis?`<div class="study-block"><span class="lbl">Wettelijke basis ${srcBadge("Wettelijke basis",q.legal_basis_source)}</span><div>${html(translateOptRefs(q.legal_basis, q.id, q))}</div></div>`:""}
+        ${q.wettekst?`<details class="study-wettekst"><summary>${ICON.info} Toon volledige wettekst</summary><div class="wettekst">${html(translateOptRefs(q.wettekst, q.id, q))}</div></details>`:""}
+        ${docentDiffers && q.docent_note?`<div class="study-block docent"><span class="lbl">👨‍🏫 Toelichting docent</span><div>${esc(translateOptRefs(q.docent_note, q.id, q))}</div></div>`:""}
+      </div>
+      <div class="study-nav">
+        <button class="btn btn-ghost" id="studyPrev" ${i===0?"disabled":""}>← Vorige</button>
+        <input id="studyJump" type="number" min="1" max="${qs.length}" value="${i+1}" title="Spring naar vraag" style="width:5rem;text-align:center">
+        <button class="btn btn-primary" id="studyNext" ${i===qs.length-1?"disabled":""}>Volgende →</button>
+      </div>`;
+    app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
+    const prev=document.getElementById("studyPrev"), next=document.getElementById("studyNext");
+    if(prev) prev.onclick=()=>{ if(i>0){ i--; draw(); window.scrollTo(0,0); } };
+    if(next) next.onclick=()=>{ if(i<qs.length-1){ i++; draw(); window.scrollTo(0,0); } };
+    const jump=document.getElementById("studyJump");
+    if(jump) jump.onchange=()=>{ let n=parseInt(jump.value,10); if(isNaN(n))return; n=Math.max(1,Math.min(qs.length,n)); i=n-1; draw(); window.scrollTo(0,0); };
+  };
+  // Pijltjestoetsen: links/rechts bladeren
+  const onKey=e=>{ if(e.target && /INPUT|TEXTAREA/.test(e.target.tagName)) return;
+    if(e.key==="ArrowRight" && i<qs.length-1){ i++; draw(); }
+    else if(e.key==="ArrowLeft" && i>0){ i--; draw(); } };
+  document.addEventListener("keydown", onKey);
+  // Ruim de listener op wanneer je de studeermodus verlaat (volgende route-wissel).
+  const gen=currentRouteGen();
+  const cleanup=()=>{ if(currentRouteGen()!==gen){ document.removeEventListener("keydown",onKey); window.removeEventListener("hashchange",cleanup); } };
+  window.addEventListener("hashchange", cleanup);
+  draw();
+}
+
+/* ============================================================
    PDF-EXPORT — vragen exporteren via browser-print (window.print)
    Geen externe library nodig: de gebruiker kiest in de print-dialoog
    "Opslaan als PDF". Modal laat toe om zelf te bepalen welke onderdelen
@@ -4278,6 +4366,13 @@ function manualGebruiker(){
       <li><strong>Slim oefenen</strong> geeft voorrang aan wat je nog niet kent — de aanrader.</li>
       <li>Je voortgang wordt bewaard en synct tussen je toestellen. Je kan een sessie later hervatten.</li>
       <li>De volgorde van de antwoordopties wordt door elkaar geschud, zodat je op de <em>inhoud</em> traint en niet op "het is altijd C".</li>
+    </ul>
+
+    <h3>Studeermodus</h3>
+    <ul>
+      <li>Wil je gewoon <strong>alles doorlezen</strong> zonder te scoren? Klik op een quiz op <strong>"📖 Studeermodus"</strong>.</li>
+      <li>Je begint bij vraag 1 en bladert met <strong>Vorige / Volgende</strong> (of de pijltjestoetsen ← →) door alle vragen — telkens met het juiste antwoord, de uitleg en de wettelijke basis erbij.</li>
+      <li>Typ een nummer om meteen naar een bepaalde vraag te springen.</li>
     </ul>
 
     <h3>Fouten signaleren en opmerkingen geven</h3>
