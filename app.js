@@ -1109,6 +1109,10 @@ function renderPlaySetup(){
           <span class="mode-btn-title">Quiz</span>
           <span class="mode-btn-sub">Oefen jezelf: kies aantal, selectie en volgorde, en test of je het antwoord kent.</span>
         </button>
+        <button class="mode-btn" data-mode="quick">
+          <span class="mode-btn-title">QuickQuiz</span>
+          <span class="mode-btn-sub">Meteen starten: ${Math.min(20,total)} willekeurige vragen, geen instellingen.</span>
+        </button>
       </div>
 
       <div class="mode-block" id="studyBlock" hidden>
@@ -1176,8 +1180,16 @@ function renderPlaySetup(){
     if(qb) qb.hidden = m!=="quiz";
     document.querySelectorAll("#modeChoice .mode-btn").forEach(b=>b.classList.toggle("active", b.dataset.mode===m));
   };
-  document.querySelectorAll("#modeChoice .mode-btn").forEach(b=>b.onclick=()=>showMode(b.dataset.mode));
-  if(savedValid) showMode("quiz");   // bij een lopende sessie meteen de quiz-opties tonen
+  document.querySelectorAll("#modeChoice .mode-btn").forEach(b=>b.onclick=()=>{
+    if(b.dataset.mode==="quick"){
+      // QuickQuiz: 20 willekeurige vragen, meteen starten, geen instellingen.
+      const n=Math.min(20,total);
+      savePrefs({size, focus, order, customSize:""});
+      startSession(n, "alle", "willekeurig");
+      return;
+    }
+    showMode(b.dataset.mode);
+  });
   const rb=document.getElementById("resumeBtn"); if(rb) rb.onclick=()=>resumeSavedSession();
   const drb=document.getElementById("discardResumeBtn"); if(drb) drb.onclick=()=>{ if(!confirm("De opgeslagen sessie weggooien?")) return; clearSession(PLAY.quiz.id); renderPlaySetup(); };
   const wire=(id,attr,set)=>app.querySelectorAll(`#${id} [data-${attr}]`).forEach(b=>b.onclick=()=>{
