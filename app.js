@@ -3040,9 +3040,15 @@ async function viewOverview(quizId){
       return `<tr class="row-link" data-qid="${q.id}" data-quiz="${quizId}">
         <td><span class="q-num">${q.qnum}</span></td>
         <td>${esc(q.text).slice(0,120)}${q.text.length>120?"…":""}</td>
-        <td>${q.validated===false
-          ? `<span class="status-icon bad" title="Niet gevalideerd">${ICON.cross}</span>`
-          : `<span class="status-icon ok" title="Gevalideerd">${ICON.check}</span> ${srcBadge("Gevalideerd door",q.answer_source)}`}</td>
+        <td>${(() => {
+          const src = q.answer_source;
+          if(!src) return `<span class="muted">—</span>`;
+          const icon = src === "ai" ? ICON.robot : ICON.person;
+          const isValid = q.validated !== false;
+          const who = src === "ai" ? "AI" : "Mens";
+          const title = isValid ? `${who} — gevalideerd` : `${who} — antwoord gegeven, niet gevalideerd`;
+          return `<span class="status-icon ${isValid?"ok":"bad"}" title="${title}">${icon}</span>`;
+        })()}</td>
         <td>${flagCell}</td>
       </tr>`;
     }).join("");
