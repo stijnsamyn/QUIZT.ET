@@ -5133,6 +5133,84 @@ async function renderQuizReactiesTab(content, quiz, questions, flags){
 }
 
 /* ============================================================
+   DUBBELE VRAGEN — detecteert identieke en sterk gelijkende vragen
+   binnen één quiz. Vergelijkt genormaliseerde tekst (identiek) en
+   woord-overlap via Jaccard (gelijkaardig). Groepeert met union-find.
+   ============================================================ */
+function dupNormalize(s){
+  return String(s||"")
+    .toLowerCase()
+    .normalize("NFD").replace(/[̀-ͯ]/g,"")   // accenten weg
+    .replace(/[^a-z0-9\s]/g," ")                        // leestekens → spatie
+    .replace(/\s+/g," ").trim();
+}
+function dupTokens(norm){ return new Set(norm.split(" ").filter(w=>w.length>2)); }
+function dupJaccard(a,b){
+  if(!a.size || !b.size) return 0;
+  let inter=0; a.forEach(w=>{ if(b.has(w)) inter++; });
+  return inter / (a.size + b.size - inter);
+}
+function openDuplicateCheck(quiz, questions){
+  const SIM_THRESHOLD=0.8;   // ≥ 80% woord-overlap = "gelijkaardig"
+  const items=questions.map(q=>{ const norm=dupNormalize(q.text); return { q, norm, tokens:dupTokens(norm) }; })
+    .filter(x=>x.norm.length>0);
+  // Union-find over paren die identiek of gelijkaardig zijn
+  const parent=items.map((_,i)=>i);
+  const find=x=>{ while(parent[x]!==x){ parent[x]=parent[parent[x]]; x=parent[x]; } return x; };
+  const union=(a,b)=>{ const ra=find(a), rb=find(b); if(ra!==rb) parent[ra]=rb; };
+  const pairKind={};   // "cluster-min-index" → of het paar exact was
+  for(let i=0;i<items.length;i++){
+    for(let j=i+1;j<items.length;j++){
+      const exact = items[i].norm===items[j].norm;
+      const sim = exact ? 1 : dupJaccard(items[i].tokens, items[j].tokens);
+      if(exact || sim>=SIM_THRESHOLD){ union(i,j); if(exact) pairKind[find(i)]=true; }
+    }
+  }
+  // Clusters verzamelen
+  const byRoot={};
+  items.forEach((it,idx)=>{ const r=find(idx); (byRoot[r]=byRoot[r]||[]).push(it); });
+  const groups=Object.values(byRoot).filter(g=>g.length>1)
+    .map(g=>{
+      const norms=new Set(g.map(x=>x.norm));
+      return { items:g.sort((a,b)=>(a.q.qnum||0)-(b.q.qnum||0)), exact:norms.size===1 };
+    })
+    .sort((a,b)=> (b.exact-a.exact) || (b.items.length-a.items.length));
+
+  const overlay=document.createElement("div");
+  overlay.className="modes-overlay";
+  const dupCount=groups.reduce((n,g)=>n+g.items.length,0);
+  overlay.innerHTML=`<div class="modes-modal" role="dialog" aria-label="Dubbele vragen">
+    <div class="modes-hd">
+      <div class="modes-title">${ICON.info} Dubbele vragen — ${esc(quiz.title||"")}</div>
+      <button class="tetris-close" id="dupClose" aria-label="Sluiten">×</button>
+    </div>
+    <div class="modes-body">
+      ${groups.length
+        ? `<p class="muted">${groups.length} groep${groups.length===1?"":"en"} met mogelijke dubbels (${dupCount} vragen). <span class="pill juist" style="font-size:.68rem">identiek</span> = exact dezelfde tekst · <span class="pill twijfel" style="font-size:.68rem">gelijkaardig</span> = sterke woord-overlap (nakijken).</p>
+          <div class="stack" style="gap:.7rem;margin-top:.6rem">${groups.map(g=>`
+            <div class="dup-group">
+              <div class="dup-group-hd">${g.exact?`<span class="pill juist">identiek</span>`:`<span class="pill twijfel">gelijkaardig</span>`} <span class="muted" style="font-size:.8rem">${g.items.length} vragen</span></div>
+              ${g.items.map(x=>`<div class="dup-row">
+                <span class="q-num">${x.q.qnum}</span>
+                <span class="dup-text">${esc((x.q.text||"").slice(0,160))}${(x.q.text||"").length>160?"…":""}</span>
+                <a class="btn btn-ghost btn-sm" data-nav="#/beheer/vraag/${x.q.id}">Bewerken</a>
+              </div>`).join("")}
+            </div>`).join("")}</div>`
+        : `<div class="empty">Geen dubbele of sterk gelijkende vragen gevonden. 🎉</div>`}
+    </div>
+    <div class="modes-foot"><button class="btn btn-primary btn-sm" id="dupOk">Sluit</button></div>
+  </div>`;
+  const close=()=>{ overlay.remove(); window.removeEventListener("keydown",onKey); };
+  const onKey=e=>{ if(e.key==="Escape") close(); };
+  document.body.appendChild(overlay);
+  overlay.querySelector("#dupClose").onclick=close;
+  overlay.querySelector("#dupOk").onclick=close;
+  overlay.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>{ close(); go(a.dataset.nav); });
+  overlay.addEventListener("click",e=>{ if(e.target===overlay) close(); });
+  window.addEventListener("keydown",onKey);
+}
+
+/* ============================================================
    Tab: Vragen — beheerder ziet volledige vraag + volledige
    antwoorden per rij, kan filteren/zoeken, bulk-valideren en
    direct naar de bewerk-pagina van een vraag springen.
@@ -5235,7 +5313,10 @@ function renderQuizVragenTab(content, quizId, quiz, questions, flags){
   };
   content.innerHTML=`
     <div class="spread" style="margin-top:.8rem;align-items:center">
-      <button class="btn btn-primary btn-sm" id="auAddQ">+ Vraag toevoegen</button>
+      <div class="btnrow" style="margin:0">
+        <button class="btn btn-primary btn-sm" id="auAddQ">+ Vraag toevoegen</button>
+        <button class="btn btn-ghost btn-sm" id="auDupCheck">Dubbels zoeken</button>
+      </div>
       <span class="muted au-count" id="auCount">${(questions||[]).length}</span>
     </div>
     <input id="auSearch" placeholder="Zoek een vraag — op nummer of tekst…" style="margin-top:.6rem">
@@ -5271,6 +5352,7 @@ function renderQuizVragenTab(content, quizId, quiz, questions, flags){
     if(error) return toast(error.message,"err");
     viewBeheerQuiz(quizId,"vragen");
   };
+  content.querySelector("#auDupCheck").onclick=()=>openDuplicateCheck(quiz, questions||[]);
   const bulkValidate = async(newVal)=>{
     const visible = (questions||[]).filter(q=>matches(q)&&textMatch(q));
     const target  = visible.filter(q => (q.validated!==false) !== newVal); // enkel wijzigen
