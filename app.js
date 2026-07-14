@@ -5308,17 +5308,20 @@ function renderCompareCard(q){
   </div>`;
 }
 
+let REOPEN_DUP_CHECK=null;   // quizId → heropen de dubbels-lijst na terugkeer uit de vergelijk-view
+
 /* Vergelijk twee (gelijkaardige) vragen naast elkaar en beslis. */
 async function viewCompareQuestions(aId, bId){
   if(!isEditor()){ app.innerHTML=`<div class="empty">Geen toegang.</div>`; return; }
   const { data:qs }=await sb.from("questions").select("*").in("id",[aId,bId]);
   const A=(qs||[]).find(x=>x.id===aId), B=(qs||[]).find(x=>x.id===bId);
-  const backTo = A ? `#/beheer/quiz/${A.quiz_id}/vragen` : (B ? `#/beheer/quiz/${B.quiz_id}/vragen` : "#/beheer");
+  const quizId = A ? A.quiz_id : (B ? B.quiz_id : null);
+  // Terugkeren gebeurt altijd naar het dubbels-overzicht van de quiz.
+  const backToDups = ()=>{ if(quizId){ REOPEN_DUP_CHECK=quizId; go(`#/beheer/quiz/${quizId}/vragen`); } else go("#/beheer"); };
   if(!A || !B){
-    app.innerHTML=`<a class="muted" data-nav="${backTo}">← Terug</a><div class="empty">Eén van beide vragen bestaat niet meer — mogelijk al verwijderd.</div>`;
-    app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav)); return;
+    app.innerHTML=`<a class="muted" id="cmpBack">← Terug naar dubbele vragen</a><div class="empty">Eén van beide vragen bestaat niet meer — mogelijk al verwijderd.</div>`;
+    const bk=document.getElementById("cmpBack"); if(bk) bk.onclick=backToDups; return;
   }
-  const quizId=A.quiz_id;
   const { data:quiz }=await sb.from("quizzes").select("id,title,show_docent").eq("id",quizId).single();
   A._show_docent=B._show_docent=!!(quiz&&quiz.show_docent);
   const [lo,hi]=[aId,bId].slice().sort();
@@ -5327,26 +5330,29 @@ async function viewCompareQuestions(aId, bId){
   if(rev&&rev.reviewed_by){ const nm=await namesFor([rev.reviewed_by]); reviewer=nm[rev.reviewed_by]||"iemand"; }
 
   app.innerHTML=`
-    <a class="muted" data-nav="${backTo}">← ${esc(quiz?quiz.title:"Quiz")}</a>
+    <a class="muted" id="cmpBack">← Terug naar dubbele vragen</a>
     <h1 style="margin:.4rem 0">Vergelijk vragen ${A.qnum} en ${B.qnum}</h1>
     ${rev
       ? `<div class="cmp-reviewed">${ICON.check} Al bekeken door <strong>${esc(reviewer)}</strong> · ${fmtDate(rev.reviewed_at)} — beoordeeld als <strong>behouden</strong>. <button class="btn btn-ghost btn-sm" id="cmpUnmark">Markering weghalen</button></div>`
-      : `<p class="muted" style="font-size:.85rem">Bekijk beide vragen naast elkaar. Verwijder er één, of markeer ze als <strong>bekeken (behouden)</strong> zodat andere beheerders zien dat dit al beoordeeld is. Verwijderen blijft nadien altijd mogelijk.</p>`}
+      : `<p class="muted" style="font-size:.85rem">Bekijk beide vragen naast elkaar. Verwijder er één, markeer ze als <strong>bekeken (behouden)</strong>, of laat alles zoals het is als je twijfelt. Verwijderen blijft nadien altijd mogelijk.</p>`}
     <div class="cmp-grid">${renderCompareCard(A)}${renderCompareCard(B)}</div>
     <div class="cmp-foot">
       ${rev?"":`<button class="btn btn-primary" id="cmpKeep">${ICON.check} Beide behouden — markeer als bekeken</button>`}
+      <button class="btn btn-ghost" id="cmpNothing">Niets doen — ik twijfel</button>
     </div>`;
+  document.getElementById("cmpBack").onclick=backToDups;
+  document.getElementById("cmpNothing").onclick=backToDups;
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
   app.querySelectorAll("[data-cmpdel]").forEach(b=>b.onclick=async()=>{
     if(!confirm(`Vraag ${b.dataset.qnum} verwijderen? Ook antwoorden, events en reacties op deze vraag verdwijnen. Onomkeerbaar.`)) return;
     const { error }=await sb.from("questions").delete().eq("id",b.dataset.cmpdel);
     if(error) return toast("Verwijderen mislukt: "+error.message,"err");
-    toast("Verwijderd","ok"); go(backTo);
+    toast("Verwijderd","ok"); backToDups();
   });
   const keep=document.getElementById("cmpKeep");
-  if(keep) keep.onclick=async()=>{ if(await markDuplicateReviewed(quizId,aId,bId)) viewCompareQuestions(aId,bId); };
+  if(keep) keep.onclick=async()=>{ if(await markDuplicateReviewed(quizId,aId,bId)) backToDups(); };
   const unmark=document.getElementById("cmpUnmark");
-  if(unmark) unmark.onclick=async()=>{ if(await unmarkDuplicateReviewed(aId,bId)) viewCompareQuestions(aId,bId); };
+  if(unmark) unmark.onclick=async()=>{ if(await unmarkDuplicateReviewed(aId,bId)) backToDups(); };
 }
 
 async function openDuplicateCheck(quiz, questions){
@@ -5609,6 +5615,8 @@ function renderQuizVragenTab(content, quizId, quiz, questions, flags){
   content.querySelector("#auValidateAll").onclick   = ()=>bulkValidate(true);
   content.querySelector("#auUnvalidateAll").onclick = ()=>bulkValidate(false);
   draw();
+  // Heropen de dubbels-lijst als we net terugkomen uit de vergelijk-view.
+  if(REOPEN_DUP_CHECK===quizId){ REOPEN_DUP_CHECK=null; openDuplicateCheck(quiz, questions||[]); }
 }
 
 function srcToggle(id, val){
