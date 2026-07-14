@@ -581,17 +581,27 @@ async function fetchUserCount(){
   catch(e){ USER_COUNT=0; }
   return USER_COUNT;
 }
+let PENDING_DELETES=null;   // aantal openstaande verwijder-aanvragen (voor admin-melding)
+async function fetchPendingDeletes(){
+  if(!isAdmin()){ PENDING_DELETES=0; return 0; }
+  if(PENDING_DELETES!=null) return PENDING_DELETES;
+  try{ const { count } = await sb.from("quizzes").select("*",{count:"exact",head:true}).not("delete_requested_by","is",null); PENDING_DELETES=count||0; }
+  catch(e){ PENDING_DELETES=0; }
+  return PENDING_DELETES;
+}
 function renderHeader(){
   const h=document.getElementById("appHeader");
   if(!ME){ h.hidden=true; return; }
   h.hidden=false;
   const nav=document.getElementById("topnav");
   const notifyBadge = `<span id="notifyBadge" class="notify-badge" ${NOTIFY_COUNT>0?"":"hidden"}>${NOTIFY_COUNT}</span>`;
+  const beheerBadge = (isAdmin() && PENDING_DELETES>0) ? ` <span class="notify-badge" title="${PENDING_DELETES} openstaande verwijder-aanvraag/aanvragen">${PENDING_DELETES}</span>` : "";
   const links=[["#/","Quizzen"],["#/stats/vragen","Statistiek"],["#/meldingen","Meldingen "+notifyBadge]];
-  if(isEditor()) links.push(["#/beheer","Beheer"]);
+  if(isEditor()) links.push(["#/beheer","Beheer"+beheerBadge]);
   links.push(["#/account","Account"]);
   nav.innerHTML = links.map(([h,l])=>`<a data-nav="${h}">${l}</a>`).join("");
   if(isEditor() && USER_COUNT==null) fetchUserCount().then(renderHeader);
+  if(isAdmin() && PENDING_DELETES==null) fetchPendingDeletes().then(renderHeader);
   const roleName = ME.role==="admin"?"admin":ME.role==="beheerder"?"beheerder":"speler";
   document.getElementById("userbox").innerHTML =
     `<button class="help-btn" id="helpBtn" title="Handleiding" aria-label="Handleiding">i</button>`+
@@ -4731,8 +4741,10 @@ async function viewBeheer(tab){
     (openFlags||[]).forEach(f=>{ const q=qmap[f.question_id]; if(q){ (flagsPerQuiz[q.quiz_id]=flagsPerQuiz[q.quiz_id]||new Set()).add(f.question_id); } });
     const conceptCount=(quizzes||[]).filter(q=>q.status!=="gepubliceerd").length;
     const pubCount=(quizzes||[]).filter(q=>q.status==="gepubliceerd").length;
+    const pendingDel=(quizzes||[]).filter(q=>q.delete_requested_by).length;
     const tiles=[
       { val:impactedQuestionCount, lab:"Vragen met open reacties", sub:`${flagCount} reactie${flagCount===1?"":"s"} te bekijken`, nav:"#/beheer/flags", warn:impactedQuestionCount>0 },
+      ...(isAdmin()&&pendingDel>0 ? [{ val:pendingDel, lab:"Verwijder-aanvragen", sub:"wachten op je goedkeuring", warn:true }] : []),
       { val:conceptCount, lab:"Concept-quizzen", sub:"nog niet gepubliceerd" },
       { val:pubCount, lab:"Gepubliceerd", sub:"zichtbaar voor spelers" },
       { val:USER_COUNT!=null?USER_COUNT:"…", lab:"Gebruikers", sub:"statistiek & rollen", nav:"#/beheer/gebruikers" },
@@ -4761,6 +4773,7 @@ async function viewBeheer(tab){
             ${rf?`<a class="count-chip" data-nav="#/beheer/quiz/${q.id}/reacties" title="${rf} vraag/vragen met open reacties" style="margin-left:.4rem;text-decoration:none">${ICON.flag} ${rf}</a>`:""}
             ${pending?`<span class="badge concept" style="margin-left:.4rem;background:var(--wrong-soft);color:var(--wrong)">verwijdering aangevraagd</span>`:""}
             <div class="muted quiz-row-desc">${esc(q.description||"")}</div>
+            ${pending&&q.delete_request_reason?`<div class="del-reason"><strong>Reden:</strong> ${esc(q.delete_request_reason)}</div>`:""}
           </div>
           <div class="btnrow quiz-row-btns">
             <button class="btn btn-ghost btn-sm" data-edit="${q.id}">Bewerken</button>
@@ -4934,20 +4947,24 @@ async function createQuiz(){
    vragen aan; een admin keurt goed of weigert.
    ============================================================ */
 async function requestQuizDeletion(quiz){
-  if(!confirm(`Verwijdering aanvragen voor "${quiz.title}"?\n\nDe quiz wordt NIET meteen verwijderd — een admin moet dit eerst goedkeuren.`)) return false;
-  const { error }=await sb.from("quizzes").update({ delete_requested_by:ME.id, delete_requested_at:new Date().toISOString() }).eq("id",quiz.id);
+  const reason=(prompt(`Verwijdering aanvragen voor "${quiz.title}".\n\nGeef een reden (verplicht) — deze wordt naar de admin gestuurd:`)||"").trim();
+  if(!reason){ toast("Je moet een reden opgeven","err"); return false; }
+  const { error }=await sb.from("quizzes").update({ delete_requested_by:ME.id, delete_requested_at:new Date().toISOString(), delete_request_reason:reason }).eq("id",quiz.id);
   if(error){ toast("Aanvraag mislukt: "+error.message,"err"); return false; }
+  PENDING_DELETES=null;   // admin-badge opnieuw laten tellen
   toast("Verwijdering aangevraagd — een admin beslist","ok"); return true;
 }
 async function cancelQuizDeletionRequest(quiz){
-  const { error }=await sb.from("quizzes").update({ delete_requested_by:null, delete_requested_at:null }).eq("id",quiz.id);
+  const { error }=await sb.from("quizzes").update({ delete_requested_by:null, delete_requested_at:null, delete_request_reason:null }).eq("id",quiz.id);
   if(error){ toast(error.message,"err"); return false; }
+  PENDING_DELETES=null; if(ME) renderHeader();
   toast("Aanvraag ingetrokken","ok"); return true;
 }
 async function approveQuizDeletion(quiz){
   if(!confirm(`Quiz "${quiz.title}" definitief verwijderen? Dit verwijdert ook ALLE vragen, antwoorden, events, flags en scores. Onomkeerbaar.`)) return false;
   const { error }=await sb.from("quizzes").delete().eq("id",quiz.id);
   if(error){ toast("Verwijderen mislukt: "+error.message,"err"); return false; }
+  PENDING_DELETES=null; if(ME) renderHeader();
   toast("Verwijderd","ok"); return true;
 }
 
@@ -5143,6 +5160,7 @@ async function renderQuizDeleteZone(box, quiz){
         <div>
           <strong>Verwijdering aangevraagd</strong>
           <div class="muted" style="font-size:.82rem">Aangevraagd door <strong>${esc(byName)}</strong>${quiz.delete_requested_at?` · ${fmtDate(quiz.delete_requested_at)}`:""}. ${isAdmin()?"Keur goed om definitief te verwijderen, of weiger.":"Wacht op goedkeuring door een admin."}</div>
+          ${quiz.delete_request_reason?`<div class="del-reason"><strong>Reden:</strong> ${esc(quiz.delete_request_reason)}</div>`:""}
         </div>
         <div class="btnrow" style="margin:0">
           ${isAdmin()?`<button class="btn btn-danger btn-sm" id="dzApprove">Goedkeuren &amp; verwijderen</button>

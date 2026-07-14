@@ -231,6 +231,11 @@ details .body{padding:.3rem .9rem .9rem}
 .dup-text{flex:1;font-size:.88rem;color:var(--text);line-height:1.35}
 .dup-row .btn{flex:0 0 auto}
 
+/* Reden bij een verwijder-aanvraag */
+.del-reason{margin-top:.35rem;font-size:.82rem;color:var(--text);background:var(--wrong-soft);
+  border-left:3px solid var(--wrong);border-radius:0 6px 6px 0;padding:.35rem .6rem}
+.del-reason strong{color:var(--wrong)}
+
 /* Breadcrumb / terug-links (a.muted) onderlijnen bij hover, zoals een gewone link */
 a.muted{cursor:pointer}
 a.muted:hover{text-decoration:underline}
