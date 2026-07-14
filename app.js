@@ -2967,18 +2967,19 @@ async function viewOverview(quizId){
   if(ids.length){ const {data}=await sb.from("flags").select("question_id,type,status").in("question_id",ids); flags=data||[]; }
   const fBy={}; flags.forEach(f=>{ (fBy[f.question_id]=fBy[f.question_id]||[]).push(f); });
   let filter="alle";
+  const filterFn = q => {
+    const fs=fBy[q.id]||[];
+    if(filter==="alle") return true;
+    if(filter==="geflagd") return fs.length>0;
+    if(filter==="fout") return fs.some(f=>f.type==="fout");
+    if(filter==="twijfel") return fs.some(f=>f.type==="twijfel");
+    if(filter==="juist") return fs.some(f=>f.type==="juist");
+    if(filter==="open") return fs.some(f=>f.status==="open");
+    if(filter==="nietgevalideerd") return q.validated===false;
+    return true;
+  };
   const draw=()=>{
-    const rows=(questions||[]).filter(q=>{
-      const fs=fBy[q.id]||[];
-      if(filter==="alle") return true;
-      if(filter==="geflagd") return fs.length>0;
-      if(filter==="fout") return fs.some(f=>f.type==="fout");
-      if(filter==="twijfel") return fs.some(f=>f.type==="twijfel");
-      if(filter==="juist") return fs.some(f=>f.type==="juist");
-      if(filter==="open") return fs.some(f=>f.status==="open");
-      if(filter==="nietgevalideerd") return q.validated===false;
-      return true;
-    }).map(q=>{
+    const rows=(questions||[]).filter(filterFn).map(q=>{
       const fs=fBy[q.id]||[]; const open=fs.filter(f=>f.status==="open").length;
       return `<tr class="row-link" data-qid="${q.id}" data-quiz="${quizId}">
         <td><span class="q-num">${q.qnum}</span></td>
@@ -2994,6 +2995,7 @@ async function viewOverview(quizId){
   app.innerHTML=`
     <div class="spread"><h1>Overzicht — ${esc(quiz?quiz.title:"")}</h1>
       <div class="btnrow" style="margin:0">
+        <button class="btn btn-ghost btn-sm" id="btnExportPdf">📄 Exporteer PDF</button>
         <button class="btn btn-ghost btn-sm" data-nav="#/quiz/${quizId}/stats">Statistiek</button>
         <button class="btn btn-ghost btn-sm" data-nav="#/quiz/${quizId}">Spelen →</button></div></div>
     <div class="filterbar" style="margin-top:1rem">
@@ -3005,9 +3007,180 @@ async function viewOverview(quizId){
     </div>`;
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
   app.querySelectorAll("[data-filter]").forEach(b=>b.onclick=()=>{ filter=b.dataset.filter; draw(); });
+  const btnExp=document.getElementById("btnExportPdf");
+  if(btnExp) btnExp.onclick=()=>showExportModal(quiz||{title:""}, questions||[], filter, filterFn);
   draw();
 }
 function PLAY_goto(quizId, qid){ PLAY.pendingJump=qid; go("#/quiz/"+quizId); }
+
+/* ============================================================
+   PDF-EXPORT — vragen exporteren via browser-print (window.print)
+   Geen externe library nodig: de gebruiker kiest in de print-dialoog
+   "Opslaan als PDF". Modal laat toe om zelf te bepalen welke onderdelen
+   in de PDF komen (opties, juist antwoord, uitleg, docent, lege ruimte…).
+   ============================================================ */
+function showExportModal(quiz, questions, currentFilter, filterFn){
+  const filteredCount = questions.filter(filterFn).length;
+  const overlay=document.createElement("div");
+  overlay.className="modes-overlay";
+  overlay.innerHTML=`
+    <div class="modes-modal export-modal">
+      <div class="modes-hd">
+        <div class="modes-title">📄 Exporteer als PDF</div>
+        <button class="btn btn-ghost btn-sm" data-close>✕</button>
+      </div>
+      <div class="modes-body">
+        <p class="muted" style="margin:0 0 .6rem">Vink aan wat mee moet in de PDF. Je browser opent zo dadelijk de print-dialoog — kies daar bij <em>Bestemming</em> voor <strong>"Opslaan als PDF"</strong>.</p>
+
+        <h3>Wat tonen per vraag?</h3>
+        <div class="export-opts">
+          <label><input type="checkbox" data-opt="qnum" checked> Vraagnummer</label>
+          <label><input type="checkbox" data-opt="text" checked> Vraagtekst</label>
+          <label><input type="checkbox" data-opt="options" checked> Antwoordopties (A, B, C, D…)</label>
+          <label><input type="checkbox" data-opt="correct"> Juist antwoord aanduiden</label>
+          <label><input type="checkbox" data-opt="docent"> Docent-antwoord (indien afwijkend)</label>
+          <label><input type="checkbox" data-opt="explanation"> Uitleg / wettelijke basis</label>
+          <label><input type="checkbox" data-opt="openModel"> Modelantwoord (voor open vragen)</label>
+          <label><input type="checkbox" data-opt="matrix" checked> Matrix-tabel (rijen × kolommen)</label>
+          <label><input type="checkbox" data-opt="blankSpace"> Lege antwoordruimte (om zelf in te vullen)</label>
+          <label><input type="checkbox" data-opt="tags"> Type-labels (open / matrix / meerkeuze)</label>
+        </div>
+
+        <h3>Welke vragen?</h3>
+        <div class="export-opts">
+          <label><input type="radio" name="scope" value="filter" ${currentFilter!=="alle"?"checked":""}> Alleen huidige filter (<strong>${filteredCount}</strong> vragen)</label>
+          <label><input type="radio" name="scope" value="all" ${currentFilter==="alle"?"checked":""}> Alle vragen (<strong>${questions.length}</strong>)</label>
+        </div>
+
+        <h3>Layout</h3>
+        <div class="export-opts">
+          <label><input type="radio" name="cols" value="1" checked> Eén kolom (leesbaar)</label>
+          <label><input type="radio" name="cols" value="2"> Twee kolommen (compact, bespaart papier)</label>
+        </div>
+        <div class="export-opts">
+          <label><input type="checkbox" data-opt="pageBreak"> Elke vraag op een nieuwe pagina</label>
+          <label><input type="checkbox" data-opt="header" checked> Quiz-titel bovenaan de eerste pagina</label>
+          <label><input type="checkbox" data-opt="answerKey"> Antwoordsleutel achteraan (lijst met juiste letters)</label>
+        </div>
+      </div>
+      <div class="modes-foot export-foot">
+        <button class="btn btn-ghost" data-close>Annuleer</button>
+        <button class="btn btn-primary" id="expGo">📄 Genereer PDF</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const close=()=>overlay.remove();
+  overlay.querySelectorAll("[data-close]").forEach(b=>b.onclick=close);
+  overlay.onclick=e=>{ if(e.target===overlay) close(); };
+  overlay.querySelector("#expGo").onclick=()=>{
+    const opts={};
+    overlay.querySelectorAll("[data-opt]").forEach(cb=>{ opts[cb.dataset.opt]=cb.checked; });
+    opts.scope=overlay.querySelector('[name="scope"]:checked').value;
+    opts.cols=overlay.querySelector('[name="cols"]:checked').value;
+    const qs=opts.scope==="filter" ? questions.filter(filterFn) : questions;
+    close();
+    runExport(quiz, qs, opts);
+  };
+}
+
+function runExport(quiz, questions, opts){
+  if(!questions.length){ toast("Geen vragen om te exporteren","err"); return; }
+  const area=document.createElement("div");
+  area.id="printArea";
+  area.innerHTML=buildPrintDoc(quiz, questions, opts);
+  document.body.appendChild(area);
+  document.body.classList.add("printing");
+  const cleanup=()=>{
+    document.body.classList.remove("printing");
+    area.remove();
+    window.removeEventListener("afterprint", cleanup);
+  };
+  window.addEventListener("afterprint", cleanup);
+  // Kleine vertraging zodat de layout zeker gerenderd is voor de print-dialoog opent.
+  setTimeout(()=>window.print(), 150);
+}
+
+function buildPrintDoc(quiz, questions, opts){
+  const items=questions.map((q,i)=>renderExportQuestion(q, i+1, opts)).join("");
+  const head=opts.header
+    ? `<div class="print-hd">${esc(quiz.title||"Quiz")} <span class="print-hd-sub">— ${questions.length} vragen · ${new Date().toLocaleDateString("nl-BE")}</span></div>`
+    : "";
+  const key = opts.answerKey ? buildAnswerKey(questions) : "";
+  return `${head}<div class="print-grid" data-cols="${opts.cols||"1"}">${items}</div>${key}`;
+}
+
+function renderExportQuestion(q, seq, opts){
+  const parts=[];
+  const numTxt = opts.qnum ? `<span class="pq-num">${(q.qnum!=null?q.qnum:seq)}.</span> ` : "";
+  const type=q.question_type||"mcq";
+
+  const tagList=[];
+  if(opts.tags){
+    if(type==="open") tagList.push(`<span class="pq-tag">Open vraag</span>`);
+    else if(type==="matrix") tagList.push(`<span class="pq-tag">Matrix</span>`);
+    else if(q.multi || arr(q.correct_indexes).length>1) tagList.push(`<span class="pq-tag">Meerkeuze</span>`);
+    if(q.validated===false) tagList.push(`<span class="pq-tag warn">niet gevalideerd</span>`);
+  }
+  const tagsHtml = tagList.length ? `<span class="pq-tags">${tagList.join(" ")}</span>` : "";
+
+  if(opts.text) parts.push(`<div class="pq-text">${numTxt}${esc(q.text||"")}${tagsHtml}</div>`);
+  else if(opts.qnum) parts.push(`<div class="pq-text">${numTxt}${tagsHtml}</div>`);
+
+  const correct=arr(q.correct_indexes);
+  const docent=arr(q.docent_indexes);
+  const docentDiff = opts.docent && docent.length && !setEq(docent, correct);
+
+  if(type==="matrix" && opts.matrix){
+    const rows=arr(q.matrix_rows), cols=arr(q.matrix_cols), mc=arr(q.matrix_correct);
+    parts.push(`<table class="pq-matrix"><thead><tr><th></th>${cols.map(c=>`<th>${esc(c)}</th>`).join("")}</tr></thead>
+      <tbody>${rows.map((r,ri)=>{
+        const ci=mc[ri];
+        return `<tr><td class="pq-mrow">${esc(r)}</td>${cols.map((_,i)=>{
+          const isCorr = opts.correct && i===ci;
+          return `<td class="pq-mcell ${isCorr?"pq-correct":""}">${isCorr?"✓":"○"}</td>`;
+        }).join("")}</tr>`;
+      }).join("")}</tbody></table>`);
+  } else if(type==="open"){
+    if(opts.openModel && q.open_answer){
+      parts.push(`<div class="pq-model"><strong>Modelantwoord:</strong> ${esc(q.open_answer)}</div>`);
+    }
+    if(opts.blankSpace) parts.push(`<div class="pq-blank"></div>`);
+  } else if(opts.options && (q.options||[]).length){
+    parts.push(`<ol class="pq-opts">${(q.options||[]).map((o,i)=>{
+      const isCorr=opts.correct && correct.includes(i);
+      const isDoc=docentDiff && docent.includes(i);
+      const marks=[];
+      if(isCorr) marks.push(`<span class="pq-mark ok">✓</span>`);
+      if(isDoc) marks.push(`<span class="pq-mark doc">👨‍🏫</span>`);
+      return `<li class="${isCorr?"pq-correct":""}"><span class="pq-letter">${letter(i)}.</span> <span class="pq-opt-text">${esc(o)}</span> ${marks.join(" ")}</li>`;
+    }).join("")}</ol>`);
+    if(opts.blankSpace) parts.push(`<div class="pq-blank-small"></div>`);
+  }
+
+  if(opts.explanation && q.explanation){
+    // Uitleg mag HTML bevatten in de app; voor print halen we tags eruit voor properheid.
+    const plain=String(q.explanation).replace(/<br\s*\/?>/gi,"\n").replace(/<[^>]+>/g," ").replace(/\s+\n/g,"\n").replace(/[ \t]+/g," ").trim();
+    parts.push(`<div class="pq-expl"><strong>Uitleg:</strong> ${esc(plain)}</div>`);
+  }
+
+  if(docentDiff && q.docent_note){
+    parts.push(`<div class="pq-docent"><strong>Docent-toelichting:</strong> ${esc(q.docent_note)}</div>`);
+  }
+
+  const brk = opts.pageBreak ? " pq-break" : "";
+  return `<div class="pq${brk}">${parts.join("")}</div>`;
+}
+
+function buildAnswerKey(questions){
+  const rows=questions.map((q,i)=>{
+    const num=q.qnum!=null?q.qnum:(i+1);
+    if(q.question_type==="open") return `<li><strong>${num}.</strong> <em>open vraag</em>${q.open_answer?` — ${esc(String(q.open_answer).slice(0,80))}${q.open_answer.length>80?"…":""}`:""}</li>`;
+    if(q.question_type==="matrix") return `<li><strong>${num}.</strong> <em>matrix</em></li>`;
+    const letters=arr(q.correct_indexes).slice().sort((a,b)=>a-b).map(letter).join(", ")||"—";
+    return `<li><strong>${num}.</strong> ${letters}</li>`;
+  }).join("");
+  return `<div class="pq-key"><h4>Antwoordsleutel</h4><ol class="pq-key-list">${rows}</ol></div>`;
+}
 
 /* ============================================================
    HISTORISCHE POGINGEN — bevroren score
