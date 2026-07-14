@@ -1166,6 +1166,7 @@ function renderPlaySetup(){
         <button class="btn btn-ghost btn-sm" data-nav="#/quiz/${PLAY.quiz.id}/overzicht">Overzicht van alle vragen</button>
         <button class="btn btn-ghost btn-sm" data-nav="#/quiz/${PLAY.quiz.id}/stats">Statistiek van deze quiz</button>
         <button class="btn btn-ghost btn-sm" data-nav="#/quiz/${PLAY.quiz.id}/pogingen">Historische pogingen</button>
+        <button class="btn btn-ghost btn-sm" id="setupPdfBtn">${ICON.doc} Download als PDF</button>
       </div>
     </div>
     <div class="card" style="margin-top:1rem">
@@ -1226,6 +1227,8 @@ function renderPlaySetup(){
     startSession(finalSize, focus, order);
   };
   document.getElementById("wipeBtn").onclick=wipeProgress;
+  const setupPdf=document.getElementById("setupPdfBtn");
+  if(setupPdf) setupPdf.onclick=()=>showExportModal(PLAY.quiz, PLAY.all||[], "alle", ()=>true);
 }
 
 function openModeInfo(mode){
