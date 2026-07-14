@@ -1093,46 +1093,69 @@ function renderPlaySetup(){
     <a class="muted" data-nav="#/">← Quizzen</a>
     <h1 style="margin:.5rem 0">${esc(PLAY.quiz.title)}</h1>
     <p class="muted">${esc(PLAY.quiz.description||"")}</p>
-    <div class="btnrow" style="margin:.2rem 0 1rem">
-      <button class="btn btn-ghost btn-sm" data-nav="#/quiz/${PLAY.quiz.id}/studeer">📖 Studeermodus — lees alles door met uitleg</button>
-    </div>
-    <div class="muted" style="font-size:.82rem;margin:0 0 1.2rem">
-      Meer over deze quiz: <a class="ilink" data-nav="#/quiz/${PLAY.quiz.id}/overzicht">Overzicht van alle vragen</a> · <a class="ilink" data-nav="#/quiz/${PLAY.quiz.id}/stats">Statistiek van deze quiz</a> · <a class="ilink" data-nav="#/quiz/${PLAY.quiz.id}/pogingen">📜 Historische pogingen</a>
-    </div>
     ${resumeBanner}
     <div class="setup-panel">
       <div class="setup-panel-hd">
-        <div class="spread" style="gap:.5rem;align-items:flex-start">
-          <div>
-            <div class="setup-panel-title">Nieuwe oefensessie</div>
-            <div class="muted" style="font-size:.8rem">Kies hoeveel vragen, welke selectie en in welke volgorde.</div>
-          </div>
+        <div class="setup-panel-title">Start een oefensessie</div>
+        <div class="muted" style="font-size:.8rem">Wat wil je doen?</div>
+      </div>
+
+      <div class="mode-choice" id="modeChoice">
+        <button class="mode-btn" data-mode="studeren">
+          <span class="mode-btn-title">Studeren</span>
+          <span class="mode-btn-sub">Lees alle vragen door met het juiste antwoord en de uitleg erbij. Geen scoring.</span>
+        </button>
+        <button class="mode-btn" data-mode="quiz">
+          <span class="mode-btn-title">Quiz</span>
+          <span class="mode-btn-sub">Oefen jezelf: kies aantal, selectie en volgorde, en test of je het antwoord kent.</span>
+        </button>
+      </div>
+
+      <div class="mode-block" id="studyBlock" hidden>
+        <div class="card setup-step">
+          <div class="muted" style="font-size:.85rem;margin-bottom:.6rem">In de studeermodus blader je met Vorige/Volgende (of de pijltjestoetsen) door alle vragen — telkens met antwoord en uitleg. Je kan ook meteen naar een vraagnummer springen.</div>
+          <button class="btn btn-primary btn-start" data-nav="#/quiz/${PLAY.quiz.id}/studeer">Begin met studeren →</button>
+        </div>
+      </div>
+
+      <div class="mode-block" id="quizBlock" hidden>
+        <div class="spread" style="margin:.2rem 0 .6rem;align-items:center">
+          <div class="muted" style="font-size:.8rem">Kies hoeveel vragen, welke selectie en in welke volgorde.</div>
           <button class="btn btn-ghost btn-sm" id="modesHelpBtn" title="Uitgebreide uitleg over alle modi">${ICON.info} Uitleg over alle modi</button>
         </div>
-      </div>
 
-      <div class="card setup-step">
-        <div class="setup-hd"><span class="setup-num">1</span> Hoeveel vragen? ${infoTip("Bepaalt hoe lang je sessie is. Kies een chip of typ zelf een aantal.")}</div>
-        <div class="btnrow" id="gSize">${chips("size",sizes,size)}</div>
-        <div style="margin-top:.6rem;display:flex;align-items:center;gap:.5rem">
-          <span class="muted" style="font-size:.82rem">of typ zelf:</span>
-          <input id="sizeCustom" type="number" min="1" max="${total}" placeholder="bv. 40" style="width:120px" value="${pr.customSize||""}">
+        <div class="card setup-step">
+          <div class="setup-hd"><span class="setup-num">1</span> Hoeveel vragen? ${infoTip("Bepaalt hoe lang je sessie is. Kies een chip of typ zelf een aantal.")}</div>
+          <div class="btnrow" id="gSize">${chips("size",sizes,size)}</div>
+          <div style="margin-top:.6rem;display:flex;align-items:center;gap:.5rem">
+            <span class="muted" style="font-size:.82rem">of typ zelf:</span>
+            <input id="sizeCustom" type="number" min="1" max="${total}" placeholder="bv. 40" style="width:120px" value="${pr.customSize||""}">
+          </div>
         </div>
-      </div>
 
-      <div class="card setup-step">
-        <div class="setup-hd"><span class="setup-num">2</span> Welke vragen?</div>
-        <div class="btnrow" id="gFocus">${chips("focus",focuses,focus)}</div>
-      </div>
+        <div class="card setup-step">
+          <div class="setup-hd"><span class="setup-num">2</span> Welke vragen?</div>
+          <div class="btnrow" id="gFocus">${chips("focus",focuses,focus)}</div>
+        </div>
 
-      <div class="card setup-step">
-        <div class="setup-hd"><span class="setup-num">3</span> In welke volgorde? ${infoTip("Bepaalt in welke volgorde je de geselecteerde vragen te zien krijgt. 'Slim oefenen' is aangeraden.")}</div>
-        <div class="btnrow" id="gOrder">${chips("order",orders,order)}</div>
-      </div>
+        <div class="card setup-step">
+          <div class="setup-hd"><span class="setup-num">3</span> In welke volgorde? ${infoTip("Bepaalt in welke volgorde je de geselecteerde vragen te zien krijgt. 'Slim oefenen' is aangeraden.")}</div>
+          <div class="btnrow" id="gOrder">${chips("order",orders,order)}</div>
+        </div>
 
-      <div class="setup-summary" id="setupSummary"></div>
-      <button class="btn btn-primary btn-start" id="startBtn">Start oefensessie →</button>
-      <div id="examNote" class="muted" style="font-size:.78rem;margin-top:.5rem;display:none">📝 In examen-modus krijg je alle vragen zonder tussentijdse feedback. Bij "Dien in" verschijnt je volledige score.</div>
+        <div class="setup-summary" id="setupSummary"></div>
+        <button class="btn btn-primary btn-start" id="startBtn">Start oefensessie →</button>
+        <div id="examNote" class="muted" style="font-size:.78rem;margin-top:.5rem;display:none">In examen-modus krijg je alle vragen zonder tussentijdse feedback. Bij "Dien in" verschijnt je volledige score.</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:1rem">
+      <div class="setup-panel-title" style="font-size:.95rem;margin-bottom:.5rem">Meer over deze quiz</div>
+      <div class="btnrow">
+        <button class="btn btn-ghost btn-sm" data-nav="#/quiz/${PLAY.quiz.id}/overzicht">Overzicht van alle vragen</button>
+        <button class="btn btn-ghost btn-sm" data-nav="#/quiz/${PLAY.quiz.id}/stats">Statistiek van deze quiz</button>
+        <button class="btn btn-ghost btn-sm" data-nav="#/quiz/${PLAY.quiz.id}/pogingen">Historische pogingen</button>
+      </div>
     </div>
     <div class="card" style="margin-top:1rem">
       <div class="spread">
@@ -1149,6 +1172,15 @@ function renderPlaySetup(){
     ${renderSetupFlagGroups(PLAY.openFlags, PLAY.all, PLAY.quiz, PLAY.flagNames)}`:""}`;
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
   app.querySelectorAll("[data-q]").forEach(a=>a.onclick=()=>PLAY_goto(a.dataset.quiz, a.dataset.q));
+  // Mode-keuze: eerst Studeren of Quiz kiezen; daarna verschijnen de rest van de opties.
+  const showMode=(m)=>{
+    const sb2=document.getElementById("studyBlock"), qb=document.getElementById("quizBlock");
+    if(sb2) sb2.hidden = m!=="studeren";
+    if(qb) qb.hidden = m!=="quiz";
+    document.querySelectorAll("#modeChoice .mode-btn").forEach(b=>b.classList.toggle("active", b.dataset.mode===m));
+  };
+  document.querySelectorAll("#modeChoice .mode-btn").forEach(b=>b.onclick=()=>showMode(b.dataset.mode));
+  if(savedValid) showMode("quiz");   // bij een lopende sessie meteen de quiz-opties tonen
   const rb=document.getElementById("resumeBtn"); if(rb) rb.onclick=()=>resumeSavedSession();
   const drb=document.getElementById("discardResumeBtn"); if(drb) drb.onclick=()=>{ if(!confirm("De opgeslagen sessie weggooien?")) return; clearSession(PLAY.quiz.id); renderPlaySetup(); };
   const wire=(id,attr,set)=>app.querySelectorAll(`#${id} [data-${attr}]`).forEach(b=>b.onclick=()=>{

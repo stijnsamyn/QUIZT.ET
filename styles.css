@@ -347,6 +347,19 @@ tr:hover td{background:var(--surface2)}
 .setup-summary strong{color:var(--accent-dark)}
 .btn-start{padding:.75rem 1.2rem;font-size:.95rem;justify-content:center;width:100%}
 
+/* Mode-keuze: Studeren / Quiz */
+.mode-choice{display:grid;grid-template-columns:1fr 1fr;gap:.7rem}
+.mode-btn{display:flex;flex-direction:column;gap:.25rem;text-align:left;cursor:pointer;
+  padding:.9rem 1rem;border-radius:var(--radius);border:2px solid var(--border);
+  background:var(--surface);transition:border-color .12s,box-shadow .12s,transform .06s}
+.mode-btn:hover{border-color:var(--accent);box-shadow:var(--shadow-md)}
+.mode-btn.active{border-color:var(--accent);background:var(--accent-soft)}
+.mode-btn-title{font-weight:800;color:var(--ink);font-size:1rem}
+.mode-btn.active .mode-btn-title{color:var(--accent-dark)}
+.mode-btn-sub{font-size:.78rem;color:var(--text-muted);line-height:1.35}
+.mode-block{display:flex;flex-direction:column;gap:.7rem}
+@media(max-width:520px){ .mode-choice{grid-template-columns:1fr} }
+
 /* Beheer sub-tabs */
 .beheer-tabs{display:flex;gap:.15rem;flex-wrap:wrap;margin:1rem 0 .8rem;
   padding-bottom:.4rem;border-bottom:1px solid var(--border)}
