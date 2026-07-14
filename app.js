@@ -582,12 +582,10 @@ function renderHeader(){
   if(!ME){ h.hidden=true; return; }
   h.hidden=false;
   const nav=document.getElementById("topnav");
-  const usersLabel = isEditor() ? `Gebruikers${USER_COUNT!=null?` (${USER_COUNT})`:""}` : null;
   const notifyBadge = `<span id="notifyBadge" class="notify-badge" ${NOTIFY_COUNT>0?"":"hidden"}>${NOTIFY_COUNT}</span>`;
-  const links=[["#/","Quizzen"],["#/stats/vragen","Statistiek"],["#/account","Mijn account"],["#/meldingen","Meldingen "+notifyBadge]];
-  if(isEditor()) links.push(["#/stats/gebruikers",usersLabel]);
+  const links=[["#/","Quizzen"],["#/stats/vragen","Statistiek"],["#/meldingen","Meldingen "+notifyBadge]];
   if(isEditor()) links.push(["#/beheer","Beheer"]);
-  if(isEditor()) links.push(["__handleiding","Handleiding"]);
+  links.push(["#/account","Account"]);
   nav.innerHTML = links.map(([h,l])=>`<a data-nav="${h}">${l}</a>`).join("");
   if(isEditor() && USER_COUNT==null) fetchUserCount().then(renderHeader);
   const roleName = ME.role==="admin"?"admin":ME.role==="beheerder"?"beheerder":"speler";
@@ -599,12 +597,10 @@ function renderHeader(){
   if(menuBtn) menuBtn.onclick=()=>{ h.classList.toggle("nav-open"); };
   document.querySelectorAll("[data-nav]").forEach(a=>a.onclick=e=>{
     h.classList.remove("nav-open");
-    const t=a.dataset.nav;
-    if(t==="__handleiding"){ openBeheerManual(); return; }
-    go(t);
+    go(a.dataset.nav);
   });
   const cur = location.hash||"#/";
-  nav.querySelectorAll("a").forEach(a=>a.classList.toggle("active", a.dataset.nav===cur || (a.dataset.nav==="#/"&&cur.startsWith("#/quiz"))));
+  nav.querySelectorAll("a").forEach(a=>a.classList.toggle("active", a.dataset.nav===cur || (a.dataset.nav==="#/"&&cur.startsWith("#/quiz")) || (a.dataset.nav==="#/beheer"&&cur.startsWith("#/beheer"))));
 }
 
 let ROUTE_GEN = 0;
@@ -626,7 +622,7 @@ async function route(){
     if(p[0]==="quiz" && p[2]==="poging") return viewAttemptDetail(p[1], p[3]);
     if(p[0]==="quiz") return viewPlay(p[1]);
     if(p[0]==="stats" && p[1]==="vragen") return viewStatsVragen();
-    if(p[0]==="stats" && p[1]==="gebruikers") return viewStatsGebruikers();
+    if(p[0]==="stats" && p[1]==="gebruikers"){ go("#/beheer/gebruikers"); return; }
     if(p[0]==="tetris") return viewScorebord();
     if(p[0]==="scorebord") return viewScorebord();
     if(p[0]==="meldingen") return viewMeldingen();
@@ -3010,13 +3006,10 @@ async function namesFor(ids){
 /* ============================================================
    OVERZICHT per quiz — met flag-filter
    ============================================================ */
-async function viewOverview(quizId){
-  const { data:quiz } = await sb.from("quizzes").select("*").eq("id",quizId).single();
-  const { data:questions } = await sb.from("questions").select("*").eq("quiz_id",quizId).order("sort_order");
-  const ids=(questions||[]).map(q=>q.id);
-  let flags=[];
-  if(ids.length){ const {data}=await sb.from("flags").select("question_id,type,status").in("question_id",ids); flags=data||[]; }
-  const fBy={}; flags.forEach(f=>{ (fBy[f.question_id]=fBy[f.question_id]||[]).push(f); });
+// Compacte, scanbare tabel (#, Vraag, Status, Flags) met filter + PDF-export.
+// Rendert in `content`; gebruikt door de speler-route én de beheer-werkruimte.
+function overzichtTableUI(content, quizId, quiz, questions, flags){
+  const fBy={}; (flags||[]).forEach(f=>{ (fBy[f.question_id]=fBy[f.question_id]||[]).push(f); });
   let filter="alle";
   const filterFn = q => {
     const fs=fBy[q.id]||[];
@@ -3051,28 +3044,41 @@ async function viewOverview(quizId){
         <td>${flagCell}</td>
       </tr>`;
     }).join("");
-    document.getElementById("ovBody").innerHTML = rows||`<tr><td colspan="4" class="empty">Geen vragen voor dit filter.</td></tr>`;
-    document.querySelectorAll("#ovBody .row-link").forEach(r=>r.onclick=()=>{ PLAY_goto(quizId, r.dataset.qid); });
-    document.querySelectorAll("[data-filter]").forEach(b=>b.classList.toggle("active",b.dataset.filter===filter));
+    content.querySelector("#ovBody").innerHTML = rows||`<tr><td colspan="4" class="empty">Geen vragen voor dit filter.</td></tr>`;
+    content.querySelectorAll("#ovBody .row-link").forEach(r=>r.onclick=()=>{ PLAY_goto(quizId, r.dataset.qid); });
+    content.querySelectorAll("[data-filter]").forEach(b=>b.classList.toggle("active",b.dataset.filter===filter));
   };
+  content.innerHTML=`
+    <div class="spread" style="margin-top:.6rem;align-items:center">
+      <div class="filterbar" style="margin:0">
+        <span class="muted">Filter:</span>
+        ${[["alle","alle"],["geflagd","geflagd"],["fout","fout"],["twijfel","twijfel"],["juist","juist"],["open","open"],["nietgevalideerd","niet gevalideerd"]].map(([f,l])=>`<button class="chip-toggle" data-filter="${f}">${l}</button>`).join("")}
+      </div>
+      <button class="btn btn-ghost btn-sm" id="btnExportPdf">📄 Exporteer PDF</button>
+    </div>
+    <div class="card" style="padding:.3rem .3rem;margin-top:.8rem">
+      <table><thead><tr><th>#</th><th>Vraag</th><th>Status</th><th>Flags</th></tr></thead><tbody id="ovBody"></tbody></table>
+    </div>`;
+  content.querySelectorAll("[data-filter]").forEach(b=>b.onclick=()=>{ filter=b.dataset.filter; draw(); });
+  const btnExp=content.querySelector("#btnExportPdf");
+  if(btnExp) btnExp.onclick=()=>showExportModal(quiz||{title:""}, questions||[], filter, filterFn);
+  draw();
+}
+
+async function viewOverview(quizId){
+  const { data:quiz } = await sb.from("quizzes").select("*").eq("id",quizId).single();
+  const { data:questions } = await sb.from("questions").select("*").eq("quiz_id",quizId).order("sort_order");
+  const ids=(questions||[]).map(q=>q.id);
+  let flags=[];
+  if(ids.length){ const {data}=await sb.from("flags").select("question_id,type,status").in("question_id",ids); flags=data||[]; }
   app.innerHTML=`
     <div class="spread"><h1>Overzicht — ${esc(quiz?quiz.title:"")}</h1>
       <div class="btnrow" style="margin:0">
-        <button class="btn btn-ghost btn-sm" id="btnExportPdf">📄 Exporteer PDF</button>
         <button class="btn btn-ghost btn-sm" data-nav="#/quiz/${quizId}/stats">Statistiek</button>
         <button class="btn btn-ghost btn-sm" data-nav="#/quiz/${quizId}">Spelen →</button></div></div>
-    <div class="filterbar" style="margin-top:1rem">
-      <span class="muted">Filter:</span>
-      ${[["alle","alle"],["geflagd","geflagd"],["fout","fout"],["twijfel","twijfel"],["juist","juist"],["open","open"],["nietgevalideerd","niet gevalideerd"]].map(([f,l])=>`<button class="chip-toggle" data-filter="${f}">${l}</button>`).join("")}
-    </div>
-    <div class="card" style="padding:.3rem .3rem">
-      <table><thead><tr><th>#</th><th>Vraag</th><th>Status</th><th>Flags</th></tr></thead><tbody id="ovBody"></tbody></table>
-    </div>`;
+    <div id="ovContent"></div>`;
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
-  app.querySelectorAll("[data-filter]").forEach(b=>b.onclick=()=>{ filter=b.dataset.filter; draw(); });
-  const btnExp=document.getElementById("btnExportPdf");
-  if(btnExp) btnExp.onclick=()=>showExportModal(quiz||{title:""}, questions||[], filter, filterFn);
-  draw();
+  overzichtTableUI(document.getElementById("ovContent"), quizId, quiz, questions||[], flags);
 }
 function PLAY_goto(quizId, qid){ PLAY.pendingJump=qid; go("#/quiz/"+quizId); }
 
@@ -4059,8 +4065,7 @@ async function viewQuizStats(quizId){
 /* ============================================================
    STATISTIEK — gebruikers
    ============================================================ */
-async function viewStatsGebruikers(){
-  if(!isEditor()){ app.innerHTML=`<div class="empty">Deze pagina is enkel voor beheerders.</div>`; return; }
+async function renderGebruikersStats(container){
   const [{data:profiles},{data:userStats}] = await Promise.all([
     sb.from("profiles").select("id,display_name,role,cohort"),
     sb.from("user_stats_public").select("*"),
@@ -4081,23 +4086,21 @@ async function viewStatsGebruikers(){
   const arrow=(col,st)=>st.key===col?` <span class="muted" style="font-size:.72rem">${st.dir==="asc"?"▲":"▼"}</span>`:"";
   const drawU=()=>{
     const rows=all.filter(r=>filter==="__alle"||(r.p.cohort||"—")===filter).slice().sort((a,b)=>cmp(uKeyOf(a,uSort.key),uKeyOf(b,uSort.key),uSort.dir));
-    document.getElementById("guBody").innerHTML=rows.map(r=>`<tr><td>${esc(r.p.display_name)}</td><td>${esc(r.p.cohort||"—")}</td><td><span class="role ${r.p.role}">${r.p.role}</span></td>
+    container.querySelector("#guBody").innerHTML=rows.map(r=>`<tr><td>${esc(r.p.display_name)}</td><td>${esc(r.p.cohort||"—")}</td><td><span class="role ${r.p.role}">${r.p.role}</span></td>
       <td>${r.ans}</td><td class="muted">${r.unique}</td><td>${r.ans?pct(r.correct,r.ans)+"%":"—"}</td><td>${r.visits}</td><td>${r.flags}</td></tr>`).join("");
-    document.querySelectorAll("[data-coh]").forEach(b=>b.classList.toggle("active",b.dataset.coh===filter));
-    document.querySelectorAll("[data-usort]").forEach(t=>t.innerHTML=t.dataset.label+arrow(t.dataset.usort,uSort));
+    container.querySelectorAll("[data-coh]").forEach(b=>b.classList.toggle("active",b.dataset.coh===filter));
+    container.querySelectorAll("[data-usort]").forEach(t=>t.innerHTML=t.dataset.label+arrow(t.dataset.usort,uSort));
   };
   const drawC=()=>{
     const rows=cohortRows.slice().sort((a,b)=>cmp(cKeyOf(a,cSort.key),cKeyOf(b,cSort.key),cSort.dir));
-    document.getElementById("gcBody").innerHTML=rows.map(c=>`<tr><td>${esc(c.name)}</td><td>${c.n}</td><td>${c.ans}</td><td>${c.ans?pct(c.correct,c.ans)+"%":"—"}</td><td>${c.visits}</td></tr>`).join("");
-    document.querySelectorAll("[data-csort]").forEach(t=>t.innerHTML=t.dataset.label+arrow(t.dataset.csort,cSort));
+    container.querySelector("#gcBody").innerHTML=rows.map(c=>`<tr><td>${esc(c.name)}</td><td>${c.n}</td><td>${c.ans}</td><td>${c.ans?pct(c.correct,c.ans)+"%":"—"}</td><td>${c.visits}</td></tr>`).join("");
+    container.querySelectorAll("[data-csort]").forEach(t=>t.innerHTML=t.dataset.label+arrow(t.dataset.csort,cSort));
   };
   const cohorts=["__alle",...Object.keys(byCohort).sort()];
   const thU=(k,l)=>`<th data-usort="${k}" data-label="${l}" style="cursor:pointer;user-select:none">${l}</th>`;
   const thC=(k,l)=>`<th data-csort="${k}" data-label="${l}" style="cursor:pointer;user-select:none">${l}</th>`;
-  app.innerHTML=`
-    <h1>Gebruikersstatistiek</h1>
-    <p class="muted">Publiek zichtbaar. Klik op een kolomkop om te sorteren.</p>
-    <p class="muted" style="font-size:.82rem"><strong>Beantwoord</strong> = totaal aantal keer dat de speler een vraag beantwoord heeft (herhalingen tellen mee). <strong>Uniek</strong> = aantal verschillende vragen die de speler ooit beantwoord heeft (max = totaal aantal vragen).</p>
+  container.innerHTML=`
+    <p class="muted" style="font-size:.82rem"><strong>Beantwoord</strong> = totaal aantal keer dat de speler een vraag beantwoord heeft (herhalingen tellen mee). <strong>Uniek</strong> = aantal verschillende vragen die de speler ooit beantwoord heeft (max = totaal aantal vragen). Klik op een kolomkop om te sorteren.</p>
     <h2>Per oorsprong</h2>
     <div class="card" style="padding:.3rem"><table>
       <thead><tr>${thC("name","Oorsprong")}${thC("n","Gebruikers")}${thC("ans","Antwoorden")}${thC("pctc","Gem. % correct")}${thC("visits","Bezoeken")}</tr></thead>
@@ -4107,9 +4110,9 @@ async function viewStatsGebruikers(){
     <div class="card" style="padding:.3rem"><table>
       <thead><tr>${thU("name","Naam")}${thU("cohort","Oorsprong")}${thU("role","Rol")}${thU("ans","Beantwoord")}${thU("unique","Uniek")}${thU("pctc","% correct")}${thU("visits","Bezoeken")}${thU("flags","Reacties")}</tr></thead>
       <tbody id="guBody"></tbody></table></div>`;
-  app.querySelectorAll("[data-coh]").forEach(b=>b.onclick=()=>{ filter=b.dataset.coh; drawU(); });
-  app.querySelectorAll("[data-usort]").forEach(t=>t.onclick=()=>{ const k=t.dataset.usort; uSort.dir=(uSort.key===k&&uSort.dir==="desc")?"asc":"desc"; uSort.key=k; drawU(); });
-  app.querySelectorAll("[data-csort]").forEach(t=>t.onclick=()=>{ const k=t.dataset.csort; cSort.dir=(cSort.key===k&&cSort.dir==="asc")?"desc":"asc"; cSort.key=k; drawC(); });
+  container.querySelectorAll("[data-coh]").forEach(b=>b.onclick=()=>{ filter=b.dataset.coh; drawU(); });
+  container.querySelectorAll("[data-usort]").forEach(t=>t.onclick=()=>{ const k=t.dataset.usort; uSort.dir=(uSort.key===k&&uSort.dir==="desc")?"asc":"desc"; uSort.key=k; drawU(); });
+  container.querySelectorAll("[data-csort]").forEach(t=>t.onclick=()=>{ const k=t.dataset.csort; cSort.dir=(cSort.key===k&&cSort.dir==="asc")?"desc":"asc"; cSort.key=k; drawC(); });
   drawC(); drawU();
 }
 
@@ -4485,14 +4488,15 @@ async function viewBeheer(tab){
 
   const tabs=[
     { key:"quizzen", label:"Quizzen", count:(quizzes||[]).length, always:true },
-    { key:"flags",   label:"Vragen met open flags", count:impactedQuestionCount, always:true, title:`${impactedQuestionCount} vraag/vragen met in totaal ${flagCount} open reactie(s)` },
-    { key:"gebruikers", label:"Gebruikers", count:USER_COUNT!=null?USER_COUNT:null, admin:true },
+    { key:"flags",   label:"Open reacties", count:impactedQuestionCount, always:true, title:`${impactedQuestionCount} vraag/vragen met in totaal ${flagCount} open reactie(s)` },
+    { key:"gebruikers", label:"Gebruikers", count:USER_COUNT!=null?USER_COUNT:null, always:true },
     { key:"instellingen", label:"Instellingen", count:null, admin:true },
   ].filter(t=>t.always || (t.admin && isAdmin()));
 
   app.innerHTML=`
     <div class="spread"><h1>Beheer</h1>
       <div class="btnrow" style="margin:0">
+        <button class="btn btn-ghost btn-sm" id="beheerManual">${ICON.info} Handleiding</button>
         <button class="btn btn-ghost btn-sm" id="newQuiz">+ Nieuwe quiz</button>
         <button class="btn btn-ghost btn-sm" data-nav="#/beheer/import">Quiz importeren</button>
       </div></div>
@@ -4501,6 +4505,7 @@ async function viewBeheer(tab){
   `;
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
   document.getElementById("newQuiz").onclick=createQuiz;
+  document.getElementById("beheerManual").onclick=openBeheerManual;
 
   const content=document.getElementById("beheerContent");
   if(tab==="quizzen"){
@@ -4530,9 +4535,10 @@ async function viewBeheer(tab){
   }
   else if(tab==="flags"){
     content.innerHTML=`
-      <p class="muted" style="font-size:.85rem;margin-top:.8rem"><strong>${impactedQuestionCount}</strong> vraag/vragen met open reactie(s) — in totaal <strong>${flagCount}</strong> nog te bekijken. Reacties zijn per vraag gegroepeerd; klik op de vraagtitel om naar de vraag te gaan.</p>
-      ${flagCount ? renderBeheerFlagGroups(openFlags||[], qmap, quizById, names) : `<div class="empty">Geen open flags — alles is afgehandeld! 🎉</div>`}
+      <p class="muted" style="font-size:.85rem;margin-top:.8rem"><strong>${impactedQuestionCount}</strong> vraag/vragen met open reactie(s) — in totaal <strong>${flagCount}</strong> nog te bekijken, over alle quizzen heen. Klik op de quiztitel om alle reacties van die quiz samen te beheren, of op de vraag om ernaartoe te springen.</p>
+      ${flagCount ? renderBeheerFlagGroups(openFlags||[], qmap, quizById, names, {quizTabLink:true}) : `<div class="empty">Geen open reacties — alles is afgehandeld! 🎉</div>`}
     `;
+    content.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
     content.querySelectorAll("[data-q]").forEach(a=>a.onclick=()=>PLAY_goto(a.dataset.quiz, a.dataset.q));
     content.querySelectorAll("[data-resolve]").forEach(b=>b.onclick=async()=>{
       if(!confirm("Deze flag als afgehandeld markeren?")) return;
@@ -4546,9 +4552,13 @@ async function viewBeheer(tab){
     });
   }
   else if(tab==="gebruikers"){
-    if(!isAdmin()){ content.innerHTML=`<div class="empty">Enkel voor admin.</div>`; return; }
-    content.innerHTML=`<div id="usersBox" class="card" style="margin-top:1rem">Laden…</div>`;
-    renderUsers();
+    content.innerHTML=`
+      <div id="guStats" style="margin-top:1rem"><div class="muted">Laden…</div></div>
+      ${isAdmin()?`<h2>Rollen beheren</h2>
+        <p class="muted" style="font-size:.82rem;margin-bottom:.4rem">Wijzig de rol van een gebruiker. Je eigen rol kan je niet aanpassen.</p>
+        <div id="usersBox" class="card">Laden…</div>`:""}`;
+    await renderGebruikersStats(document.getElementById("guStats"));
+    if(isAdmin()) renderUsers();
   }
   else if(tab==="instellingen"){
     if(!isAdmin()){ content.innerHTML=`<div class="empty">Enkel voor admin.</div>`; return; }
@@ -4558,7 +4568,8 @@ async function viewBeheer(tab){
 }
 
 // Groep flags per vraag, met threading (parent→children) binnen elke groep
-function renderBeheerFlagGroups(flags, qmap, quizById, names){
+function renderBeheerFlagGroups(flags, qmap, quizById, names, opts){
+  const quizTabLink = !!(opts && opts.quizTabLink);
   // Groepeer per question_id
   const byQ={};
   flags.forEach(f=>{ (byQ[f.question_id]=byQ[f.question_id]||[]).push(f); });
@@ -4599,7 +4610,7 @@ function renderBeheerFlagGroups(flags, qmap, quizById, names){
       <div class="fg-card-hd">
         <div class="fg-card-hd-left">
           ${g.q ? `<a class="ilink fg-qlink" data-q="${g.q.id}" data-quiz="${g.q.quiz_id}"><span class="q-num">${g.q.qnum}</span> <span class="fg-qtext">${esc(textPreview)}</span></a>` : `<span>${esc(textPreview)}</span>`}
-          <div class="fg-quiz-title">${g.quiz ? esc(g.quiz.title) : ""}</div>
+          <div class="fg-quiz-title">${g.quiz ? (quizTabLink ? `<a class="ilink" data-nav="#/beheer/quiz/${g.quiz.id}/reacties">${esc(g.quiz.title)} →</a>` : esc(g.quiz.title)) : ""}</div>
         </div>
         <div class="fg-card-hd-right">
           <span class="fg-count-pill" title="Aantal reacties op deze vraag">${g.flags.length} reactie${g.flags.length===1?"":"s"}</span>
@@ -4761,7 +4772,7 @@ async function renderSettings(){
    ============================================================ */
 async function viewBeheerQuiz(quizId, tab){
   if(!isEditor()){ app.innerHTML=`<div class="empty">Geen toegang.</div>`; return; }
-  tab = tab || "vragen";
+  tab = tab || "overzicht";
   if(tab==="audit") tab="vragen";   // oude route blijft werken
   const { data:quiz } = await sb.from("quizzes").select("*").eq("id",quizId).single();
   if(!quiz){ app.innerHTML=`<div class="empty">Quiz niet gevonden.</div>`; return; }
@@ -4773,6 +4784,7 @@ async function viewBeheerQuiz(quizId, tab){
   const openFlagCount = flags.filter(f=>f.status==="open" && f.type!=="juist").length;
 
   const tabDefs=[
+    { key:"overzicht", label:"Overzicht", count:null },
     { key:"vragen", label:"Vragen", count:(questions||[]).length },
     { key:"reacties", label:"Reacties", count:openFlagCount||null, warn:openFlagCount>0 },
     { key:"instellingen", label:"Instellingen", count:null },
@@ -4799,7 +4811,8 @@ async function viewBeheerQuiz(quizId, tab){
   document.getElementById("wsPlay").onclick=()=>go("#/quiz/"+quizId);
 
   const content=document.getElementById("wsContent");
-  if(tab==="reacties") await renderQuizReactiesTab(content, quiz, questions||[], flags);
+  if(tab==="overzicht") overzichtTableUI(content, quizId, quiz, questions||[], flags);
+  else if(tab==="reacties") await renderQuizReactiesTab(content, quiz, questions||[], flags);
   else if(tab==="instellingen") renderQuizInstellingenTab(content, quiz);
   else renderQuizVragenTab(content, quizId, quiz, questions||[], flags);
 }
