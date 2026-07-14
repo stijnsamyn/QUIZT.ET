@@ -6009,7 +6009,8 @@ async function viewImport(){
       <hr style="margin:.8rem 0;border:none;border-top:1px solid var(--border,#ddd)">
       <input type="file" id="mdFile" accept=".md,text/markdown,text/plain" style="margin-bottom:.6rem">
       <textarea id="mdText" style="min-height:220px" placeholder="…of plak hier de inhoud van je sjabloon"></textarea>
-      <label style="display:flex;align-items:center;gap:.5rem;margin-top:.6rem"><input type="checkbox" id="aiAll" style="width:auto"> Deze hele import is door AI gegenereerd (herkomst = AI, tenzij een vraag zelf <code>**Bron:** mens</code> vermeldt)</label>
+      <label style="display:flex;align-items:center;gap:.5rem;margin-top:.6rem"><input type="checkbox" id="aiAll" style="width:auto" checked> Deze hele import is door AI gegenereerd (herkomst antwoord, uitleg én wettelijke basis = AI, tenzij een vraag zelf <code>**Bron:** mens</code> vermeldt)</label>
+      <label style="display:flex;align-items:center;gap:.5rem;margin-top:.3rem"><input type="checkbox" id="allToValidate" style="width:auto" checked> Alle vragen als <strong>niet gevalideerd</strong> importeren (te valideren)</label>
       <div class="btnrow"><button class="btn btn-ghost btn-sm" id="previewBtn">Voorbeeld</button>
         <button class="btn btn-primary btn-sm" id="importBtn">Importeren als concept</button></div>
     </div>
@@ -6071,6 +6072,7 @@ async function viewImport(){
     btn.disabled=true;
     try{
       const aiAll=document.getElementById("aiAll").checked;
+      const allToValidate=document.getElementById("allToValidate").checked;
       let quizId, quizForNav, startOrder=0;
       if(dest==="existing"){
         quizId=document.getElementById("targetQuiz").value;
@@ -6091,7 +6093,7 @@ async function viewImport(){
         const base={ quiz_id:quizId, sort_order:startOrder+i+1, text:q.text,
           question_type:q.question_type||"mcq",
           image_url:q.image_url||null,
-          multi:!!q.multi, validated:q.validated!==false,
+          multi:!!q.multi, validated: allToValidate ? false : (q.validated!==false),
           legal_basis:q.legal_basis, wettekst:q.wettekst, explanation:q.explanation,
           answer_source:src, explanation_source:src, legal_basis_source: q.legal_basis ? src : null };
         if(q.question_type==="matrix"){
