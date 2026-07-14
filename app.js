@@ -3145,6 +3145,7 @@ function overzichtTableUI(content, quizId, quiz, questions, flags){
       </div>
       <div style="display:flex;align-items:center;gap:.5rem;margin-left:auto">
         <input id="ovSearch" type="search" class="ov-search" placeholder="Zoek in vragen en antwoorden…">
+        ${isEditor()?`<button class="btn btn-ghost btn-sm" id="ovDupCheck">Dubbels zoeken</button>`:""}
         <button class="btn btn-ghost btn-sm chip-icon" id="btnExportPdf" title="Exporteer als PDF" aria-label="Exporteer als PDF">${ICON.doc}</button>
       </div>
     </div>
@@ -3153,6 +3154,8 @@ function overzichtTableUI(content, quizId, quiz, questions, flags){
     </div>`;
   content.querySelectorAll("[data-filter]").forEach(b=>b.onclick=()=>{ filter=b.dataset.filter; draw(); });
   content.querySelector("#ovSearch").oninput=e=>{ search=e.target.value.trim(); draw(); };
+  const dupBtn=content.querySelector("#ovDupCheck");
+  if(dupBtn) dupBtn.onclick=()=>openDuplicateCheck(quiz||{title:""}, questions||[]);
   const btnExp=content.querySelector("#btnExportPdf");
   if(btnExp) btnExp.onclick=()=>showExportModal(quiz||{title:""}, questions||[], filter, filterFn);
   draw();
@@ -4745,17 +4748,24 @@ async function viewBeheer(tab){
       <h2>Quizzen</h2>
       <div class="stack">${(quizzes||[]).map(q=>{
         const rf=flagsPerQuiz[q.id]?flagsPerQuiz[q.id].size:0;
+        const pending=!!q.delete_requested_by;
+        const delBtn = pending
+          ? `<button class="btn btn-ghost btn-sm" data-review="${q.id}" title="Verwijdering aangevraagd">${isAdmin()?"Beoordelen":"Aangevraagd"}</button>`
+          : (isAdmin()
+              ? `<button class="btn btn-danger btn-sm" data-del="${q.id}">Verwijderen</button>`
+              : `<button class="btn btn-danger btn-sm" data-req="${q.id}">Verwijderen aanvragen</button>`);
         return `
         <div class="card quiz-row"><div class="spread quiz-row-spread">
           <div class="quiz-row-info">
             <strong>${esc(q.title)}</strong> <span class="badge ${q.status==="gepubliceerd"?"pub":"concept"}">${q.status}</span>
             ${rf?`<a class="count-chip" data-nav="#/beheer/quiz/${q.id}/reacties" title="${rf} vraag/vragen met open reacties" style="margin-left:.4rem;text-decoration:none">${ICON.flag} ${rf}</a>`:""}
+            ${pending?`<span class="badge concept" style="margin-left:.4rem;background:var(--wrong-soft);color:var(--wrong)">verwijdering aangevraagd</span>`:""}
             <div class="muted quiz-row-desc">${esc(q.description||"")}</div>
           </div>
           <div class="btnrow quiz-row-btns">
             <button class="btn btn-ghost btn-sm" data-edit="${q.id}">Bewerken</button>
             <button class="btn btn-ghost btn-sm" data-pub="${q.id}" data-status="${q.status}">${q.status==="gepubliceerd"?"Terug naar concept":"Publiceren"}</button>
-            <button class="btn btn-danger btn-sm" data-del="${q.id}">Verwijderen</button>
+            ${delBtn}
           </div></div></div>`;}).join("")||`<p class="muted">Nog geen quizzen.</p>`}
       </div>`;
     content.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
@@ -4765,10 +4775,12 @@ async function viewBeheer(tab){
       await sb.from("quizzes").update({status:ns}).eq("id",b.dataset.pub); toast("Status bijgewerkt","ok"); viewBeheer(tab);
     });
     content.querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{
-      const q=quizById[b.dataset.del];
-      if(!confirm(`Quiz "${q?q.title:""}" definitief verwijderen? Dit verwijdert ook ALLE vragen, antwoorden, events, flags en tetris-scores die aan deze quiz gekoppeld zijn. Deze actie is onomkeerbaar.`)) return;
-      await sb.from("quizzes").delete().eq("id",b.dataset.del); toast("Verwijderd","ok"); viewBeheer(tab);
+      if(await approveQuizDeletion(quizById[b.dataset.del])) viewBeheer(tab);
     });
+    content.querySelectorAll("[data-req]").forEach(b=>b.onclick=async()=>{
+      if(await requestQuizDeletion(quizById[b.dataset.req])) viewBeheer(tab);
+    });
+    content.querySelectorAll("[data-review]").forEach(b=>b.onclick=()=>go("#/beheer/quiz/"+b.dataset.review+"/instellingen"));
   }
   else if(tab==="flags"){
     content.innerHTML=`
@@ -4915,6 +4927,28 @@ async function createQuiz(){
   const { data, error }=await sb.from("quizzes").insert({ title, description:"", status:"concept", created_by:ME.id }).select().single();
   if(error) return toast(error.message,"err");
   go("#/beheer/quiz/"+data.id);
+}
+
+/* ============================================================
+   QUIZ VERWIJDEREN — enkel admins verwijderen echt. Beheerders
+   vragen aan; een admin keurt goed of weigert.
+   ============================================================ */
+async function requestQuizDeletion(quiz){
+  if(!confirm(`Verwijdering aanvragen voor "${quiz.title}"?\n\nDe quiz wordt NIET meteen verwijderd — een admin moet dit eerst goedkeuren.`)) return false;
+  const { error }=await sb.from("quizzes").update({ delete_requested_by:ME.id, delete_requested_at:new Date().toISOString() }).eq("id",quiz.id);
+  if(error){ toast("Aanvraag mislukt: "+error.message,"err"); return false; }
+  toast("Verwijdering aangevraagd — een admin beslist","ok"); return true;
+}
+async function cancelQuizDeletionRequest(quiz){
+  const { error }=await sb.from("quizzes").update({ delete_requested_by:null, delete_requested_at:null }).eq("id",quiz.id);
+  if(error){ toast(error.message,"err"); return false; }
+  toast("Aanvraag ingetrokken","ok"); return true;
+}
+async function approveQuizDeletion(quiz){
+  if(!confirm(`Quiz "${quiz.title}" definitief verwijderen? Dit verwijdert ook ALLE vragen, antwoorden, events, flags en scores. Onomkeerbaar.`)) return false;
+  const { error }=await sb.from("quizzes").delete().eq("id",quiz.id);
+  if(error){ toast("Verwijderen mislukt: "+error.message,"err"); return false; }
+  toast("Verwijderd","ok"); return true;
 }
 
 async function renderUsers(){
@@ -5077,15 +5111,8 @@ function renderQuizInstellingenTab(content, quiz){
         <button class="btn btn-ghost btn-sm" id="pubToggle">${quiz.status==="gepubliceerd"?"Terug naar concept":"Publiceren"}</button>
       </div>
     </div>
-    <div class="card danger-zone" style="margin-top:1rem">
-      <div class="spread" style="align-items:center">
-        <div>
-          <strong>Quiz verwijderen</strong>
-          <div class="muted" style="font-size:.82rem">Verwijdert ook alle vragen, antwoorden, events, flags en scores. Onomkeerbaar.</div>
-        </div>
-        <button class="btn btn-danger btn-sm" id="delQuiz">Verwijderen</button>
-      </div>
-    </div>`;
+    <div class="card danger-zone" style="margin-top:1rem" id="delZone"></div>`;
+  renderQuizDeleteZone(document.getElementById("delZone"), quiz);
   document.getElementById("saveQuiz").onclick=async()=>{
     const { error }=await sb.from("quizzes").update({
       title:document.getElementById("qzTitle").value,
@@ -5101,12 +5128,47 @@ function renderQuizInstellingenTab(content, quiz){
     if(error) return toast(error.message,"err");
     toast("Status bijgewerkt","ok"); viewBeheerQuiz(quizId,"instellingen");
   };
-  document.getElementById("delQuiz").onclick=async()=>{
-    if(!confirm(`Quiz "${quiz.title}" definitief verwijderen? Dit verwijdert ook ALLE vragen, antwoorden, events, flags en tetris-scores die aan deze quiz gekoppeld zijn. Deze actie is onomkeerbaar.`)) return;
-    const { error }=await sb.from("quizzes").delete().eq("id",quizId);
-    if(error) return toast(error.message,"err");
-    toast("Verwijderd","ok"); go("#/beheer");
-  };
+}
+
+/* Rolbewuste verwijder-zone: beheerder vraagt aan, admin keurt goed/weigert. */
+async function renderQuizDeleteZone(box, quiz){
+  if(!box) return;
+  const pending = !!quiz.delete_requested_by;
+  let byName="";
+  if(pending){ const nm=await namesFor([quiz.delete_requested_by]); byName=nm[quiz.delete_requested_by]||"iemand"; }
+  const reload=()=>viewBeheerQuiz(quiz.id,"instellingen");
+  if(pending){
+    box.innerHTML=`
+      <div class="spread" style="align-items:center;gap:.6rem;flex-wrap:wrap">
+        <div>
+          <strong>Verwijdering aangevraagd</strong>
+          <div class="muted" style="font-size:.82rem">Aangevraagd door <strong>${esc(byName)}</strong>${quiz.delete_requested_at?` · ${fmtDate(quiz.delete_requested_at)}`:""}. ${isAdmin()?"Keur goed om definitief te verwijderen, of weiger.":"Wacht op goedkeuring door een admin."}</div>
+        </div>
+        <div class="btnrow" style="margin:0">
+          ${isAdmin()?`<button class="btn btn-danger btn-sm" id="dzApprove">Goedkeuren &amp; verwijderen</button>
+            <button class="btn btn-ghost btn-sm" id="dzReject">Weigeren</button>`
+          :`<button class="btn btn-ghost btn-sm" id="dzCancel">Aanvraag intrekken</button>`}
+        </div>
+      </div>`;
+    const ap=box.querySelector("#dzApprove"); if(ap) ap.onclick=async()=>{ if(await approveQuizDeletion(quiz)) go("#/beheer"); };
+    const rj=box.querySelector("#dzReject"); if(rj) rj.onclick=async()=>{ if(await cancelQuizDeletionRequest(quiz)) reload(); };
+    const cn=box.querySelector("#dzCancel"); if(cn) cn.onclick=async()=>{ if(await cancelQuizDeletionRequest(quiz)) reload(); };
+  } else {
+    box.innerHTML=`
+      <div class="spread" style="align-items:center;gap:.6rem;flex-wrap:wrap">
+        <div>
+          <strong>Quiz verwijderen</strong>
+          <div class="muted" style="font-size:.82rem">${isAdmin()
+            ? "Verwijdert ook alle vragen, antwoorden, events, flags en scores. Onomkeerbaar."
+            : "Alleen een admin kan definitief verwijderen. Jij kan een verwijdering aanvragen."}</div>
+        </div>
+        <button class="btn btn-danger btn-sm" id="dzMain">${isAdmin()?"Verwijderen":"Verwijderen aanvragen"}</button>
+      </div>`;
+    box.querySelector("#dzMain").onclick=async()=>{
+      if(isAdmin()){ if(await approveQuizDeletion(quiz)) go("#/beheer"); }
+      else { if(await requestQuizDeletion(quiz)) reload(); }
+    };
+  }
 }
 
 /* --- Tab: Reacties (alle open flags van deze quiz, per vraag gegroepeerd) --- */
@@ -5152,60 +5214,73 @@ function dupJaccard(a,b){
 }
 function openDuplicateCheck(quiz, questions){
   const SIM_THRESHOLD=0.8;   // ≥ 80% woord-overlap = "gelijkaardig"
-  const items=questions.map(q=>{ const norm=dupNormalize(q.text); return { q, norm, tokens:dupTokens(norm) }; })
-    .filter(x=>x.norm.length>0);
-  // Union-find over paren die identiek of gelijkaardig zijn
-  const parent=items.map((_,i)=>i);
-  const find=x=>{ while(parent[x]!==x){ parent[x]=parent[parent[x]]; x=parent[x]; } return x; };
-  const union=(a,b)=>{ const ra=find(a), rb=find(b); if(ra!==rb) parent[ra]=rb; };
-  const pairKind={};   // "cluster-min-index" → of het paar exact was
-  for(let i=0;i<items.length;i++){
-    for(let j=i+1;j<items.length;j++){
-      const exact = items[i].norm===items[j].norm;
-      const sim = exact ? 1 : dupJaccard(items[i].tokens, items[j].tokens);
-      if(exact || sim>=SIM_THRESHOLD){ union(i,j); if(exact) pairKind[find(i)]=true; }
+  let qs = (questions||[]).slice();   // lokale kopie zodat we verwijderde vragen kunnen weghalen
+  let changed=false;
+  const computeGroups=()=>{
+    const items=qs.map(q=>{ const norm=dupNormalize(q.text); return { q, norm, tokens:dupTokens(norm) }; })
+      .filter(x=>x.norm.length>0);
+    const parent=items.map((_,i)=>i);
+    const find=x=>{ while(parent[x]!==x){ parent[x]=parent[parent[x]]; x=parent[x]; } return x; };
+    const union=(a,b)=>{ const ra=find(a), rb=find(b); if(ra!==rb) parent[ra]=rb; };
+    for(let i=0;i<items.length;i++){
+      for(let j=i+1;j<items.length;j++){
+        const exact = items[i].norm===items[j].norm;
+        const sim = exact ? 1 : dupJaccard(items[i].tokens, items[j].tokens);
+        if(exact || sim>=SIM_THRESHOLD) union(i,j);
+      }
     }
-  }
-  // Clusters verzamelen
-  const byRoot={};
-  items.forEach((it,idx)=>{ const r=find(idx); (byRoot[r]=byRoot[r]||[]).push(it); });
-  const groups=Object.values(byRoot).filter(g=>g.length>1)
-    .map(g=>{
-      const norms=new Set(g.map(x=>x.norm));
-      return { items:g.sort((a,b)=>(a.q.qnum||0)-(b.q.qnum||0)), exact:norms.size===1 };
-    })
-    .sort((a,b)=> (b.exact-a.exact) || (b.items.length-a.items.length));
+    const byRoot={};
+    items.forEach((it,idx)=>{ const r=find(idx); (byRoot[r]=byRoot[r]||[]).push(it); });
+    return Object.values(byRoot).filter(g=>g.length>1)
+      .map(g=>{ const norms=new Set(g.map(x=>x.norm)); return { items:g.sort((a,b)=>(a.q.qnum||0)-(b.q.qnum||0)), exact:norms.size===1 }; })
+      .sort((a,b)=> (b.exact-a.exact) || (b.items.length-a.items.length));
+  };
 
   const overlay=document.createElement("div");
   overlay.className="modes-overlay";
-  const dupCount=groups.reduce((n,g)=>n+g.items.length,0);
-  overlay.innerHTML=`<div class="modes-modal" role="dialog" aria-label="Dubbele vragen">
-    <div class="modes-hd">
-      <div class="modes-title">${ICON.info} Dubbele vragen — ${esc(quiz.title||"")}</div>
-      <button class="tetris-close" id="dupClose" aria-label="Sluiten">×</button>
-    </div>
-    <div class="modes-body">
-      ${groups.length
-        ? `<p class="muted">${groups.length} groep${groups.length===1?"":"en"} met mogelijke dubbels (${dupCount} vragen). <span class="pill juist" style="font-size:.68rem">identiek</span> = exact dezelfde tekst · <span class="pill twijfel" style="font-size:.68rem">gelijkaardig</span> = sterke woord-overlap (nakijken).</p>
-          <div class="stack" style="gap:.7rem;margin-top:.6rem">${groups.map(g=>`
-            <div class="dup-group">
-              <div class="dup-group-hd">${g.exact?`<span class="pill juist">identiek</span>`:`<span class="pill twijfel">gelijkaardig</span>`} <span class="muted" style="font-size:.8rem">${g.items.length} vragen</span></div>
-              ${g.items.map(x=>`<div class="dup-row">
-                <span class="q-num">${x.q.qnum}</span>
-                <span class="dup-text">${esc((x.q.text||"").slice(0,160))}${(x.q.text||"").length>160?"…":""}</span>
-                <a class="btn btn-ghost btn-sm" data-nav="#/beheer/vraag/${x.q.id}">Bewerken</a>
-              </div>`).join("")}
-            </div>`).join("")}</div>`
-        : `<div class="empty">Geen dubbele of sterk gelijkende vragen gevonden. 🎉</div>`}
-    </div>
-    <div class="modes-foot"><button class="btn btn-primary btn-sm" id="dupOk">Sluit</button></div>
-  </div>`;
-  const close=()=>{ overlay.remove(); window.removeEventListener("keydown",onKey); };
+  const close=()=>{ overlay.remove(); window.removeEventListener("keydown",onKey); if(changed) route(); };
   const onKey=e=>{ if(e.key==="Escape") close(); };
+
+  const render=()=>{
+    const groups=computeGroups();
+    const dupCount=groups.reduce((n,g)=>n+g.items.length,0);
+    overlay.innerHTML=`<div class="modes-modal" role="dialog" aria-label="Dubbele vragen">
+      <div class="modes-hd">
+        <div class="modes-title">${ICON.info} Dubbele vragen — ${esc(quiz.title||"")}</div>
+        <button class="tetris-close" id="dupClose" aria-label="Sluiten">×</button>
+      </div>
+      <div class="modes-body">
+        ${groups.length
+          ? `<p class="muted">${groups.length} groep${groups.length===1?"":"en"} met mogelijke dubbels (${dupCount} vragen). <span class="pill juist" style="font-size:.68rem">identiek</span> = exact dezelfde tekst · <span class="pill twijfel" style="font-size:.68rem">gelijkaardig</span> = sterke woord-overlap (nakijken).</p>
+            <div class="stack" style="gap:.7rem;margin-top:.6rem">${groups.map(g=>`
+              <div class="dup-group">
+                <div class="dup-group-hd">${g.exact?`<span class="pill juist">identiek</span>`:`<span class="pill twijfel">gelijkaardig</span>`} <span class="muted" style="font-size:.8rem">${g.items.length} vragen</span></div>
+                ${g.items.map(x=>`<div class="dup-row">
+                  <span class="q-num">${x.q.qnum}</span>
+                  <span class="dup-text">${esc((x.q.text||"").slice(0,160))}${(x.q.text||"").length>160?"…":""}</span>
+                  <a class="btn btn-ghost btn-sm" data-nav="#/beheer/vraag/${x.q.id}">Bewerken</a>
+                  <button class="btn btn-danger btn-sm" data-dupdel="${x.q.id}">Verwijderen</button>
+                </div>`).join("")}
+              </div>`).join("")}</div>`
+          : `<div class="empty">${changed?"Geen dubbels meer over.":"Geen dubbele of sterk gelijkende vragen gevonden."} 🎉</div>`}
+      </div>
+      <div class="modes-foot"><button class="btn btn-primary btn-sm" id="dupOk">Sluit</button></div>
+    </div>`;
+    overlay.querySelector("#dupClose").onclick=close;
+    overlay.querySelector("#dupOk").onclick=close;
+    overlay.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>{ close(); go(a.dataset.nav); });
+    overlay.querySelectorAll("[data-dupdel]").forEach(b=>b.onclick=async()=>{
+      const id=b.dataset.dupdel;
+      const q=qs.find(x=>x.id===id);
+      if(!confirm(`Vraag ${q?q.qnum:""} verwijderen? Ook je eigen antwoorden, events en reacties op deze vraag verdwijnen. Onomkeerbaar.`)) return;
+      const { error }=await sb.from("questions").delete().eq("id",id);
+      if(error) return toast("Verwijderen mislukt: "+error.message,"err");
+      qs=qs.filter(x=>x.id!==id); changed=true;
+      toast("Verwijderd","ok"); render();
+    });
+  };
   document.body.appendChild(overlay);
-  overlay.querySelector("#dupClose").onclick=close;
-  overlay.querySelector("#dupOk").onclick=close;
-  overlay.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>{ close(); go(a.dataset.nav); });
+  render();
   overlay.addEventListener("click",e=>{ if(e.target===overlay) close(); });
   window.addEventListener("keydown",onKey);
 }
