@@ -222,6 +222,7 @@ const ICON = {
   chat: `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 15a3 3 0 0 1-3 3H8l-4 3V6a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3z"/></svg>`,
   clock: `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>`,
   check: `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg>`,
+  cross: `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg>`,
   info: `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><circle cx="12" cy="7.7" r="0.6" fill="currentColor"/></svg>`,
 };
 // info-icoon met hover-tooltip
@@ -3039,7 +3040,9 @@ async function viewOverview(quizId){
       return `<tr class="row-link" data-qid="${q.id}" data-quiz="${quizId}">
         <td><span class="q-num">${q.qnum}</span></td>
         <td>${esc(q.text).slice(0,120)}${q.text.length>120?"…":""}</td>
-        <td>${q.validated===false?`<span class="tag tag-warn">niet gevalideerd</span>`:`<span class="tag tag-ok">gevalideerd</span> ${srcBadge("Gevalideerd door",q.answer_source)}`}</td>
+        <td>${q.validated===false
+          ? `<span class="status-icon bad" title="Niet gevalideerd">${ICON.cross}</span>`
+          : `<span class="status-icon ok" title="Gevalideerd">${ICON.check}</span> ${srcBadge("Gevalideerd door",q.answer_source)}`}</td>
         <td>${flagCell}</td>
       </tr>`;
     }).join("");

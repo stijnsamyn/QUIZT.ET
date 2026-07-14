@@ -202,6 +202,13 @@ details .body{padding:.3rem .9rem .9rem}
   padding:.15rem .55rem;border-radius:99px;display:inline-flex;align-items:center;gap:.25rem}
 .count-chip.resolved{color:var(--correct);background:var(--correct-soft)}
 
+/* Status-icoontjes in overzicht-tabel (gevalideerd / niet gevalideerd) */
+.status-icon{display:inline-flex;align-items:center;justify-content:center;
+  width:1.35rem;height:1.35rem;border-radius:99px;vertical-align:middle}
+.status-icon.ok{color:var(--correct);background:var(--correct-soft)}
+.status-icon.bad{color:var(--wrong);background:var(--wrong-soft)}
+.status-icon .ico{width:.95rem;height:.95rem}
+
 /* history items */
 .hist{border-left:3px solid var(--border);padding:.4rem .8rem;margin:.4rem 0;font-size:.85rem}
 .hist.fout{border-color:var(--wrong)} .hist.twijfel{border-color:var(--warn)} .hist.juist{border-color:var(--correct)}
