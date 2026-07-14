@@ -3405,7 +3405,7 @@ function renderExportQuestion(q, seq, opts){
       }).join("")}</tbody></table>`);
   } else if(type==="open"){
     if(opts.openModel && q.open_answer){
-      parts.push(`<div class="pq-model"><strong>Modelantwoord:</strong> ${esc(q.open_answer)}</div>`);
+      parts.push(`<div class="pq-model"><strong>Modelantwoord:</strong> ${html(translateOptRefs(q.open_answer, q.id, q))}</div>`);
     }
     if(opts.blankSpace) parts.push(`<div class="pq-blank"></div>`);
   } else if(opts.options && (q.options||[]).length){
@@ -3421,13 +3421,13 @@ function renderExportQuestion(q, seq, opts){
   }
 
   if(opts.explanation && q.explanation){
-    // Uitleg mag HTML bevatten in de app; voor print halen we tags eruit voor properheid.
-    const plain=String(q.explanation).replace(/<br\s*\/?>/gi,"\n").replace(/<[^>]+>/g," ").replace(/\s+\n/g,"\n").replace(/[ \t]+/g," ").trim();
-    parts.push(`<div class="pq-expl"><strong>Uitleg:</strong> ${esc(plain)}</div>`);
+    // Zelfde weergave als op het scherm: markdown (**vet**, lijstjes) omgezet en
+    // {A}/{juist}-verwijzingen vertaald naar de juiste letter.
+    parts.push(`<div class="pq-expl"><strong>Uitleg:</strong> ${html(translateOptRefs(q.explanation, q.id, q))}</div>`);
   }
 
   if(docentDiff && q.docent_note){
-    parts.push(`<div class="pq-docent"><strong>Docent-toelichting:</strong> ${esc(q.docent_note)}</div>`);
+    parts.push(`<div class="pq-docent"><strong>Docent-toelichting:</strong> ${html(translateOptRefs(q.docent_note, q.id, q))}</div>`);
   }
 
   const brk = opts.pageBreak ? " pq-break" : "";
