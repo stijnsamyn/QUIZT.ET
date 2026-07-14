@@ -3039,7 +3039,7 @@ async function viewOverview(quizId){
       return `<tr class="row-link" data-qid="${q.id}" data-quiz="${quizId}">
         <td><span class="q-num">${q.qnum}</span></td>
         <td>${esc(q.text).slice(0,120)}${q.text.length>120?"…":""}</td>
-        <td>${q.validated===false?`<span class="tag tag-warn">in overleg</span>`:`<strong>${lettersOf(q.correct_indexes)}</strong> ${srcBadge("Antwoord",q.answer_source)}`}</td>
+        <td>${q.validated===false?`<span class="tag tag-warn">niet gevalideerd</span>`:`<span class="tag tag-ok">gevalideerd</span> ${srcBadge("Gevalideerd door",q.answer_source)}`}</td>
         <td>${flagCell}</td>
       </tr>`;
     }).join("");
@@ -3058,7 +3058,7 @@ async function viewOverview(quizId){
       ${[["alle","alle"],["geflagd","geflagd"],["fout","fout"],["twijfel","twijfel"],["juist","juist"],["open","open"],["nietgevalideerd","niet gevalideerd"]].map(([f,l])=>`<button class="chip-toggle" data-filter="${f}">${l}</button>`).join("")}
     </div>
     <div class="card" style="padding:.3rem .3rem">
-      <table><thead><tr><th>#</th><th>Vraag</th><th>Juist</th><th>Flags</th></tr></thead><tbody id="ovBody"></tbody></table>
+      <table><thead><tr><th>#</th><th>Vraag</th><th>Status</th><th>Flags</th></tr></thead><tbody id="ovBody"></tbody></table>
     </div>`;
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
   app.querySelectorAll("[data-filter]").forEach(b=>b.onclick=()=>{ filter=b.dataset.filter; draw(); });
