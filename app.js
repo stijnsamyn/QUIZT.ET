@@ -5230,12 +5230,35 @@ function dupJaccard(a,b){
   let inter=0; a.forEach(w=>{ if(b.has(w)) inter++; });
   return inter / (a.size + b.size - inter);
 }
+// Antwoord-signatuur (volgorde-onafhankelijk, want opties worden geschud).
+// Twee vragen met dezelfde tekst maar andere opties/juist antwoord krijgen een
+// verschillende signatuur en worden dus NIET als "identiek" bestempeld.
+function dupAnswersSig(q){
+  const t=q.question_type||"mcq";
+  if(t==="open") return "open:"+dupNormalize(q.open_answer);
+  if(t==="matrix") return "matrix:"+JSON.stringify([arr(q.matrix_rows).map(dupNormalize),arr(q.matrix_cols).map(dupNormalize),arr(q.matrix_correct)]);
+  const opts=(q.options||[]).map(dupNormalize);
+  const correct=new Set(arr(q.correct_indexes).map(i=>opts[i]).filter(Boolean));
+  return "mcq:"+opts.slice().sort().join("|")+"##"+[...correct].sort().join("|");
+}
+function dupKindPill(kind){
+  if(kind==="identiek") return `<span class="pill juist">identiek</span>`;
+  if(kind==="zelfdevraag") return `<span class="pill" style="background:var(--warn-soft);color:var(--warn)">zelfde vraag · andere antwoorden</span>`;
+  return `<span class="pill twijfel">gelijkaardig</span>`;
+}
+function dupAnsPreview(q){
+  const t=q.question_type||"mcq";
+  if(t==="open") return q.open_answer?`<div class="dup-ans"><em>model:</em> ${esc(String(q.open_answer).slice(0,90))}${String(q.open_answer).length>90?"…":""}</div>`:`<div class="dup-ans muted">geen modelantwoord</div>`;
+  if(t==="matrix") return `<div class="dup-ans muted">matrix (${arr(q.matrix_rows).length}×${arr(q.matrix_cols).length})</div>`;
+  const corr=arr(q.correct_indexes);
+  return `<div class="dup-ans">${(q.options||[]).map((o,i)=>`<span class="${corr.includes(i)?"dup-corr":""}">${letter(i)}. ${esc(String(o).slice(0,45))}${String(o).length>45?"…":""}</span>`).join("<span class='dup-sep'>·</span>")}</div>`;
+}
 function openDuplicateCheck(quiz, questions){
   const SIM_THRESHOLD=0.8;   // ≥ 80% woord-overlap = "gelijkaardig"
   let qs = (questions||[]).slice();   // lokale kopie zodat we verwijderde vragen kunnen weghalen
   let changed=false;
   const computeGroups=()=>{
-    const items=qs.map(q=>{ const norm=dupNormalize(q.text); return { q, norm, tokens:dupTokens(norm) }; })
+    const items=qs.map(q=>{ const norm=dupNormalize(q.text); return { q, norm, tokens:dupTokens(norm), sig:dupAnswersSig(q) }; })
       .filter(x=>x.norm.length>0);
     const parent=items.map((_,i)=>i);
     const find=x=>{ while(parent[x]!==x){ parent[x]=parent[parent[x]]; x=parent[x]; } return x; };
@@ -5249,9 +5272,15 @@ function openDuplicateCheck(quiz, questions){
     }
     const byRoot={};
     items.forEach((it,idx)=>{ const r=find(idx); (byRoot[r]=byRoot[r]||[]).push(it); });
+    const rank={identiek:0, zelfdevraag:1, gelijkaardig:2};
     return Object.values(byRoot).filter(g=>g.length>1)
-      .map(g=>{ const norms=new Set(g.map(x=>x.norm)); return { items:g.sort((a,b)=>(a.q.qnum||0)-(b.q.qnum||0)), exact:norms.size===1 }; })
-      .sort((a,b)=> (b.exact-a.exact) || (b.items.length-a.items.length));
+      .map(g=>{
+        const sameText = new Set(g.map(x=>x.norm)).size===1;
+        const sameAns  = new Set(g.map(x=>x.sig)).size===1;
+        const kind = sameText && sameAns ? "identiek" : sameText ? "zelfdevraag" : "gelijkaardig";
+        return { items:g.sort((a,b)=>(a.q.qnum||0)-(b.q.qnum||0)), kind };
+      })
+      .sort((a,b)=> (rank[a.kind]-rank[b.kind]) || (b.items.length-a.items.length));
   };
 
   const overlay=document.createElement("div");
@@ -5269,13 +5298,16 @@ function openDuplicateCheck(quiz, questions){
       </div>
       <div class="modes-body">
         ${groups.length
-          ? `<p class="muted">${groups.length} groep${groups.length===1?"":"en"} met mogelijke dubbels (${dupCount} vragen). <span class="pill juist" style="font-size:.68rem">identiek</span> = exact dezelfde tekst · <span class="pill twijfel" style="font-size:.68rem">gelijkaardig</span> = sterke woord-overlap (nakijken).</p>
+          ? `<p class="muted">${groups.length} groep${groups.length===1?"":"en"} met mogelijke dubbels (${dupCount} vragen). <span class="pill juist" style="font-size:.68rem">identiek</span> = zelfde tekst én antwoorden · <span class="pill" style="font-size:.68rem;background:var(--warn-soft);color:var(--warn)">andere antwoorden</span> = zelfde vraag, andere opties · <span class="pill twijfel" style="font-size:.68rem">gelijkaardig</span> = sterke woord-overlap.</p>
             <div class="stack" style="gap:.7rem;margin-top:.6rem">${groups.map(g=>`
               <div class="dup-group">
-                <div class="dup-group-hd">${g.exact?`<span class="pill juist">identiek</span>`:`<span class="pill twijfel">gelijkaardig</span>`} <span class="muted" style="font-size:.8rem">${g.items.length} vragen</span></div>
+                <div class="dup-group-hd">${dupKindPill(g.kind)} <span class="muted" style="font-size:.8rem">${g.items.length} vragen</span></div>
                 ${g.items.map(x=>`<div class="dup-row">
                   <span class="q-num">${x.q.qnum}</span>
-                  <span class="dup-text">${esc((x.q.text||"").slice(0,160))}${(x.q.text||"").length>160?"…":""}</span>
+                  <div class="dup-main">
+                    <div class="dup-text">${esc((x.q.text||"").slice(0,160))}${(x.q.text||"").length>160?"…":""}</div>
+                    ${dupAnsPreview(x.q)}
+                  </div>
                   <a class="btn btn-ghost btn-sm" data-nav="#/beheer/vraag/${x.q.id}">Bewerken</a>
                   <button class="btn btn-danger btn-sm" data-dupdel="${x.q.id}">Verwijderen</button>
                 </div>`).join("")}

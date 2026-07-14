@@ -228,7 +228,11 @@ details .body{padding:.3rem .9rem .9rem}
 .dup-row{display:flex;align-items:center;gap:.6rem;padding:.35rem 0;border-top:1px dashed var(--border)}
 .dup-row:first-of-type{border-top:none}
 .dup-row .q-num{flex:0 0 auto}
-.dup-text{flex:1;font-size:.88rem;color:var(--text);line-height:1.35}
+.dup-main{flex:1;min-width:0}
+.dup-text{font-size:.88rem;color:var(--text);line-height:1.35}
+.dup-ans{margin-top:.2rem;font-size:.78rem;color:var(--text-muted);line-height:1.4}
+.dup-ans .dup-corr{color:var(--correct);font-weight:700}
+.dup-ans .dup-sep{margin:0 .3rem;opacity:.5}
 .dup-row .btn{flex:0 0 auto}
 
 /* Reden bij een verwijder-aanvraag */
