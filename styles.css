@@ -809,6 +809,15 @@ summary .ico,button .ico{color:inherit}
 .open-model .lbl,.open-result .lbl{display:block;font-weight:600;color:var(--ink);font-size:.82rem;margin-bottom:.2rem}
 .open-model-body,.open-given{font-size:.9rem;color:var(--ink);white-space:pre-wrap}
 
+/* Markdown-lijstjes in uitleg / wettelijke basis / wettekst — netjes ingesprongen */
+.md-list{margin:.35rem 0 .35rem 1.2rem;padding:0}
+.md-list li{margin:.15rem 0;line-height:1.45}
+.md-list li>strong:first-child{color:var(--ink)}
+@media print{
+  .md-list{margin:.3em 0 .3em 1.1em}
+  .md-list li{margin:.1em 0}
+}
+
 /* ============================================================
    PDF-EXPORT — modal + print-CSS
    Het printArea zit standaard onzichtbaar in de DOM (buiten print).

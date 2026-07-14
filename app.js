@@ -274,7 +274,42 @@ const esc = s => (s==null?"":String(s)).replace(/[&<>"']/g, c => (
   {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
 const letter = i => String.fromCharCode(65 + i);
 // Vertrouwde, door beheerders ingevoerde inhoud (uitleg, wettelijke basis, wettekst) mag als HTML.
-const html = s => (s==null?"":String(s));
+// AI-geïmporteerde uitleg is vaak markdown (**vet**, "- lijstitems", newlines) — die zetten we
+// hier ter render-tijd om naar HTML, zodat bestaande database-inhoud niet aangepast hoeft te worden.
+const html = s => mdToHtml(s);
+
+// Lichtgewicht markdown → HTML voor admin-content (uitleg, legal_basis, wettekst).
+// Bestaande HTML-tags (<br>, <strong>, <p>, …) blijven werken; markdown-syntax wordt
+// erbovenop toegepast. Escape hier NIET, want deze content is vertrouwd.
+function mdToHtml(s){
+  if(s==null) return "";
+  let t = String(s);
+  // Inline: **vet**, *cursief*, `code`. We slaan tekst binnen bestaande tags niet over —
+  // aanvaardbaar want admin-content bevat zelden HTML én markdown samen.
+  t = t.replace(/\*\*([^*\n]+?)\*\*/g, "<strong>$1</strong>");
+  t = t.replace(/(^|[^*\w])\*([^*\n]+?)\*(?!\*)/g, "$1<em>$2</em>");
+  t = t.replace(/`([^`\n]+)`/g, "<code>$1</code>");
+  // Splits per regel; groepeer opeenvolgende "- item" of "* item" regels in een <ul>.
+  const lines = t.split(/\r?\n/);
+  const out = [];
+  let inList = false;
+  const closeList = () => { if(inList){ out.push("</ul>"); inList = false; } };
+  for(const line of lines){
+    const m = line.match(/^\s*[-*]\s+(.*)$/);
+    if(m){
+      if(!inList){ out.push('<ul class="md-list">'); inList = true; }
+      out.push("<li>" + m[1] + "</li>");
+    } else {
+      closeList();
+      out.push(line);
+    }
+  }
+  closeList();
+  // Enkele newlines → <br>, maar niet vlak vóór/na een block-tag die zelf al ruimte maakt.
+  const blockTag = "(ul|ol|li|p|h[1-6]|div|table|tr|td|th|thead|tbody|blockquote|pre|details|summary|br)";
+  const re = new RegExp("\\n(?!\\s*<\\/?" + blockTag + "[\\s>])", "gi");
+  return out.join("\n").replace(re, "<br>\n");
+}
 function fmtDate(d){ const x=new Date(d); return x.toLocaleDateString("nl-BE",{day:"numeric",month:"short",year:"numeric"})+" "+x.toLocaleTimeString("nl-BE",{hour:"2-digit",minute:"2-digit"}); }
 function toast(msg, kind){ const t=document.getElementById("toast"); t.className="toast "+(kind||""); t.textContent=msg; t.hidden=false; clearTimeout(t._t); t._t=setTimeout(()=>t.hidden=true, 3200); }
 function go(hash){ if(location.hash===hash) route(); else location.hash=hash; }
