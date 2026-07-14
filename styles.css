@@ -361,6 +361,7 @@ tr:hover td{background:var(--surface2)}
   font-weight:800;font-size:.85rem;line-height:1;display:inline-flex;align-items:center;justify-content:center}
 .mode-info:hover{background:var(--accent);color:#fff}
 .mode-block{display:flex;flex-direction:column;gap:.7rem}
+.mode-block[hidden]{display:none}
 @media(max-width:520px){ .mode-choice{grid-template-columns:1fr} }
 
 /* Beheer sub-tabs */
