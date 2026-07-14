@@ -345,6 +345,20 @@ tr:hover td{background:var(--surface2)}
 .beheer-tab-count{background:var(--surface2);color:var(--text);
   font-size:.72rem;font-weight:700;padding:.05rem .45rem;border-radius:99px;min-width:1.4rem;text-align:center}
 .beheer-tab.active .beheer-tab-count{background:var(--accent-soft);color:var(--accent-dark)}
+.beheer-tab-count.warn{background:var(--wrong-soft);color:var(--wrong)}
+
+/* Quiz-werkruimte (tabs per quiz) */
+.ws-head{margin:.4rem 0 .2rem;align-items:center;gap:.6rem;flex-wrap:wrap}
+.ws-head h1{font-size:1.4rem}
+.ws-tabs{align-items:flex-end}
+.ws-tabs .ws-spacer{flex:1}
+.beheer-tab.ghost{color:var(--text-muted);font-weight:500;top:0;border-radius:8px;font-size:.82rem}
+.beheer-tab.ghost:hover{background:var(--surface2);color:var(--accent-dark)}
+.danger-zone{border:1px solid var(--wrong-soft);background:linear-gradient(0deg,var(--wrong-soft),transparent 60%)}
+@media(max-width:640px){
+  .ws-tabs .ws-spacer{flex-basis:100%;height:0}
+  .ws-head h1{font-size:1.15rem}
+}
 
 /* Flag groups (per-vraag gegroepeerd) */
 .flag-groups{display:flex;flex-direction:column;gap:.7rem;margin-top:.7rem}

@@ -632,8 +632,7 @@ async function route(){
     if(p[0]==="meldingen") return viewMeldingen();
     if(p[0]==="account") return viewAccount();
     if(p[0]==="beheer" && p[1]==="vraag") return viewEditQuestion(p[2]);
-    if(p[0]==="beheer" && p[1]==="quiz" && p[3]==="audit") return viewBeheerAudit(p[2]);
-    if(p[0]==="beheer" && p[1]==="quiz") return viewBeheerQuiz(p[2]);
+    if(p[0]==="beheer" && p[1]==="quiz") return viewBeheerQuiz(p[2], p[3]);
     if(p[0]==="beheer" && p[1]==="import") return viewImport();
     if(p[0]==="beheer") return viewBeheer(p[1]||"quizzen");
     viewHome();
@@ -4756,17 +4755,60 @@ async function renderSettings(){
 }
 
 /* ============================================================
-   BEHEER — quiz bewerken (vragen CRUD, herkomst-toggles)
+   BEHEER — quiz-werkruimte met tabs
+   Eén pagina per quiz: Vragen · Reacties · Instellingen.
+   Vervangt de vroegere losse quiz-editor + "Alles-in-één"-view.
    ============================================================ */
-async function viewBeheerQuiz(quizId){
+async function viewBeheerQuiz(quizId, tab){
   if(!isEditor()){ app.innerHTML=`<div class="empty">Geen toegang.</div>`; return; }
+  tab = tab || "vragen";
+  if(tab==="audit") tab="vragen";   // oude route blijft werken
   const { data:quiz } = await sb.from("quizzes").select("*").eq("id",quizId).single();
+  if(!quiz){ app.innerHTML=`<div class="empty">Quiz niet gevonden.</div>`; return; }
   const { data:questions } = await sb.from("questions").select("*").eq("quiz_id",quizId).order("sort_order");
-  // Zichtbaarheid van docent-antwoorden — maak ze bereikbaar voor de editor
-  (questions||[]).forEach(q=>{ q._show_docent = !!quiz.show_docent; });
+  const ids=(questions||[]).map(q=>q.id);
+  let flags=[];
+  if(ids.length){ const {data}=await sb.from("flags").select("*").in("question_id",ids); flags=data||[]; }
+  (questions||[]).forEach(q=>{ q._show_docent = !!(quiz && quiz.show_docent); });
+  const openFlagCount = flags.filter(f=>f.status==="open" && f.type!=="juist").length;
+
+  const tabDefs=[
+    { key:"vragen", label:"Vragen", count:(questions||[]).length },
+    { key:"reacties", label:"Reacties", count:openFlagCount||null, warn:openFlagCount>0 },
+    { key:"instellingen", label:"Instellingen", count:null },
+  ];
+
   app.innerHTML=`
     <a class="muted" data-nav="#/beheer">← Beheer</a>
-    <div class="card" style="margin-top:.6rem">
+    <div class="spread ws-head">
+      <h1 style="margin:0">${esc(quiz.title)}</h1>
+      <div class="btnrow" style="margin:0">
+        <span class="badge ${quiz.status==="gepubliceerd"?"pub":"concept"}">${quiz.status}</span>
+        <button class="btn btn-ghost btn-sm" id="wsPlay">▶ Spelen</button>
+      </div>
+    </div>
+    <div class="beheer-tabs ws-tabs">
+      ${tabDefs.map(t=>`<a class="beheer-tab ${t.key===tab?"active":""}" data-tab="${t.key}">${t.label}${t.count!=null?` <span class="beheer-tab-count ${t.warn?"warn":""}">${t.count}</span>`:""}</a>`).join("")}
+      <span class="ws-spacer"></span>
+      <a class="beheer-tab ghost" data-nav="#/quiz/${quizId}/stats">Statistiek</a>
+      <a class="beheer-tab ghost" data-nav="#/quiz/${quizId}/pogingen">Pogingen</a>
+    </div>
+    <div id="wsContent"></div>`;
+  app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
+  app.querySelectorAll("[data-tab]").forEach(a=>a.onclick=()=>go(`#/beheer/quiz/${quizId}/${a.dataset.tab}`));
+  document.getElementById("wsPlay").onclick=()=>go("#/quiz/"+quizId);
+
+  const content=document.getElementById("wsContent");
+  if(tab==="reacties") await renderQuizReactiesTab(content, quiz, questions||[], flags);
+  else if(tab==="instellingen") renderQuizInstellingenTab(content, quiz);
+  else renderQuizVragenTab(content, quizId, quiz, questions||[], flags);
+}
+
+/* --- Tab: Instellingen (titel, beschrijving, docent, publiceren, verwijderen) --- */
+function renderQuizInstellingenTab(content, quiz){
+  const quizId=quiz.id;
+  content.innerHTML=`
+    <div class="card" style="margin-top:1rem">
       <label>Titel</label><input id="qzTitle" value="${esc(quiz.title)}">
       <label>Beschrijving</label><textarea id="qzDesc">${esc(quiz.description||"")}</textarea>
       <label style="display:flex;align-items:center;gap:.5rem;font-weight:400;margin-top:.5rem">
@@ -4774,64 +4816,79 @@ async function viewBeheerQuiz(quizId){
         👨‍🏫 Docent-antwoorden inschakelen voor deze quiz
         ${infoTip("Alleen aanzetten als de docent regelmatig andere antwoorden geeft dan het wettelijk juiste. Bij aan: extra D-kolom in de editor, docent-toelichting-veld, 'Docent koos…'-reactie-chip en docent-blok na het antwoord in de speler. Bij uit: alles wat met docent te maken heeft blijft verborgen voor spelers en beheerders.")}
       </label>
-      <div class="btnrow"><button class="btn btn-primary btn-sm" id="saveQuiz">Quiz opslaan</button>
-        <a class="btn btn-ghost btn-sm" data-nav="#/beheer/quiz/${quizId}/audit">👀 Alles-in-één overzicht</a>
-        <span class="badge ${quiz.status==="gepubliceerd"?"pub":"concept"}">${quiz.status}</span></div>
+      <div class="btnrow"><button class="btn btn-primary btn-sm" id="saveQuiz">Opslaan</button></div>
     </div>
-    <div class="spread"><h2>Vragen (${(questions||[]).length})</h2>
-      <button class="btn btn-ghost btn-sm" id="addQ">+ Vraag toevoegen</button></div>
-    <input id="qSearch" placeholder="Zoek een vraag — op nummer of tekst…" style="margin-bottom:.6rem">
-    <div class="muted" id="qSearchInfo" style="margin-bottom:.6rem;display:none"></div>
-    <div class="stack" id="qList"></div>`;
-  app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
+    <div class="card" style="margin-top:1rem">
+      <div class="spread" style="align-items:center">
+        <div>
+          <strong>Publicatie</strong>
+          <div class="muted" style="font-size:.82rem">${quiz.status==="gepubliceerd"?"Deze quiz is zichtbaar voor alle spelers.":"Deze quiz staat in concept en is enkel voor beheerders zichtbaar."}</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" id="pubToggle">${quiz.status==="gepubliceerd"?"Terug naar concept":"Publiceren"}</button>
+      </div>
+    </div>
+    <div class="card danger-zone" style="margin-top:1rem">
+      <div class="spread" style="align-items:center">
+        <div>
+          <strong>Quiz verwijderen</strong>
+          <div class="muted" style="font-size:.82rem">Verwijdert ook alle vragen, antwoorden, events, flags en scores. Onomkeerbaar.</div>
+        </div>
+        <button class="btn btn-danger btn-sm" id="delQuiz">Verwijderen</button>
+      </div>
+    </div>`;
   document.getElementById("saveQuiz").onclick=async()=>{
-    await sb.from("quizzes").update({
+    const { error }=await sb.from("quizzes").update({
       title:document.getElementById("qzTitle").value,
       description:document.getElementById("qzDesc").value,
       show_docent:document.getElementById("qzShowDocent").checked,
     }).eq("id",quizId);
-    toast("Opgeslagen","ok"); viewBeheerQuiz(quizId);
-  };
-  document.getElementById("addQ").onclick=async()=>{
-    const { data, error }=await sb.from("questions").insert({ quiz_id:quizId, text:"Nieuwe vraag", options:["Optie A","Optie B"], correct_indexes:[0] }).select().single();
     if(error) return toast(error.message,"err");
-    viewBeheerQuiz(quizId);
+    toast("Opgeslagen","ok"); viewBeheerQuiz(quizId,"instellingen");
   };
-  const list=document.getElementById("qList");
-  list.innerHTML=(questions||[]).map(q=>questionEditor(q)).join("")||`<p class="muted">Nog geen vragen.</p>`;
-  (questions||[]).forEach(q=>wireQuestionEditor(q, quizId));
-  if(EDIT_FOCUS && EDIT_FOCUS.quiz===quizId){
-    const card=document.querySelector(`[data-qcard="${EDIT_FOCUS.id}"]`);
-    if(card){ card.scrollIntoView({behavior:"smooth",block:"center"}); card.classList.add("flash"); setTimeout(()=>card.classList.remove("flash"),2500); }
-    EDIT_FOCUS=null;
-  }
-  document.getElementById("qSearch").oninput=e=>{
-    const s=e.target.value.trim().toLowerCase();
-    let n=0;
-    (questions||[]).forEach(q=>{
-      const card=document.querySelector(`[data-qcard="${q.id}"]`); if(!card) return;
-      const hit = !s || String(q.qnum)===s || String(q.qnum).includes(s) || (q.text||"").toLowerCase().includes(s);
-      card.style.display = hit?"":"none"; if(hit)n++;
-    });
-    const info=document.getElementById("qSearchInfo");
-    info.style.display = s?"":"none"; info.textContent = s?`${n} vraag/vragen gevonden`:"";
+  document.getElementById("pubToggle").onclick=async()=>{
+    const ns=quiz.status==="gepubliceerd"?"concept":"gepubliceerd";
+    const { error }=await sb.from("quizzes").update({status:ns}).eq("id",quizId);
+    if(error) return toast(error.message,"err");
+    toast("Status bijgewerkt","ok"); viewBeheerQuiz(quizId,"instellingen");
+  };
+  document.getElementById("delQuiz").onclick=async()=>{
+    if(!confirm(`Quiz "${quiz.title}" definitief verwijderen? Dit verwijdert ook ALLE vragen, antwoorden, events, flags en tetris-scores die aan deze quiz gekoppeld zijn. Deze actie is onomkeerbaar.`)) return;
+    const { error }=await sb.from("quizzes").delete().eq("id",quizId);
+    if(error) return toast(error.message,"err");
+    toast("Verwijderd","ok"); go("#/beheer");
   };
 }
 
+/* --- Tab: Reacties (alle open flags van deze quiz, per vraag gegroepeerd) --- */
+async function renderQuizReactiesTab(content, quiz, questions, flags){
+  const open=(flags||[]).filter(f=>f.status==="open" && f.type!=="juist");
+  if(!open.length){ content.innerHTML=`<div class="empty" style="margin-top:1rem">Geen open reacties — alles is afgehandeld! 🎉</div>`; return; }
+  const qmap={}; (questions||[]).forEach(q=>{ qmap[q.id]=q; });
+  const quizById={ [quiz.id]:quiz };
+  const names=await namesFor(open.map(f=>f.user_id));
+  content.innerHTML=`
+    <p class="muted" style="font-size:.85rem;margin-top:.8rem"><strong>${new Set(open.map(f=>f.question_id)).size}</strong> vraag/vragen met open reactie(s) — in totaal <strong>${open.length}</strong>. Klik op de vraagtitel om ze te bekijken en aan te passen.</p>
+    ${renderBeheerFlagGroups(open, qmap, quizById, names)}`;
+  content.querySelectorAll("[data-q]").forEach(a=>a.onclick=()=>PLAY_goto(a.dataset.quiz, a.dataset.q));
+  content.querySelectorAll("[data-resolve]").forEach(b=>b.onclick=async()=>{
+    if(!confirm("Deze flag als afgehandeld markeren?")) return;
+    await sb.from("flags").update({status:"afgehandeld"}).eq("id",b.dataset.resolve); toast("Afgehandeld","ok"); viewBeheerQuiz(quiz.id,"reacties");
+  });
+  content.querySelectorAll("[data-resolve-all]").forEach(b=>b.onclick=async()=>{
+    const rids=b.dataset.resolveAll.split(",").filter(Boolean);
+    if(!rids.length) return;
+    if(!confirm(`Alle ${rids.length} openstaande flag(s) voor deze vraag afhandelen?`)) return;
+    await sb.from("flags").update({status:"afgehandeld"}).in("id",rids); toast(`${rids.length} flag(s) afgehandeld`,"ok"); viewBeheerQuiz(quiz.id,"reacties");
+  });
+}
+
 /* ============================================================
-   ALLES-IN-ÉÉN OVERZICHT — beheerder ziet volledige vraag +
-   volledige antwoorden per rij, kan filteren en direct springen
-   naar de bewerk-pagina van een vraag.
+   Tab: Vragen — beheerder ziet volledige vraag + volledige
+   antwoorden per rij, kan filteren/zoeken, bulk-valideren en
+   direct naar de bewerk-pagina van een vraag springen.
    ============================================================ */
-async function viewBeheerAudit(quizId){
-  if(!isEditor()){ app.innerHTML=`<div class="empty">Geen toegang.</div>`; return; }
-  const { data:quiz } = await sb.from("quizzes").select("*").eq("id",quizId).single();
-  const { data:questions } = await sb.from("questions").select("*").eq("quiz_id",quizId).order("sort_order");
-  const ids=(questions||[]).map(q=>q.id);
-  let flags=[];
-  if(ids.length){ const {data}=await sb.from("flags").select("id,question_id,type,status,toelichting,user_id,created_at").in("question_id",ids); flags=data||[]; }
-  const fBy={}; flags.forEach(f=>{ (fBy[f.question_id]=fBy[f.question_id]||[]).push(f); });
-  (questions||[]).forEach(q=>{ q._show_docent = !!(quiz && quiz.show_docent); });
+function renderQuizVragenTab(content, quizId, quiz, questions, flags){
+  const fBy={}; (flags||[]).forEach(f=>{ (fBy[f.question_id]=fBy[f.question_id]||[]).push(f); });
 
   let filter="alle";
   const matches = q => {
@@ -4914,23 +4971,24 @@ async function viewBeheerAudit(quizId){
       ${flagPreview}
     </div>`;
   };
+  let search="";
+  const textMatch = q => { if(!search) return true; const s=search.toLowerCase(); return String(q.qnum)===s || String(q.qnum).includes(s) || (q.text||"").toLowerCase().includes(s); };
   const draw = ()=>{
-    const list = (questions||[]).filter(matches);
-    document.getElementById("auList").innerHTML = list.length
+    const list = (questions||[]).filter(q=>matches(q)&&textMatch(q));
+    content.querySelector("#auList").innerHTML = list.length
       ? list.map(renderCard).join("")
       : `<div class="empty">Geen vragen voor dit filter.</div>`;
-    document.querySelectorAll("[data-filter]").forEach(b=>b.classList.toggle("active", b.dataset.filter===filter));
-    document.getElementById("auCount").textContent = `${list.length} van ${questions.length}`;
-    app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
-    app.querySelectorAll("[data-jump]").forEach(b=>b.onclick=()=>PLAY_goto(quizId, b.dataset.jump));
+    content.querySelectorAll("[data-filter]").forEach(b=>b.classList.toggle("active", b.dataset.filter===filter));
+    content.querySelector("#auCount").textContent = `${list.length} van ${questions.length}`;
+    content.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
+    content.querySelectorAll("[data-jump]").forEach(b=>b.onclick=()=>PLAY_goto(quizId, b.dataset.jump));
   };
-  app.innerHTML=`
-    <div class="spread">
-      <a class="muted" data-nav="#/beheer/quiz/${quizId}">← Terug naar quiz-editor</a>
+  content.innerHTML=`
+    <div class="spread" style="margin-top:.8rem;align-items:center">
+      <button class="btn btn-primary btn-sm" id="auAddQ">+ Vraag toevoegen</button>
       <span class="muted au-count" id="auCount">${(questions||[]).length}</span>
     </div>
-    <h1 style="margin:.5rem 0">Alles-in-één — ${esc(quiz?quiz.title:"")}</h1>
-    <p class="muted" style="font-size:.85rem">Elke vraag met volledige tekst en volledige antwoorden. Klik <strong>Bewerken</strong> om de vraag aan te passen, of <strong>Spelen</strong> om ze in de speler-view te zien met reacties.</p>
+    <input id="auSearch" placeholder="Zoek een vraag — op nummer of tekst…" style="margin-top:.6rem">
     <div class="filterbar" style="margin-top:.6rem;flex-wrap:wrap">
       <span class="muted">Filter:</span>
       ${[
@@ -4956,14 +5014,19 @@ async function viewBeheerAudit(quizId){
     </div>
     <div class="au-list" id="auList" style="margin-top:.8rem"></div>
   `;
-  app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
-  app.querySelectorAll("[data-filter]").forEach(b=>b.onclick=()=>{ filter=b.dataset.filter; draw(); });
+  content.querySelectorAll("[data-filter]").forEach(b=>b.onclick=()=>{ filter=b.dataset.filter; draw(); });
+  content.querySelector("#auSearch").oninput=e=>{ search=e.target.value.trim(); draw(); };
+  content.querySelector("#auAddQ").onclick=async()=>{
+    const { error }=await sb.from("questions").insert({ quiz_id:quizId, text:"Nieuwe vraag", options:["Optie A","Optie B"], correct_indexes:[0] }).select().single();
+    if(error) return toast(error.message,"err");
+    viewBeheerQuiz(quizId,"vragen");
+  };
   const bulkValidate = async(newVal)=>{
-    const visible = (questions||[]).filter(matches);
+    const visible = (questions||[]).filter(q=>matches(q)&&textMatch(q));
     const target  = visible.filter(q => (q.validated!==false) !== newVal); // enkel wijzigen
     if(!target.length) return toast(newVal?"Alle zichtbare vragen zijn al gevalideerd":"Alle zichtbare vragen staan al op niet-gevalideerd","ok");
     const label = newVal ? "valideren" : "op 'niet gevalideerd' zetten";
-    if(!confirm(`${target.length} vraag/vragen ${label}? Dit past filter "${filter}" toe op de hele quiz.`)) return;
+    if(!confirm(`${target.length} vraag/vragen ${label}? Dit past het huidige filter toe op de hele quiz.`)) return;
     const ids = target.map(q=>q.id);
     const { error } = await sb.from("questions").update({ validated:newVal }).in("id",ids);
     if(error) return toast(error.message,"err");
@@ -4972,8 +5035,8 @@ async function viewBeheerAudit(quizId){
     target.forEach(q=>{ q.validated=newVal; });
     draw();
   };
-  document.getElementById("auValidateAll").onclick   = ()=>bulkValidate(true);
-  document.getElementById("auUnvalidateAll").onclick = ()=>bulkValidate(false);
+  content.querySelector("#auValidateAll").onclick   = ()=>bulkValidate(true);
+  content.querySelector("#auUnvalidateAll").onclick = ()=>bulkValidate(false);
   draw();
 }
 
