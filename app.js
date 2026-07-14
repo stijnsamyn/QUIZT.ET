@@ -3079,6 +3079,7 @@ async function namesFor(ids){
 function overzichtTableUI(content, quizId, quiz, questions, flags){
   const fBy={}; (flags||[]).forEach(f=>{ (fBy[f.question_id]=fBy[f.question_id]||[]).push(f); });
   let filter="alle";
+  let search="";
   const filterFn = q => {
     const fs=fBy[q.id]||[];
     if(filter==="alle") return true;
@@ -3090,8 +3091,16 @@ function overzichtTableUI(content, quizId, quiz, questions, flags){
     if(filter==="nietgevalideerd") return q.validated===false;
     return true;
   };
+  // Doorzoekt vraagtekst én de antwoorden (opties, modelantwoord, matrix-labels).
+  const textMatch = q => {
+    if(!search) return true;
+    const s=search.toLowerCase();
+    const hay=[q.text, q.open_answer, ...(q.options||[]), ...(arr(q.matrix_rows)), ...(arr(q.matrix_cols))]
+      .filter(Boolean).join(" ").toLowerCase();
+    return String(q.qnum)===s || hay.includes(s);
+  };
   const draw=()=>{
-    const rows=(questions||[]).filter(filterFn).map(q=>{
+    const rows=(questions||[]).filter(q=>filterFn(q)&&textMatch(q)).map(q=>{
       const fs=fBy[q.id]||[]; const open=fs.filter(f=>f.status==="open").length;
       let flagCell;
       if(!fs.length) flagCell = `<span class="muted">—</span>`;
@@ -3117,17 +3126,21 @@ function overzichtTableUI(content, quizId, quiz, questions, flags){
     content.querySelectorAll("[data-filter]").forEach(b=>b.classList.toggle("active",b.dataset.filter===filter));
   };
   content.innerHTML=`
-    <div class="spread" style="margin-top:.6rem;align-items:center">
+    <div class="spread" style="margin-top:.6rem;align-items:center;gap:.6rem;flex-wrap:wrap">
       <div class="filterbar" style="margin:0">
         <span class="muted">Filter:</span>
         ${[["alle","alle"],["geflagd","geflagd"],["fout","fout"],["twijfel","twijfel"],["juist","juist"],["open","open"],["nietgevalideerd","niet gevalideerd"]].map(([f,l])=>`<button class="chip-toggle" data-filter="${f}">${l}</button>`).join("")}
       </div>
-      <button class="btn btn-ghost btn-sm" id="btnExportPdf">📄 Exporteer PDF</button>
+      <div style="display:flex;align-items:center;gap:.5rem;margin-left:auto">
+        <input id="ovSearch" type="search" class="ov-search" placeholder="Zoek in vragen en antwoorden…">
+        <button class="btn btn-ghost btn-sm" id="btnExportPdf">📄 Exporteer PDF</button>
+      </div>
     </div>
     <div class="card" style="padding:.3rem .3rem;margin-top:.8rem">
       <table><thead><tr><th>#</th><th>Vraag</th><th>Status</th><th>Flags</th></tr></thead><tbody id="ovBody"></tbody></table>
     </div>`;
   content.querySelectorAll("[data-filter]").forEach(b=>b.onclick=()=>{ filter=b.dataset.filter; draw(); });
+  content.querySelector("#ovSearch").oninput=e=>{ search=e.target.value.trim(); draw(); };
   const btnExp=content.querySelector("#btnExportPdf");
   if(btnExp) btnExp.onclick=()=>showExportModal(quiz||{title:""}, questions||[], filter, filterFn);
   draw();
