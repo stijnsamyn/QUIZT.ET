@@ -1112,10 +1112,7 @@ function renderPlaySetup(){
       </div>
 
       <div class="mode-block" id="studyBlock" hidden>
-        <div class="card setup-step">
-          <div class="muted" style="font-size:.85rem;margin-bottom:.6rem">In de studeermodus blader je met Vorige/Volgende (of de pijltjestoetsen) door alle vragen — telkens met antwoord en uitleg. Je kan ook meteen naar een vraagnummer springen.</div>
-          <button class="btn btn-primary btn-start" data-nav="#/quiz/${PLAY.quiz.id}/studeer">Begin met studeren →</button>
-        </div>
+        <button class="btn btn-primary btn-start" data-nav="#/quiz/${PLAY.quiz.id}/studeer">Begin met studeren →</button>
       </div>
 
       <div class="mode-block" id="quizBlock" hidden>
