@@ -644,6 +644,7 @@ async function route(){
     if(p[0]==="scorebord") return viewScorebord();
     if(p[0]==="meldingen") return viewMeldingen();
     if(p[0]==="account") return viewAccount();
+    if(p[0]==="beheer" && p[1]==="vergelijk") return viewCompareQuestions(p[2], p[3]);
     if(p[0]==="beheer" && p[1]==="vraag") return viewEditQuestion(p[2]);
     if(p[0]==="beheer" && p[1]==="quiz") return viewBeheerQuiz(p[2], p[3]);
     if(p[0]==="beheer" && p[1]==="import") return viewImport();
@@ -5256,10 +5257,112 @@ function dupAnsPreview(q){
   const corr=arr(q.correct_indexes);
   return `<div class="dup-ans">${(q.options||[]).map((o,i)=>`<span class="${corr.includes(i)?"dup-corr":""}">${letter(i)}. ${esc(String(o).slice(0,45))}${String(o).length>45?"…":""}</span>`).join("<span class='dup-sep'>·</span>")}</div>`;
 }
-function openDuplicateCheck(quiz, questions){
+const dupPairKey=(a,b)=>[a,b].slice().sort().join("|");
+async function markDuplicateReviewed(quizId,aId,bId){
+  const [lo,hi]=[aId,bId].slice().sort();
+  const { error }=await sb.from("duplicate_reviews").upsert(
+    { quiz_id:quizId, q_low:lo, q_high:hi, reviewed_by:ME.id, reviewed_at:new Date().toISOString() },
+    { onConflict:"q_low,q_high" });
+  if(error){ toast("Markeren mislukt: "+error.message,"err"); return false; }
+  toast("Gemarkeerd als bekeken (behouden)","ok"); return true;
+}
+async function unmarkDuplicateReviewed(aId,bId){
+  const [lo,hi]=[aId,bId].slice().sort();
+  const { error }=await sb.from("duplicate_reviews").delete().eq("q_low",lo).eq("q_high",hi);
+  if(error){ toast(error.message,"err"); return false; }
+  toast("Markering weggehaald","ok"); return true;
+}
+
+/* Volledige vraag-kaart voor de vergelijk-view (tekst + antwoorden + extra info). */
+function renderCompareCard(q){
+  const correct=arr(q.correct_indexes), docent=arr(q.docent_indexes);
+  const docentDiffers=q._show_docent && docent.length && !setEq(docent,correct);
+  const t=q.question_type||"mcq";
+  let answers="";
+  if(t==="open"){
+    answers=`<div class="study-model"><span class="lbl">Modelantwoord</span><div>${q.open_answer?esc(q.open_answer):`<span class="muted">— geen —</span>`}</div></div>`;
+  } else if(t==="matrix"){
+    const rows=arr(q.matrix_rows), cols=arr(q.matrix_cols), mc=arr(q.matrix_correct);
+    answers=`<div class="study-matrix"><table><thead><tr><th></th>${cols.map(c=>`<th>${esc(c)}</th>`).join("")}</tr></thead>
+      <tbody>${rows.map((r,ri)=>`<tr><th>${esc(r)}</th>${cols.map((_,ci)=>`<td class="${mc[ri]===ci?"is-correct":""}">${mc[ri]===ci?"✓":""}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+  } else {
+    answers=`<div class="study-opts">${(q.options||[]).map((o,i)=>{
+      const isC=correct.includes(i), isD=docentDiffers&&docent.includes(i);
+      const badges=(isC?`<span class="pill juist" style="font-size:.66rem">juist</span>`:"")+(isD?`<span class="pill" style="font-size:.66rem;background:rgba(192,38,211,.12);color:#a21caf">docent</span>`:"");
+      return `<div class="study-opt ${isC?"is-correct":""} ${isD&&!isC?"is-docent":""}"><span class="study-let">${letter(i)}</span><span class="study-otext">${esc(o)} ${badges}</span></div>`;
+    }).join("")}</div>`;
+  }
+  return `<div class="cmp-card">
+    <div class="cmp-card-hd"><span class="q-num">Vraag ${q.qnum}</span>${q.validated===false?`<span class="status-icon bad" title="Niet gevalideerd">${ICON.cross}</span>`:`<span class="status-icon ok" title="Gevalideerd">${ICON.check}</span>`}</div>
+    <div class="q-text">${esc(q.text)}</div>
+    ${q.image_url?`<div class="q-image"><img src="${esc(q.image_url)}" alt="Afbeelding" loading="lazy"></div>`:""}
+    ${answers}
+    ${q.explanation?`<div class="study-block"><span class="lbl">Uitleg</span><div>${html(translateOptRefs(q.explanation,q.id,q))}</div></div>`:""}
+    ${q.legal_basis?`<div class="study-block"><span class="lbl">Wettelijke basis</span><div>${html(translateOptRefs(q.legal_basis,q.id,q))}</div></div>`:""}
+    ${q.wettekst?`<details class="study-wettekst"><summary>${ICON.info} Wettekst</summary><div class="wettekst">${html(translateOptRefs(q.wettekst,q.id,q))}</div></details>`:""}
+    ${docentDiffers&&q.docent_note?`<div class="study-block docent"><span class="lbl">👨‍🏫 Docent</span><div>${esc(q.docent_note)}</div></div>`:""}
+    <div class="cmp-card-actions">
+      <a class="btn btn-ghost btn-sm" data-nav="#/beheer/vraag/${q.id}">Bewerken</a>
+      <button class="btn btn-danger btn-sm" data-cmpdel="${q.id}" data-qnum="${q.qnum}">Deze verwijderen</button>
+    </div>
+  </div>`;
+}
+
+/* Vergelijk twee (gelijkaardige) vragen naast elkaar en beslis. */
+async function viewCompareQuestions(aId, bId){
+  if(!isEditor()){ app.innerHTML=`<div class="empty">Geen toegang.</div>`; return; }
+  const { data:qs }=await sb.from("questions").select("*").in("id",[aId,bId]);
+  const A=(qs||[]).find(x=>x.id===aId), B=(qs||[]).find(x=>x.id===bId);
+  const backTo = A ? `#/beheer/quiz/${A.quiz_id}/vragen` : (B ? `#/beheer/quiz/${B.quiz_id}/vragen` : "#/beheer");
+  if(!A || !B){
+    app.innerHTML=`<a class="muted" data-nav="${backTo}">← Terug</a><div class="empty">Eén van beide vragen bestaat niet meer — mogelijk al verwijderd.</div>`;
+    app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav)); return;
+  }
+  const quizId=A.quiz_id;
+  const { data:quiz }=await sb.from("quizzes").select("id,title,show_docent").eq("id",quizId).single();
+  A._show_docent=B._show_docent=!!(quiz&&quiz.show_docent);
+  const [lo,hi]=[aId,bId].slice().sort();
+  const { data:rev }=await sb.from("duplicate_reviews").select("*").eq("q_low",lo).eq("q_high",hi).maybeSingle();
+  let reviewer="";
+  if(rev&&rev.reviewed_by){ const nm=await namesFor([rev.reviewed_by]); reviewer=nm[rev.reviewed_by]||"iemand"; }
+
+  app.innerHTML=`
+    <a class="muted" data-nav="${backTo}">← ${esc(quiz?quiz.title:"Quiz")}</a>
+    <h1 style="margin:.4rem 0">Vergelijk vragen ${A.qnum} en ${B.qnum}</h1>
+    ${rev
+      ? `<div class="cmp-reviewed">${ICON.check} Al bekeken door <strong>${esc(reviewer)}</strong> · ${fmtDate(rev.reviewed_at)} — beoordeeld als <strong>behouden</strong>. <button class="btn btn-ghost btn-sm" id="cmpUnmark">Markering weghalen</button></div>`
+      : `<p class="muted" style="font-size:.85rem">Bekijk beide vragen naast elkaar. Verwijder er één, of markeer ze als <strong>bekeken (behouden)</strong> zodat andere beheerders zien dat dit al beoordeeld is. Verwijderen blijft nadien altijd mogelijk.</p>`}
+    <div class="cmp-grid">${renderCompareCard(A)}${renderCompareCard(B)}</div>
+    <div class="cmp-foot">
+      ${rev?"":`<button class="btn btn-primary" id="cmpKeep">${ICON.check} Beide behouden — markeer als bekeken</button>`}
+    </div>`;
+  app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
+  app.querySelectorAll("[data-cmpdel]").forEach(b=>b.onclick=async()=>{
+    if(!confirm(`Vraag ${b.dataset.qnum} verwijderen? Ook antwoorden, events en reacties op deze vraag verdwijnen. Onomkeerbaar.`)) return;
+    const { error }=await sb.from("questions").delete().eq("id",b.dataset.cmpdel);
+    if(error) return toast("Verwijderen mislukt: "+error.message,"err");
+    toast("Verwijderd","ok"); go(backTo);
+  });
+  const keep=document.getElementById("cmpKeep");
+  if(keep) keep.onclick=async()=>{ if(await markDuplicateReviewed(quizId,aId,bId)) viewCompareQuestions(aId,bId); };
+  const unmark=document.getElementById("cmpUnmark");
+  if(unmark) unmark.onclick=async()=>{ if(await unmarkDuplicateReviewed(aId,bId)) viewCompareQuestions(aId,bId); };
+}
+
+async function openDuplicateCheck(quiz, questions){
   const SIM_THRESHOLD=0.8;   // ≥ 80% woord-overlap = "gelijkaardig"
   let qs = (questions||[]).slice();   // lokale kopie zodat we verwijderde vragen kunnen weghalen
   let changed=false;
+  // Reeds beoordeelde paren ("bekeken, behouden") ophalen voor deze quiz.
+  let reviewedSet=new Set(), reviewerBy={};
+  if(quiz && quiz.id){
+    try{
+      const { data:revs }=await sb.from("duplicate_reviews").select("q_low,q_high,reviewed_by").eq("quiz_id",quiz.id);
+      const ids=[...new Set((revs||[]).map(r=>r.reviewed_by).filter(Boolean))];
+      const nm = ids.length ? await namesFor(ids) : {};
+      (revs||[]).forEach(r=>{ const k=dupPairKey(r.q_low,r.q_high); reviewedSet.add(k); reviewerBy[k]=nm[r.reviewed_by]||"iemand"; });
+    }catch(e){ /* tabel bestaat mogelijk nog niet — dan gewoon geen 'bekeken'-status */ }
+  }
   const computeGroups=()=>{
     const items=qs.map(q=>{ const norm=dupNormalize(q.text); return { q, norm, tokens:dupTokens(norm), sig:dupAnswersSig(q) }; })
       .filter(x=>x.norm.length>0);
@@ -5302,9 +5405,16 @@ function openDuplicateCheck(quiz, questions){
       <div class="modes-body">
         ${groups.length
           ? `<p class="muted">${groups.length} groep${groups.length===1?"":"en"} met mogelijke dubbels (${dupCount} vragen). <span class="pill juist" style="font-size:.68rem">identiek</span> = zelfde tekst én antwoorden · <span class="pill" style="font-size:.68rem;background:var(--warn-soft);color:var(--warn)">andere antwoorden</span> = zelfde vraag, andere opties · <span class="pill twijfel" style="font-size:.68rem">gelijkaardig</span> = sterke woord-overlap.</p>
-            <div class="stack" style="gap:.7rem;margin-top:.6rem">${groups.map(g=>`
+            <div class="stack" style="gap:.7rem;margin-top:.6rem">${groups.map(g=>{
+              const a=g.items[0].q.id, b=g.items[1].q.id;
+              const pk=dupPairKey(a,b);
+              const seen=reviewedSet.has(pk);
+              return `
               <div class="dup-group">
-                <div class="dup-group-hd">${dupKindPill(g.kind)} <span class="muted" style="font-size:.8rem">${g.items.length} vragen</span></div>
+                <div class="dup-group-hd">${dupKindPill(g.kind)} <span class="muted" style="font-size:.8rem">${g.items.length} vragen</span>
+                  ${seen?`<span class="pill" style="background:var(--correct-soft);color:var(--correct)" title="Behouden na beoordeling">${ICON.check} bekeken door ${esc(reviewerBy[pk]||"iemand")}</span>`:""}
+                  <button class="btn btn-ghost btn-sm" data-cmp="${a}|${b}" style="margin-left:auto">Vergelijk &amp; beslis →</button>
+                </div>
                 ${g.items.map(x=>`<div class="dup-row">
                   <span class="q-num">${x.q.qnum}</span>
                   <div class="dup-main">
@@ -5314,7 +5424,7 @@ function openDuplicateCheck(quiz, questions){
                   <a class="btn btn-ghost btn-sm" data-nav="#/beheer/vraag/${x.q.id}">Bewerken</a>
                   <button class="btn btn-danger btn-sm" data-dupdel="${x.q.id}">Verwijderen</button>
                 </div>`).join("")}
-              </div>`).join("")}</div>`
+              </div>`;}).join("")}</div>`
           : `<div class="empty">${changed?"Geen dubbels meer over.":"Geen dubbele of sterk gelijkende vragen gevonden."} 🎉</div>`}
       </div>
       <div class="modes-foot"><button class="btn btn-primary btn-sm" id="dupOk">Sluit</button></div>
@@ -5322,6 +5432,7 @@ function openDuplicateCheck(quiz, questions){
     overlay.querySelector("#dupClose").onclick=close;
     overlay.querySelector("#dupOk").onclick=close;
     overlay.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>{ close(); go(a.dataset.nav); });
+    overlay.querySelectorAll("[data-cmp]").forEach(b=>b.onclick=()=>{ const [x,y]=b.dataset.cmp.split("|"); close(); go(`#/beheer/vergelijk/${x}/${y}`); });
     overlay.querySelectorAll("[data-dupdel]").forEach(b=>b.onclick=async()=>{
       const id=b.dataset.dupdel;
       const q=qs.find(x=>x.id===id);

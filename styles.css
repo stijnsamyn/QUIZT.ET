@@ -240,6 +240,17 @@ details .body{padding:.3rem .9rem .9rem}
   border-left:3px solid var(--wrong);border-radius:0 6px 6px 0;padding:.35rem .6rem}
 .del-reason strong{color:var(--wrong)}
 
+/* Vergelijk-view (twee vragen naast elkaar) */
+.cmp-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:1rem}
+.cmp-card{border:1px solid var(--border);border-radius:var(--radius);padding:1rem;background:var(--surface);box-shadow:var(--shadow-sm)}
+.cmp-card-hd{display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem}
+.cmp-card-actions{display:flex;gap:.5rem;margin-top:.9rem;padding-top:.7rem;border-top:1px solid var(--border)}
+.cmp-reviewed{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;background:var(--correct-soft);
+  border:1px solid var(--correct);border-radius:8px;padding:.5rem .8rem;font-size:.88rem;color:var(--correct);margin:.4rem 0}
+.cmp-reviewed strong{color:var(--correct)}
+.cmp-foot{margin:1.2rem 0 3rem;display:flex;justify-content:center}
+@media(max-width:720px){ .cmp-grid{grid-template-columns:1fr} }
+
 /* Breadcrumb / terug-links (a.muted) onderlijnen bij hover, zoals een gewone link */
 a.muted{cursor:pointer}
 a.muted:hover{text-decoration:underline}
