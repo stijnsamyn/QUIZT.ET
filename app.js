@@ -2676,17 +2676,21 @@ function openRefPicker(qid, targetTextarea, qObj){
   window.addEventListener("keydown",onKey);
 }
 
-function renderFlagThread(flags, names, qid){
+function renderFlagThread(flags, names, qid, opts){
   // Bouw thread: roots (parent_id null) chronologisch, met children eronder (chronologisch)
   const byParent={ null:[] };
   flags.forEach(f=>{ const p=f.parent_id||"null"; (byParent[p]=byParent[p]||[]).push(f); });
   const letterFn = qid ? (idxs=>lettersOfForQ(qid, idxs)) : lettersOf;
+  const showAdmin = !!(opts && opts.showAdminActions);
   // Klikbare popup-knop die de juiste {X} in de textarea invoegt
   const refPanel = qid ? `<div class="btnrow" style="margin:.3rem 0"><button type="button" class="btn btn-ghost btn-sm ref-picker-btn" data-ref-picker-for="${qid}">${ICON.info} Verwijs naar een antwoord…</button></div>` : "";
   const renderOne=(f, depth)=>{
     const isReply=!!f.parent_id;
     const kids=byParent[f.id]||[];
     const isMine = ME && f.user_id === ME.id;
+    const adminBtns = showAdmin ? `
+      ${f.status==="open"?`<button class="btn btn-ghost btn-sm" data-resolve="${f.id}" title="Markeer als afgehandeld">${ICON.check} Afhandelen</button>`:""}
+      ${!isMine?`<button class="btn btn-danger btn-sm" data-admin-del="${f.id}" title="Verwijder deze reactie (beheerder)">Verwijder</button>`:""}` : "";
     return `<div class="flag-item ${f.type} ${isReply?"is-reply":""}" data-flag-id="${f.id}" style="${depth>0?`margin-left:${Math.min(depth,3)*1.2}rem;`:""}">
       <div class="flag-head">
         ${isReply?`<span class="flag-reply-arrow" title="Antwoord op reactie hierboven">↳</span>`:""}
@@ -2698,6 +2702,7 @@ function renderFlagThread(flags, names, qid){
         <button class="btn btn-ghost btn-sm flag-reply-btn" data-reply-to="${f.id}" title="Reageer op deze reactie">Reageer</button>
         ${isMine?`<button class="btn btn-ghost btn-sm flag-edit-btn" data-edit="${f.id}" title="Wijzig je eigen reactie">Bewerken</button>
           <button class="btn btn-danger btn-sm flag-del-btn" data-del="${f.id}" title="Verwijder je eigen reactie">Verwijder</button>`:""}
+        ${adminBtns}
       </div>
       ${f.toelichting?`<div class="flag-body cmt">${formatCommentBody(f.toelichting, qid)}</div>`:""}
       ${isMine?`<div class="flag-edit-form" data-edit-form-for="${f.id}" hidden>
@@ -2732,6 +2737,81 @@ function renderFlagThread(flags, names, qid){
   const roots=byParent["null"]||[];
   if(!roots.length && !flags.length) return `<p class="muted">Nog geen reacties.</p>`;
   return roots.map(r=>renderOne(r,0)).join("");
+}
+
+/* Bind alle knoppen (reageren / bewerken / verwijderen / verwijs-naar-antwoord / admin:
+   afhandelen / admin: verwijderen) binnen `box` voor vraag `q`. `onChange` wordt
+   aangeroepen na een succesvolle DB-mutatie zodat de aanroeper kan hertekenen. */
+function wireFlagThread(box, q, onChange){
+  const refresh = typeof onChange === "function" ? onChange : ()=>{};
+  box.querySelectorAll("[data-reply-to]").forEach(b=>b.onclick=()=>{
+    const form=box.querySelector(`[data-reply-form-for="${b.dataset.replyTo}"]`);
+    if(!form) return;
+    box.querySelectorAll(".flag-reply-form").forEach(f=>{ if(f!==form) f.hidden=true; });
+    form.hidden=!form.hidden;
+    if(!form.hidden){ const ta=form.querySelector("textarea"); if(ta) ta.focus(); }
+  });
+  box.querySelectorAll("[data-reply-cancel]").forEach(b=>b.onclick=()=>{
+    const form=box.querySelector(`[data-reply-form-for="${b.dataset.replyCancel}"]`);
+    if(form){ form.hidden=true; const ta=form.querySelector("textarea"); if(ta) ta.value=""; }
+  });
+  box.querySelectorAll("[data-reply-send]").forEach(b=>b.onclick=async()=>{
+    const id=b.dataset.replySend;
+    const form=box.querySelector(`[data-reply-form-for="${id}"]`);
+    const ta=form.querySelector("textarea");
+    const text=(ta.value||"").trim();
+    if(!text) return toast("Schrijf eerst iets","err");
+    const { error }=await sb.from("flags").insert({ question_id:q.id, user_id:ME.id, type:"commentaar", toelichting:text, parent_id:id, preferred_indexes:[] });
+    if(error) return toast(error.message,"err");
+    toast("Antwoord verzonden","ok"); refresh();
+  });
+  box.querySelectorAll("[data-edit]").forEach(b=>b.onclick=()=>{
+    const form=box.querySelector(`[data-edit-form-for="${b.dataset.edit}"]`);
+    if(!form) return;
+    box.querySelectorAll(".flag-edit-form").forEach(f=>{ if(f!==form) f.hidden=true; });
+    form.hidden=!form.hidden;
+    if(!form.hidden){ const ta=form.querySelector("textarea"); if(ta){ ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } }
+  });
+  box.querySelectorAll("[data-edit-cancel]").forEach(b=>b.onclick=()=>{
+    const form=box.querySelector(`[data-edit-form-for="${b.dataset.editCancel}"]`);
+    if(form) form.hidden=true;
+  });
+  box.querySelectorAll("[data-edit-save]").forEach(b=>b.onclick=async()=>{
+    const id=b.dataset.editSave;
+    const form=box.querySelector(`[data-edit-form-for="${id}"]`);
+    const ta=form.querySelector("textarea");
+    const text=(ta.value||"").trim();
+    if(!text) return toast("De reactie mag niet leeg zijn","err");
+    const { error }=await sb.from("flags").update({ toelichting:text }).eq("id",id).eq("user_id",ME.id);
+    if(error) return toast(error.message,"err");
+    toast("Reactie bijgewerkt","ok"); refresh();
+  });
+  box.querySelectorAll(".ref-picker-btn").forEach(b=>b.onclick=()=>{
+    const qid=b.dataset.refPickerFor;
+    let ta=null;
+    if(b.dataset.target){ ta=document.getElementById(b.dataset.target); }
+    if(!ta){ const form=b.closest("[data-reply-form-for],[data-edit-form-for]"); if(form) ta=form.querySelector("textarea"); }
+    if(!ta){ ta=box.querySelector("#rMot") || box.querySelector("#beheerRMot"); }
+    openRefPicker(qid, ta);
+  });
+  box.querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{
+    if(!confirm("Weet je zeker dat je deze reactie wil verwijderen?")) return;
+    const { error }=await sb.from("flags").delete().eq("id",b.dataset.del).eq("user_id",ME.id);
+    if(error) return toast(error.message,"err");
+    toast("Reactie verwijderd","ok"); refresh();
+  });
+  // Admin-acties (alleen aanwezig als renderFlagThread ze heeft getekend)
+  box.querySelectorAll("[data-resolve]").forEach(b=>b.onclick=async()=>{
+    const { error }=await sb.from("flags").update({status:"afgehandeld"}).eq("id",b.dataset.resolve);
+    if(error) return toast(error.message,"err");
+    toast("Afgehandeld","ok"); refresh();
+  });
+  box.querySelectorAll("[data-admin-del]").forEach(b=>b.onclick=async()=>{
+    if(!confirm("Deze reactie (van iemand anders) verwijderen?")) return;
+    const { error }=await sb.from("flags").delete().eq("id",b.dataset.adminDel);
+    if(error) return toast(error.message,"err");
+    toast("Verwijderd","ok"); refresh();
+  });
 }
 
 async function renderAfterAnswer(q){
@@ -2850,72 +2930,8 @@ async function renderAfterAnswer(q){
     if(fe) return toast(fe.message,"err");
     toast("Bedankt voor je reactie","ok"); renderAfterAnswer(q);
   };
-  // Reply-op-reactie: open form, versturen, annuleren
-  box.querySelectorAll("[data-reply-to]").forEach(b=>b.onclick=()=>{
-    const id=b.dataset.replyTo;
-    const form=box.querySelector(`[data-reply-form-for="${id}"]`);
-    if(!form) return;
-    box.querySelectorAll(".flag-reply-form").forEach(f=>{ if(f!==form) f.hidden=true; });
-    form.hidden=!form.hidden;
-    if(!form.hidden){ const ta=form.querySelector("textarea"); if(ta) ta.focus(); }
-  });
-  box.querySelectorAll("[data-reply-cancel]").forEach(b=>b.onclick=()=>{
-    const id=b.dataset.replyCancel;
-    const form=box.querySelector(`[data-reply-form-for="${id}"]`);
-    if(form){ form.hidden=true; const ta=form.querySelector("textarea"); if(ta) ta.value=""; }
-  });
-  box.querySelectorAll("[data-reply-send]").forEach(b=>b.onclick=async()=>{
-    const id=b.dataset.replySend;
-    const form=box.querySelector(`[data-reply-form-for="${id}"]`);
-    const ta=form.querySelector("textarea");
-    const text=(ta.value||"").trim();
-    if(!text) return toast("Schrijf eerst iets","err");
-    const { error }=await sb.from("flags").insert({ question_id:q.id, user_id:ME.id, type:"commentaar", toelichting:text, parent_id:id, preferred_indexes:[] });
-    if(error) return toast(error.message,"err");
-    toast("Antwoord verzonden","ok"); renderAfterAnswer(q);
-  });
-  // Eigen reactie bewerken
-  box.querySelectorAll("[data-edit]").forEach(b=>b.onclick=()=>{
-    const id=b.dataset.edit;
-    const form=box.querySelector(`[data-edit-form-for="${id}"]`);
-    if(!form) return;
-    box.querySelectorAll(".flag-edit-form").forEach(f=>{ if(f!==form) f.hidden=true; });
-    form.hidden=!form.hidden;
-    if(!form.hidden){ const ta=form.querySelector("textarea"); if(ta){ ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } }
-  });
-  box.querySelectorAll("[data-edit-cancel]").forEach(b=>b.onclick=()=>{
-    const id=b.dataset.editCancel;
-    const form=box.querySelector(`[data-edit-form-for="${id}"]`);
-    if(form) form.hidden=true;
-  });
-  box.querySelectorAll("[data-edit-save]").forEach(b=>b.onclick=async()=>{
-    const id=b.dataset.editSave;
-    const form=box.querySelector(`[data-edit-form-for="${id}"]`);
-    const ta=form.querySelector("textarea");
-    const text=(ta.value||"").trim();
-    if(!text) return toast("De reactie mag niet leeg zijn","err");
-    const { error }=await sb.from("flags").update({ toelichting:text }).eq("id",id).eq("user_id",ME.id);
-    if(error) return toast(error.message,"err");
-    toast("Reactie bijgewerkt","ok"); renderAfterAnswer(q);
-  });
-  // Verwijs-naar-antwoord popup — vind de meest relevante textarea
-  box.querySelectorAll(".ref-picker-btn").forEach(b=>b.onclick=()=>{
-    const qid=b.dataset.refPickerFor;
-    // Bepaal welke textarea target moet zijn: expliciete data-target, anders zoek in dezelfde form
-    let ta=null;
-    if(b.dataset.target){ ta=document.getElementById(b.dataset.target); }
-    if(!ta){ const form=b.closest("[data-reply-form-for],[data-edit-form-for]"); if(form) ta=form.querySelector("textarea"); }
-    if(!ta){ ta=box.querySelector("#rMot"); }
-    openRefPicker(qid, ta);
-  });
-  // Eigen reactie verwijderen
-  box.querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{
-    const id=b.dataset.del;
-    if(!confirm("Weet je zeker dat je deze reactie wil verwijderen?")) return;
-    const { error }=await sb.from("flags").delete().eq("id",id).eq("user_id",ME.id);
-    if(error) return toast(error.message,"err");
-    toast("Reactie verwijderd","ok"); renderAfterAnswer(q);
-  });
+  // Alle draad-acties (reageren, bewerken, verwijderen, verwijs-naar-antwoord) in één helper.
+  wireFlagThread(box, q, ()=>renderAfterAnswer(q));
 }
 
 /* ============================================================
@@ -3005,7 +3021,7 @@ async function viewOverview(quizId){
   const filterFn = q => {
     const fs=fBy[q.id]||[];
     if(filter==="alle") return true;
-    if(filter==="geflagd") return fs.length>0;
+    if(filter==="geflagd") return fs.some(f=>f.status==="open");
     if(filter==="fout") return fs.some(f=>f.type==="fout");
     if(filter==="twijfel") return fs.some(f=>f.type==="twijfel");
     if(filter==="juist") return fs.some(f=>f.type==="juist");
@@ -3016,11 +3032,15 @@ async function viewOverview(quizId){
   const draw=()=>{
     const rows=(questions||[]).filter(filterFn).map(q=>{
       const fs=fBy[q.id]||[]; const open=fs.filter(f=>f.status==="open").length;
+      let flagCell;
+      if(!fs.length) flagCell = `<span class="muted">—</span>`;
+      else if(!open) flagCell = `<span class="count-chip resolved" title="${fs.length} reactie${fs.length===1?"":"s"} — alles afgehandeld">${ICON.check}</span>`;
+      else flagCell = `<span class="count-chip">${ICON.flag} ${open} open${fs.length>open?` <span class="muted" style="font-weight:400">· ${fs.length-open} klaar</span>`:""}</span>`;
       return `<tr class="row-link" data-qid="${q.id}" data-quiz="${quizId}">
         <td><span class="q-num">${q.qnum}</span></td>
         <td>${esc(q.text).slice(0,120)}${q.text.length>120?"…":""}</td>
         <td>${q.validated===false?`<span class="tag tag-warn">in overleg</span>`:`<strong>${lettersOf(q.correct_indexes)}</strong> ${srcBadge("Antwoord",q.answer_source)}`}</td>
-        <td>${fs.length?`<span class="count-chip">${ICON.flag} ${fs.length}${open?` · ${open} open`:""}</span>`:`<span class="muted">—</span>`}</td>
+        <td>${flagCell}</td>
       </tr>`;
     }).join("");
     document.getElementById("ovBody").innerHTML = rows||`<tr><td colspan="4" class="empty">Geen vragen voor dit filter.</td></tr>`;
@@ -5491,10 +5511,7 @@ async function viewEditQuestion(qid){
         <button class="btn btn-primary btn-sm" id="beheerRSubmit">Reactie plaatsen</button>
       </div>
     </div>
-    <div class="stack" style="margin-top:.6rem">${(flags||[]).map(f=>`<div class="card"><div class="spread">
-      <div><span class="pill ${f.type}">${f.type}</span> ${f.status==="afgehandeld"?`<span class="pill afgehandeld">afgehandeld</span>`:""} <span class="who">${esc(names[f.user_id]||"?")}</span>${arr(f.preferred_indexes).length?` <span class="muted">· verkiest <strong>${lettersOf(f.preferred_indexes)}</strong></span>`:""} <span class="when">${fmtDate(f.created_at)}</span>${f.toelichting?`<div class="cmt">${formatCommentBody(f.toelichting, qid, q)}</div>`:""}</div>
-      <div class="btnrow" style="margin:0">${f.status==="open"?`<button class="btn btn-ghost btn-sm" data-resolve="${f.id}">${ICON.check} Afhandelen</button>`:""}<button class="btn btn-danger btn-sm" data-delflag="${f.id}">Verwijderen</button></div>
-    </div></div>`).join("")||`<p class="muted">Geen reacties.</p>`}</div>
+    <div id="beheerFlagThread" class="stack" style="margin-top:.6rem">${renderFlagThread(flags||[], names, qid, {showAdminActions:true})}</div>
 
     <h2>Wijzigingshistoriek (${(edits||[]).length})</h2>
     <div class="stack">${(edits||[]).map(e=>`<div class="hist"><span class="who">${esc(names[e.edited_by]||"?")}</span> <span class="when">${fmtDate(e.created_at)}</span><div>${esc(e.summary)}</div></div>`).join("")||`<p class="muted">Geen wijzigingen.</p>`}</div>`;
@@ -5551,13 +5568,9 @@ async function viewEditQuestion(qid){
     if(error){ beheerRSubmit.disabled=false; return toast(error.message,"err"); }
     toast("Reactie geplaatst","ok"); viewEditQuestion(qid);
   };
-  app.querySelectorAll("[data-resolve]").forEach(b=>b.onclick=async()=>{
-    const { error }=await sb.from("flags").update({status:"afgehandeld"}).eq("id",b.dataset.resolve);
-    if(error) return toast(error.message,"err"); toast("Afgehandeld","ok"); viewEditQuestion(qid); });
-  app.querySelectorAll("[data-delflag]").forEach(b=>b.onclick=async()=>{
-    if(!confirm("Deze reactie verwijderen?")) return;
-    const { error }=await sb.from("flags").delete().eq("id",b.dataset.delflag);
-    if(error) return toast(error.message,"err"); toast("Verwijderd","ok"); viewEditQuestion(qid); });
+  // Threaded reacties: reageren / bewerken / verwijderen (eigen én admin) / afhandelen
+  const beheerThread=document.getElementById("beheerFlagThread");
+  if(beheerThread) wireFlagThread(beheerThread, q, ()=>viewEditQuestion(qid));
 }
 
 /* ============================================================

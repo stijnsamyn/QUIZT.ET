@@ -199,7 +199,8 @@ details .body{padding:.3rem .9rem .9rem}
 .pill.juist{background:var(--correct-soft);color:var(--correct)}
 .pill.afgehandeld{background:var(--surface2);color:var(--text-muted)}
 .count-chip{font-size:.78rem;font-weight:700;color:var(--wrong);background:var(--wrong-soft);
-  padding:.15rem .55rem;border-radius:99px}
+  padding:.15rem .55rem;border-radius:99px;display:inline-flex;align-items:center;gap:.25rem}
+.count-chip.resolved{color:var(--correct);background:var(--correct-soft)}
 
 /* history items */
 .hist{border-left:3px solid var(--border);padding:.4rem .8rem;margin:.4rem 0;font-size:.85rem}
