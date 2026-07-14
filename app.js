@@ -5575,8 +5575,10 @@ function wireQuestionEditor(q, quizId){
   card.addEventListener("change", e=>{ if(e.target.matches(".corr, .doc")) paintMismatchWarn(); });
   paintMismatchWarn();
   card.querySelector(`[data-delq="${q.id}"]`).onclick=async()=>{
-    if(!confirm("Vraag verwijderen?")) return;
-    await sb.from("questions").delete().eq("id",q.id); toast("Verwijderd","ok"); viewBeheerQuiz(quizId);
+    if(!confirm("Vraag verwijderen? Ook je eigen antwoorden, events en reacties op deze vraag verdwijnen. Je 'historisch fout'-lijst en pogingen blijven werken — de vraag valt er gewoon uit.")) return;
+    const { error }=await sb.from("questions").delete().eq("id",q.id);
+    if(error) return toast("Verwijderen mislukt: "+error.message,"err");
+    toast("Verwijderd","ok"); viewBeheerQuiz(quizId);
   };
   // ---- Matrix-editor wiring (indien van toepassing) ----
   if(qtype==="matrix"){
