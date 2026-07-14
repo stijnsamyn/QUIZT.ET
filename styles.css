@@ -349,14 +349,17 @@ tr:hover td{background:var(--surface2)}
 
 /* Mode-keuze: Studeren / Quiz */
 .mode-choice{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.7rem}
-.mode-btn{display:flex;flex-direction:column;gap:.25rem;text-align:left;cursor:pointer;
-  padding:.9rem 1rem;border-radius:var(--radius);border:2px solid var(--border);
+.mode-btn{display:flex;align-items:center;justify-content:space-between;gap:.5rem;text-align:left;cursor:pointer;
+  padding:1rem 1.1rem;border-radius:var(--radius);border:2px solid var(--border);
   background:var(--surface);transition:border-color .12s,box-shadow .12s,transform .06s}
 .mode-btn:hover{border-color:var(--accent);box-shadow:var(--shadow-md)}
 .mode-btn.active{border-color:var(--accent);background:var(--accent-soft)}
-.mode-btn-title{font-weight:800;color:var(--ink);font-size:1rem}
+.mode-btn-title{font-weight:800;color:var(--ink);font-size:1.05rem}
 .mode-btn.active .mode-btn-title{color:var(--accent-dark)}
-.mode-btn-sub{font-size:.78rem;color:var(--text-muted);line-height:1.35}
+.mode-info{flex:0 0 auto;width:1.35rem;height:1.35rem;border-radius:50%;border:1.5px solid var(--accent);
+  color:var(--accent-dark);background:var(--accent-soft);font-style:italic;font-family:Georgia,serif;
+  font-weight:800;font-size:.85rem;line-height:1;display:inline-flex;align-items:center;justify-content:center}
+.mode-info:hover{background:var(--accent);color:#fff}
 .mode-block{display:flex;flex-direction:column;gap:.7rem}
 @media(max-width:520px){ .mode-choice{grid-template-columns:1fr} }
 

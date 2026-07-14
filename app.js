@@ -1103,20 +1103,16 @@ function renderPlaySetup(){
       <div class="mode-choice" id="modeChoice">
         <button class="mode-btn" data-mode="studeren">
           <span class="mode-btn-title">Studeren</span>
-          <span class="mode-btn-sub">Lees alle vragen door met het juiste antwoord en de uitleg erbij. Geen scoring.</span>
+          <span class="mode-info" data-info="studeren" title="Uitleg" aria-label="Uitleg over Studeren">i</span>
         </button>
         <button class="mode-btn" data-mode="quiz">
           <span class="mode-btn-title">Quiz</span>
-          <span class="mode-btn-sub">Oefen jezelf: kies aantal, selectie en volgorde, en test of je het antwoord kent.</span>
+          <span class="mode-info" data-info="quiz" title="Uitleg" aria-label="Uitleg over Quiz">i</span>
         </button>
         <button class="mode-btn" data-mode="quick">
           <span class="mode-btn-title">QuickQuiz</span>
-          <span class="mode-btn-sub">Meteen starten: ${Math.min(20,total)} willekeurige vragen, geen instellingen.</span>
+          <span class="mode-info" data-info="quick" title="Uitleg" aria-label="Uitleg over QuickQuiz">i</span>
         </button>
-      </div>
-
-      <div class="mode-block" id="studyBlock" hidden>
-        <button class="btn btn-primary btn-start" data-nav="#/quiz/${PLAY.quiz.id}/studeer">Begin met studeren →</button>
       </div>
 
       <div class="mode-block" id="quizBlock" hidden>
@@ -1173,23 +1169,23 @@ function renderPlaySetup(){
     ${renderSetupFlagGroups(PLAY.openFlags, PLAY.all, PLAY.quiz, PLAY.flagNames)}`:""}`;
   app.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
   app.querySelectorAll("[data-q]").forEach(a=>a.onclick=()=>PLAY_goto(a.dataset.quiz, a.dataset.q));
-  // Mode-keuze: eerst Studeren of Quiz kiezen; daarna verschijnen de rest van de opties.
-  const showMode=(m)=>{
-    const sb2=document.getElementById("studyBlock"), qb=document.getElementById("quizBlock");
-    if(sb2) sb2.hidden = m!=="studeren";
-    if(qb) qb.hidden = m!=="quiz";
-    document.querySelectorAll("#modeChoice .mode-btn").forEach(b=>b.classList.toggle("active", b.dataset.mode===m));
+  // Mode-keuze: Studeren en QuickQuiz starten meteen; Quiz onthult de opties eronder.
+  const showQuizOptions=()=>{
+    const qb=document.getElementById("quizBlock"); if(qb) qb.hidden=false;
+    document.querySelectorAll("#modeChoice .mode-btn").forEach(b=>b.classList.toggle("active", b.dataset.mode==="quiz"));
   };
   document.querySelectorAll("#modeChoice .mode-btn").forEach(b=>b.onclick=()=>{
-    if(b.dataset.mode==="quick"){
+    const m=b.dataset.mode;
+    if(m==="studeren"){ go("#/quiz/"+PLAY.quiz.id+"/studeer"); return; }
+    if(m==="quick"){
       // QuickQuiz: 20 willekeurige vragen, meteen starten, geen instellingen.
-      const n=Math.min(20,total);
       savePrefs({size, focus, order, customSize:""});
-      startSession(n, "alle", "willekeurig");
+      startSession(Math.min(20,total), "alle", "willekeurig");
       return;
     }
-    showMode(b.dataset.mode);
+    showQuizOptions();
   });
+  document.querySelectorAll("#modeChoice .mode-info").forEach(el=>el.onclick=e=>{ e.stopPropagation(); openModeInfo(el.dataset.info); });
   const rb=document.getElementById("resumeBtn"); if(rb) rb.onclick=()=>resumeSavedSession();
   const drb=document.getElementById("discardResumeBtn"); if(drb) drb.onclick=()=>{ if(!confirm("De opgeslagen sessie weggooien?")) return; clearSession(PLAY.quiz.id); renderPlaySetup(); };
   const wire=(id,attr,set)=>app.querySelectorAll(`#${id} [data-${attr}]`).forEach(b=>b.onclick=()=>{
@@ -1216,6 +1212,31 @@ function renderPlaySetup(){
     startSession(finalSize, focus, order);
   };
   document.getElementById("wipeBtn").onclick=wipeProgress;
+}
+
+function openModeInfo(mode){
+  const info={
+    studeren:{ title:"Studeren", body:"Lees alle vragen rustig door mét het juiste antwoord en de uitleg erbij — zonder scoring. Je begint bij vraag 1 en bladert met Vorige/Volgende of de pijltjestoetsen. Je kan ook meteen naar een vraagnummer springen." },
+    quiz:{ title:"Quiz", body:"Oefen jezelf. Je kiest hoeveel vragen, welke selectie (bv. enkel je foute of nog niet beantwoorde) en in welke volgorde. Je test of je het antwoord kent en krijgt na elke vraag feedback. Er is ook een examen-modus zonder tussentijdse feedback." },
+    quick:{ title:"QuickQuiz", body:"Meteen starten met 20 willekeurige vragen, zonder eerst iets in te stellen. Ideaal voor een snelle test tussendoor." },
+  }[mode] || {title:"Uitleg",body:""};
+  const overlay=document.createElement("div");
+  overlay.className="modes-overlay";
+  overlay.innerHTML=`<div class="modes-modal" style="max-width:460px" role="dialog" aria-label="${esc(info.title)}">
+    <div class="modes-hd">
+      <div class="modes-title">${ICON.info} ${esc(info.title)}</div>
+      <button class="tetris-close" id="miClose" aria-label="Sluiten">×</button>
+    </div>
+    <div class="modes-body"><p>${esc(info.body)}</p></div>
+    <div class="modes-foot"><button class="btn btn-primary btn-sm" id="miOk">Sluit</button></div>
+  </div>`;
+  const close=()=>{ overlay.remove(); window.removeEventListener("keydown",onKey); };
+  const onKey=e=>{ if(e.key==="Escape") close(); };
+  document.body.appendChild(overlay);
+  overlay.querySelector("#miClose").onclick=close;
+  overlay.querySelector("#miOk").onclick=close;
+  overlay.addEventListener("click",e=>{ if(e.target===overlay) close(); });
+  window.addEventListener("keydown",onKey);
 }
 
 function openModesHelp(){
