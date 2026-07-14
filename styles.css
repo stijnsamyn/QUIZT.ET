@@ -198,6 +198,16 @@ details .body{padding:.3rem .9rem .9rem}
 .pill.twijfel{background:var(--warn-soft);color:var(--warn)}
 .pill.juist{background:var(--correct-soft);color:var(--correct)}
 .pill.afgehandeld{background:var(--surface2);color:var(--text-muted)}
+.pill.commentaar{background:var(--accent-soft);color:var(--accent-dark)}
+
+/* Handleiding-tabs + engagement-popup */
+.manual-tabs{margin:.2rem 1.2rem 0;padding-bottom:0;border-bottom:none;position:sticky;top:0;background:var(--surface);z-index:2}
+.manual-callout{background:var(--accent-soft);border:1px solid var(--accent-soft-2);border-radius:10px;padding:.8rem 1rem;margin:.2rem 0 1rem}
+.manual-callout strong{color:var(--accent-dark)}
+.manual-callout p{margin:.4rem 0 0;font-size:.9rem}
+.engage-modal{max-width:520px}
+.engage-modal .modes-body p{margin:.5rem 0}
+.engage-modal .pill{margin:0 .1rem}
 .count-chip{font-size:.78rem;font-weight:700;color:var(--wrong);background:var(--wrong-soft);
   padding:.15rem .55rem;border-radius:99px;display:inline-flex;align-items:center;gap:.25rem}
 .count-chip.resolved{color:var(--correct);background:var(--correct-soft)}

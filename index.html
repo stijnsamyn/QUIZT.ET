@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>QUIZT.ET</title>
+<title>QUIZTET</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 36'><text y='28' font-size='28'>🧠</text></svg>">
 
 <!-- Sneller verbinden met externe servers (DNS + TLS alvast opzetten) -->
@@ -16,11 +16,11 @@
 <!-- BELANGRIJK: verhoog APP_VERSION bij elke deploy. Zo halen bezoekers de nieuwe
      versie op, maar wordt de code tussendoor gewoon gecachet (= veel sneller laden).
      GitHub Pages cachet max. 10 minuten, dus updates komen sowieso snel door. -->
-<link rel="stylesheet" href="styles.css?v=7">
+<link rel="stylesheet" href="styles.css?v=8">
 </head>
 <body>
   <header class="app-header" id="appHeader" hidden>
-    <div class="brand" data-nav="#/">QUIZT.ET</div>
+    <div class="brand" data-nav="#/">QUIZTET</div>
     <button class="nav-toggle" id="navToggle" aria-label="Menu">☰</button>
     <nav class="topnav" id="topnav"></nav>
     <div class="userbox" id="userbox"></div>
@@ -37,6 +37,6 @@
        vaste versie: geen redirect-keten meer en perfect cachebaar. -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.106.2/dist/umd/supabase.min.js" defer></script>
   <script src="config.js?v=1" defer></script>
-  <script src="app.js?v=10" defer></script>
+  <script src="app.js?v=11" defer></script>
 </body>
 </html>

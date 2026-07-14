@@ -1,5 +1,5 @@
 /* ============================================================
-   QUIZT.ET — frontend (vanilla JS + Supabase)
+   QUIZTET — frontend (vanilla JS + Supabase)
    ============================================================ */
 "use strict";
 
@@ -494,7 +494,7 @@ async function viewLogin(){
   app.innerHTML = `
     <div class="auth-wrap">
       <div class="card">
-        <h1>QUIZT.ET</h1>
+        <h1>QUIZTET</h1>
         <p class="muted" style="margin-bottom:1rem">Oefenquizzen</p>
         <div class="tabs">
           <button id="tabLogin" class="active">Inloggen</button>
@@ -678,7 +678,7 @@ async function viewHome(){
   if(stale()) return;
   app.innerHTML=`
     <div class="spread"><h1>Quizzen</h1>${isEditor()?`<button class="btn btn-primary btn-sm" data-nav="#/beheer">Beheer</button>`:""}</div>
-    <div class="dev-note">${ICON.info} QUIZT.ET wordt nog volop ontwikkeld — vernieuw af en toe eens de pagina om de laatste functies te hebben. <button class="btn btn-ghost btn-sm" id="hardRefresh" style="margin-left:.5rem">Nu vernieuwen</button></div>
+    <div class="dev-note">${ICON.info} QUIZTET wordt nog volop ontwikkeld — vernieuw af en toe eens de pagina om de laatste functies te hebben. <button class="btn btn-ghost btn-sm" id="hardRefresh" style="margin-left:.5rem">Nu vernieuwen</button></div>
     ${quizzes&&quizzes.length?`<div class="grid" style="margin-top:1rem">${cards}</div>`:`<div class="empty">Nog geen quizzen.</div>`}
     <div id="gamesSection"></div>
     <div id="gamesTop"></div>`;
@@ -4235,12 +4235,11 @@ async function viewAccount(){
     <div class="stack">
       ${(flags||[]).map(f=>`<div class="card"><div class="spread"><div><span class="pill ${f.type}">${f.type}</span> ${arr(f.preferred_indexes).length?`<span class="muted">· verkiest <strong>${lettersOf(f.preferred_indexes)}</strong></span> `:""}${qlink(f.question_id)} <span class="when">${fmtDate(f.created_at)}</span>${f.toelichting?`<div class="cmt">${formatCommentBody(f.toelichting, f.question_id)}</div>`:""}</div><button class="btn btn-danger btn-sm" data-delflag="${f.id}">Verwijderen</button></div></div>`).join("")||`<p class="muted">Je hebt nog geen reacties geplaatst.</p>`}
     </div>
-    ${isEditor()?`
-    <h2>Beheerdershandleiding</h2>
+    <h2>Handleiding</h2>
     <div class="card">
-      <button class="btn btn-primary btn-sm" id="beheerHelpBtn">${ICON.info} Wat kan ik als ${isAdmin()?"admin":"beheerder"} doen?</button>
-      <span class="muted" style="font-size:.82rem;margin-left:.5rem">Overzicht van al je bevoegdheden en waar ze zich bevinden.</span>
-    </div>`:""}`;
+      <button class="btn btn-primary btn-sm" id="beheerHelpBtn">${ICON.info} Open de handleiding</button>
+      <span class="muted" style="font-size:.82rem;margin-left:.5rem">Hoe je speelt, fouten signaleert${isEditor()?" en de quiz beheert":""}.</span>
+    </div>`;
   document.getElementById("saveProfile").onclick=async()=>{
     const cohort=document.getElementById("accCohort").value.trim();
     const { error }=await sb.from("profiles").update({ cohort }).eq("id",ME.id);
@@ -4257,127 +4256,158 @@ async function viewAccount(){
   };
   app.querySelectorAll("[data-q]").forEach(a=>a.onclick=()=>PLAY_goto(a.dataset.quiz, a.dataset.q));
   app.querySelectorAll("[data-delflag]").forEach(b=>b.onclick=async()=>{ if(!confirm("Deze reactie verwijderen?"))return; const {error}=await sb.from("flags").delete().eq("id",b.dataset.delflag); if(error)return toast(error.message,"err"); toast("Verwijderd","ok"); viewAccount(); });
-  const bh=document.getElementById("beheerHelpBtn"); if(bh) bh.onclick=openBeheerManual;
+  const bh=document.getElementById("beheerHelpBtn"); if(bh) bh.onclick=()=>openHandleiding("gebruiker");
 }
 
-function openBeheerManual(){
-  const admin=isAdmin();
+/* ============================================================
+   HANDLEIDING — getabde hulp: Gebruiker · Beheer · Admin
+   Iedereen ziet "Gebruiker"; beheerders ook "Beheer"; admins alles.
+   ============================================================ */
+function manualGebruiker(){
+  return `
+    <div class="manual-callout">
+      <strong>${ICON.flag} Jij houdt de quiz mee juist.</strong>
+      <p>De vragen en antwoorden worden nooit "af" — wetgeving verandert, en soms sluipt er een fout in. <strong>Zie je een fout antwoord, twijfel je, of wil je iets verduidelijken? Signaleer het.</strong> Dat is de enige manier om de quiz up-to-date en betrouwbaar te houden voor iedereen.</p>
+    </div>
+
+    <h3>Een quiz spelen</h3>
+    <ul>
+      <li>Open een quiz op de startpagina. Je kiest eerst <strong>hoeveel</strong> vragen, <strong>welke</strong> (bv. enkel je foute) en in <strong>welke volgorde</strong>.</li>
+      <li><strong>Slim oefenen</strong> geeft voorrang aan wat je nog niet kent — de aanrader.</li>
+      <li>Je voortgang wordt bewaard en synct tussen je toestellen. Je kan een sessie later hervatten.</li>
+      <li>De volgorde van de antwoordopties wordt door elkaar geschud, zodat je op de <em>inhoud</em> traint en niet op "het is altijd C".</li>
+    </ul>
+
+    <h3>Fouten signaleren en opmerkingen geven</h3>
+    <p>Nadat je een vraag beantwoord hebt, verschijnt onderaan een reactie-blok. Daar kan je:</p>
+    <ul>
+      <li><span class="pill fout">fout</span> — je vindt dat het aangeduide juiste antwoord <strong>niet klopt</strong>. Duid aan welk antwoord volgens jou juist is.</li>
+      <li><span class="pill twijfel">twijfel</span> — je bent niet zeker en wil er input over.</li>
+      <li><span class="pill juist">juist</span> — je bevestigt dat het antwoord klopt (handig bij niet-gevalideerde vragen).</li>
+      <li><span class="pill commentaar">commentaar</span> — een opmerking, verduidelijking of vraag aan de groep.</li>
+    </ul>
+    <p class="tip">💡 Bij een <strong>niet-gevalideerde</strong> vraag is er nog geen officieel juist antwoord. Jouw stem en reacties helpen bepalen wat juist is.</p>
+
+    <h3>Meepraten en opvolgen</h3>
+    <ul>
+      <li>Je kan <strong>reageren</strong> op de reacties van anderen met de "Reageer"-knop — zo ontstaat een discussie per vraag.</li>
+      <li>Bij <strong>Meldingen</strong> (in het menu) zie je nieuwe reacties op vragen waar jij ook al iets plaatste.</li>
+      <li>Onder <strong>Account</strong> vind je al je eigen reacties terug; die kan je daar ook aanpassen of verwijderen.</li>
+    </ul>
+
+    <h3>Je vorderingen</h3>
+    <ul>
+      <li><strong>Statistiek</strong> toont je groei: % juist per dag en je zwakke plekken.</li>
+      <li><strong>Historische pogingen</strong> (per quiz) laten je een volledige examen-poging bewaren en later terugkijken; de score wordt live berekend tegen de huidige juiste antwoorden.</li>
+      <li>Er zijn ook enkele <strong>games</strong> als ontspanning — sommige ontgrendel je door genoeg te oefenen.</li>
+    </ul>`;
+}
+
+function manualBeheer(){
+  return `
+    <p class="muted">Als <strong>beheerder</strong> beheer je quizzen en vragen, en handel je de reacties van spelers af. Alles per quiz zit gebundeld in één werkruimte.</p>
+
+    <h3>De quiz-werkruimte (Beheer → open een quiz)</h3>
+    <p>Elke quiz opent in één pagina met tabbladen:</p>
+    <ul>
+      <li><strong>Overzicht</strong> — een compacte tabel van alle vragen met status en open reacties. Ideaal om in één oogopslag probleemvragen te spotten. Bevat ook de <strong>PDF-export</strong>.</li>
+      <li><strong>Vragen</strong> — elke vraag met volledige inhoud en antwoorden. Hier <strong>filter</strong> en <strong>zoek</strong> je, voeg je vragen toe, kan je in bulk (de)valideren en spring je naar "Bewerken".</li>
+      <li><strong>Reacties</strong> — alle open reacties van díe quiz, per vraag gegroepeerd, met afhandel-knoppen.</li>
+      <li><strong>Instellingen</strong> — titel, beschrijving, docent-antwoorden aan/uit, publiceren en verwijderen.</li>
+    </ul>
+
+    <h3>Quizzen beheren (Beheer-dashboard)</h3>
+    <ul>
+      <li><strong>Nieuwe quiz</strong> — knop op het dashboard. Je geeft een titel; nadien voeg je vragen toe in de Vragen-tab.</li>
+      <li><strong>Quiz importeren</strong> — via een Markdown-sjabloon (zie <code>quiz-sjabloon.md</code>). Handig om een reeks vragen in één keer aan te maken.</li>
+      <li><strong>Publiceren / concept</strong> — enkel gepubliceerde quizzen zijn zichtbaar voor spelers (Instellingen-tab, of snelknop in de lijst).</li>
+    </ul>
+
+    <h3>Een vraag bewerken</h3>
+    <p>Via "Bewerken" bij een vraag (of "Bewerk deze vraag" in het speelscherm) open je de volledige vraag-editor:</p>
+    <ul>
+      <li><strong>Gevalideerd juist antwoord</strong> — uit = geen officieel antwoord; de groep bepaalt het via reacties (tag "Niet gevalideerd"). Zet pas op gevalideerd als je zeker bent — dan pas wordt de vraag gescoord.</li>
+      <li><strong>Meerkeuze</strong> — meerdere juiste antwoorden mogelijk (gaat automatisch aan bij meer dan één juist).</li>
+      <li><strong>Antwoordopties</strong> — per optie een vinkje <strong>J</strong> (juist) en, indien ingeschakeld, <strong>D</strong> (het antwoord dat de docent koos — enkel invullen als het afwijkt).</li>
+      <li><strong>Wettelijke basis / Wettekst / Uitleg</strong> — bron, volledige artikeltekst en context. Ondersteunt eenvoudige opmaak (<code>**vet**</code>, <code>- lijstjes</code>).</li>
+      <li><strong>Herkomst</strong> — duid per veld mens of AI aan; verschijnt als icoontje bij de vraag.</li>
+    </ul>
+    <p class="tip">💡 Elke bewerking wordt gelogd in de wijzigingshistoriek van de vraag, ook zichtbaar voor spelers.</p>
+
+    <h3>Verwijzen naar een antwoord (opties worden geschud!)</h3>
+    <p>Omdat de optie-volgorde per speler verschilt, verwijs je in je uitleg nooit met een vaste letter maar met een placeholder:</p>
+    <ul>
+      <li><code>{A}</code>, <code>{B}</code> … — de optie op die <strong>positie in de editor</strong>. Klik de chip naast een optie om ze in te voegen.</li>
+      <li><code>{A,B}</code> … — meerdere opties tegelijk.</li>
+      <li><code>{juist}</code> — verwijst altijd naar het juiste antwoord, welke letter dat bij de speler ook wordt.</li>
+      <li><code>{docent}</code> — het antwoord dat de docent aanduidde.</li>
+    </ul>
+    <p class="tip"><strong>Voorbeeld:</strong> "Antwoord {juist} klopt want art. 34 Sv. bepaalt…" — de app vertaalt <code>{juist}</code> naar de juiste letter bij elke lezer.</p>
+
+    <h3>Reacties afhandelen</h3>
+    <ul>
+      <li>Op het <strong>Beheer-dashboard</strong> zie je bovenaan hoeveel vragen open reacties hebben; de tegel en de badges linken je rechtstreeks naar de juiste plek.</li>
+      <li>In de <strong>Reacties</strong>-tab van een quiz staan alle open reacties per vraag. Handel af met het ✓, of "Alles afhandelen" per vraag.</li>
+      <li>Je kan zelf <strong>reageren</strong> zoals elke speler; je krijgt geen aparte badge, enkel de rolpil verklapt dat je beheerder bent.</li>
+      <li>Als beheerder kan je <strong>alle</strong> reacties verwijderen (spelers enkel hun eigen). Verwijderen is definitief.</li>
+    </ul>`;
+}
+
+function manualAdmin(){
+  return `
+    <p class="muted">Een <strong>admin</strong> heeft alle beheerder-rechten, plus beheer van gebruikers en app-instellingen.</p>
+
+    <h3>Gebruikers &amp; rollen (Beheer → Gebruikers)</h3>
+    <ul>
+      <li><strong>Gebruikersstatistiek</strong> — per oorsprong/cohort en per gebruiker: aantal antwoorden, % juist, bezoeken, aantal reacties.</li>
+      <li><strong>Rollen wijzigen</strong> — per gebruiker een keuze "speler / beheerder / admin". Je eigen rol kan je niet wijzigen (om lock-out te vermijden).</li>
+    </ul>
+
+    <h3>App-instellingen (Beheer → Instellingen)</h3>
+    <ul>
+      <li><strong>Registratie open/dicht</strong> — bij dicht kunnen geen nieuwe accounts worden aangemaakt; bestaande blijven werken.</li>
+      <li><strong>Games</strong> — per game: vrij spelen of als beloning, scorereset (wekelijks/maandelijks) en moeilijkheidsgraad.</li>
+    </ul>
+
+    <h3>Waar je op moet letten</h3>
+    <ul>
+      <li><strong>Publiek zichtbaar</strong>: statistieken en collectieve reacties zijn voor alle spelers zichtbaar — formuleer discussies neutraal.</li>
+      <li><strong>Validatie</strong>: een vraag wordt pas gescoord zodra ze op "gevalideerd" staat. Zet dat pas als het juiste antwoord vaststaat.</li>
+      <li><strong>Docent-antwoord</strong>: enkel invullen als de docent bewust afwijkt van het juridische antwoord.</li>
+    </ul>`;
+}
+
+function openHandleiding(initialTab){
+  const tabs=[{key:"gebruiker",label:"Voor spelers"}];
+  if(isEditor()) tabs.push({key:"beheer",label:"Voor beheerders"});
+  if(isAdmin()) tabs.push({key:"admin",label:"Voor admins"});
+  let tab = initialTab && tabs.some(t=>t.key===initialTab) ? initialTab : tabs[0].key;
   const overlay=document.createElement("div");
   overlay.className="modes-overlay";
-  overlay.innerHTML=`<div class="modes-modal" role="dialog" aria-label="Beheerdershandleiding">
-    <div class="modes-hd">
-      <div class="modes-title">${ICON.info} Handleiding voor ${admin?"admin":"beheerder"}</div>
-      <button class="tetris-close" id="bhClose" aria-label="Sluiten">×</button>
-    </div>
-    <div class="modes-body">
-      <p class="muted">Als <strong>${admin?"admin":"beheerder"}</strong> zie je enkele extra opties in de app. Hieronder vind je waar ze zitten en wat ze doen.</p>
-
-      <h3>Waar vind je je beheerdersfuncties?</h3>
-      <ul>
-        <li><strong>Beheer</strong> (nav-link) — dashboard met alle quizzen, open flags en (voor admin) rollen &amp; instellingen.</li>
-        <li><strong>Bewerk deze vraag</strong> — rechtsboven in het speelscherm bij élke vraag.</li>
-        <li><strong>Detail-icoontjes</strong> — bij statistieken en overzichten kan je op elke rij klikken om ernaartoe te springen.</li>
-        <li><strong>Gebruikers</strong> (nav-link) — statistiek per gebruiker en per PROM-cohort.</li>
-      </ul>
-
-      <h3>Quizzen beheren</h3>
-      <ul>
-        <li><strong>Nieuwe quiz aanmaken</strong> — knop op het Beheer-dashboard. Je geeft enkel een titel; nadien open je de quiz om vragen toe te voegen.</li>
-        <li><strong>Quiz importeren</strong> — via een Markdown-sjabloon (zie <code>quiz-sjabloon.md</code>). Handig om een reeks vragen in één keer aan te maken.</li>
-        <li><strong>Titel &amp; beschrijving bewerken</strong> — bovenaan in de quiz-editor.</li>
-        <li><strong>Publiceren / naar concept</strong> — knop bij elke quiz. Enkel gepubliceerde quizzen zijn zichtbaar voor spelers.</li>
-        <li><strong>Quiz verwijderen</strong> — permanent, inclusief alle vragen, antwoorden en flags. Weet zeker wat je doet.</li>
-      </ul>
-
-      <h3>Vragen bewerken</h3>
-      <p>In de quiz-editor kan je per vraag alles instellen. Nieuwe vragen worden onderaan toegevoegd.</p>
-      <ul>
-        <li><strong>Vraagtekst</strong> — de vraag zelf.</li>
-        <li><strong>Gevalideerd juist antwoord</strong> (vinkje) — uit = geen officieel antwoord, de groep bepaalt het via flags. Krijgt dan de tag "Niet gevalideerd".</li>
-        <li><strong>Meerkeuze</strong> (vinkje) — er kunnen meerdere antwoorden juist zijn. Wordt automatisch aangezet als je meer dan één "J" aankruist.</li>
-        <li><strong>Antwoordopties</strong> — per optie twee vinkjes:
-          <ul>
-            <li><strong>J</strong> = juridisch/officieel juist antwoord.</li>
-            <li><strong>D</strong> = het antwoord dat <em>de docent</em> koos. Enkel invullen als het afwijkt van "J".</li>
-          </ul>
-        </li>
-        <li><strong>Toelichting docent</strong> — korte uitleg waarom de docent afwijkt (wordt getoond in het docent-blok bij de vraag).</li>
-        <li><strong>Wettelijke basis</strong> — één zin of paragraaf met de bron (art. X, wet Y).</li>
-        <li><strong>Wettekst</strong> — de volledige artikeltekst, uitklapbaar getoond onder de uitleg.</li>
-        <li><strong>Uitleg</strong> — de context waarom het antwoord juist is.</li>
-        <li><strong>Herkomst</strong> — voor juist antwoord, uitleg én wettelijke basis kan je apart mens of AI aanduiden. Verschijnt als klein icoontje bij de vraag.</li>
-        <li><strong>Vraag verwijderen</strong> — permanent, en verwijdert ook alle antwoorden, events en flags die aan die vraag hangen.</li>
-      </ul>
-      <p class="tip">💡 Elke bewerking wordt gelogd in de wijzigingshistoriek van de vraag.</p>
-
-      <h3>Antwoorden worden geschud — hoe verwijs je ernaar?</h3>
-      <p>De app schudt per gebruiker en per sessie de volgorde van de antwoordopties. Dat traint spelers op de <em>inhoud</em>, niet op de positie. Gevolg: "A" bij jou kan bij een andere gebruiker "C" zijn.</p>
-      <p>In je <strong>uitleg</strong>, <strong>wettelijke basis</strong>, <strong>wettekst</strong> of <strong>docent-toelichting</strong> mag je verwijzen met een van deze placeholders:</p>
-      <ul>
-        <li><code>{A}</code> <code>{B}</code> <code>{C}</code> … — verwijst naar de <strong>positie in de editor</strong>: <code>{A}</code> = eerste optie in het formulier, <code>{B}</code> = tweede, enz. Klik op de chip naast een optie om die automatisch in te voegen op je cursorpositie. Na de klik toont een toast naar welke optie de verwijzing wijst.</li>
-        <li><code>{A,B}</code> <code>{A,C,D}</code> … — verwijs naar <strong>meerdere</strong> opties tegelijk (bv. bij multi-antwoord). Wordt vertaald naar "A, C" bij die specifieke speler. <strong>Shift+klik</strong> op een letter-chip breidt een lopende <code>{A}</code> groep uit tot <code>{A,B}</code>.</li>
-        <li><code>{juist}</code> — verwijst <em>altijd</em> naar het juiste antwoord (welke letter dat ook geworden is na shuffle). Voor meerkeuze-vragen worden alle juiste letters samen getoond (bv. "A, C"). Handig als je "antwoord {juist} is correct omdat…" wil schrijven zonder over een specifieke optie na te denken.</li>
-        <li><code>{docent}</code> — verwijst naar het antwoord dat de docent aanduidde. Enkel zinvol als de docent afwijkt van het juridische antwoord.</li>
-      </ul>
-      <p class="tip"><strong>Voorbeeld met {A}:</strong> "Antwoord {A} is juist want art. 34 Sv. bepaalt…". Ziet Anke A in haar shuffle staan, blijft "{A}" → "A". Ziet Bart daar "C", vertaalt "{A}" naar "C".</p>
-      <p class="tip"><strong>Voorbeeld met {juist}:</strong> "Antwoord {juist} klopt: de wettelijke basis is art. 34 Sv." — geen risico op verkeerde referentie, want de app vertaalt naar wat écht juist is bij die speler.</p>
-
-      <h3>Flags en reacties (Beheer → tab "Open flags")</h3>
-      <ul>
-        <li>Reacties (fout, twijfel, docent, commentaar) staan <strong>gegroepeerd per vraag</strong>. Vaak zijn er meerdere reacties over hetzelfde: dat zie je aan het pill met "N reacties".</li>
-        <li>Klik op de vraagtitel om de discussie te bekijken en desnoods de vraag aan te passen.</li>
-        <li>Handel af per flag met het ✓-icoontje, of gebruik <strong>"Alles afhandelen"</strong> om alle reacties op één vraag ineens te sluiten.</li>
-        <li>Je kan zelf reageren op reacties zoals elke speler (met het "Reageer"-knopje bij de vraag).</li>
-      </ul>
-
-      <h3>Flags &amp; opmerkingen afhandelen</h3>
-      <ul>
-        <li>Op het Beheer-dashboard zie je alle <strong>open flags</strong> (fout, twijfel, docent, commentaar) — de reacties waar spelers om input vragen.</li>
-        <li>Klik op een flag om naar de vraag te springen, de discussie te lezen en desnoods de vraag aan te passen.</li>
-        <li><strong>Markeer als afgehandeld</strong> zodra de zaak opgelost is (je kan de vraag aanpassen én de flag laten open of afsluiten).</li>
-        <li>Je kan <strong>reageren op reacties</strong> zoals elke speler (met het "Reageer"-knopje) — jouw commentaar krijgt geen aparte beheerder-badge, alleen de rolpil in de header verklapt het.</li>
-      </ul>
-
-      <h3>Wat mag je verwijderen?</h3>
-      <ul>
-        <li>Als speler kan iedereen zijn <strong>eigen</strong> reacties verwijderen via Mijn account.</li>
-        <li>Als beheerder kan je <strong>alle</strong> flags/reacties verwijderen in de vraag-editor.</li>
-        <li><strong>Wees voorzichtig</strong>: verwijderen is definitief, en je verwijdert vaak ook context voor andere spelers.</li>
-      </ul>
-
-      <h3>Statistiek</h3>
-      <ul>
-        <li><strong>Statistiek</strong> (algemeen) toont KPI's over alle quizzen — publiek zichtbaar.</li>
-        <li><strong>Statistiek per quiz</strong> — moeilijkste vragen, meest geflagd, groeps-curve.</li>
-        <li><strong>Gebruikers</strong> (enkel voor beheerder/admin) — per PROM-cohort en per gebruiker: aantal antwoorden, % juist, bezoeken, aantal reacties.</li>
-      </ul>
-
-      ${admin?`
-      <h3>Enkel voor admin</h3>
-      <ul>
-        <li><strong>Rollen wijzigen</strong> — op Beheer, per gebruiker een dropdown "speler / beheerder / admin". Je kan je eigen rol niet wijzigen om lock-out te vermijden.</li>
-        <li><strong>Registratie open/dicht</strong> — schakelaar op Beheer. Bij dicht: geen nieuwe accounts. Bestaande accounts blijven werken.</li>
-        <li>Alle beheerder-rechten zitten ook in de admin-rol.</li>
-      </ul>`:""}
-
-      <h3>Waar je op moet letten</h3>
-      <ul>
-        <li><strong>Publiek zichtbaar</strong>: de statistieken en collectieve reacties zijn voor alle spelers zichtbaar. Discussie in flags dus best neutraal formuleren.</li>
-        <li><strong>Gevalideerd &amp; niet-gevalideerd</strong>: pas de vlag pas op "gevalideerd" wanneer je zeker bent van het juiste antwoord — dan begint de app pas het antwoord te scoren.</li>
-        <li><strong>Docent-antwoord</strong>: enkel invullen als de docent expliciet iets anders aanduidde dan de wet. Bij overeenstemming laat je "D" leeg.</li>
-        <li><strong>Wijzigingen zijn zichtbaar</strong>: elke bewerking komt in de wijzigingshistoriek van de vraag, ook zichtbaar voor spelers.</li>
-      </ul>
-    </div>
-    <div class="modes-foot"><button class="btn btn-primary btn-sm" id="bhOk">Sluit</button></div>
-  </div>`;
-  document.body.appendChild(overlay);
+  const bodyFor = k => k==="admin" ? manualAdmin() : k==="beheer" ? manualBeheer() : manualGebruiker();
+  const render=()=>{
+    overlay.innerHTML=`<div class="modes-modal" role="dialog" aria-label="Handleiding">
+      <div class="modes-hd">
+        <div class="modes-title">${ICON.info} Handleiding</div>
+        <button class="tetris-close" id="bhClose" aria-label="Sluiten">×</button>
+      </div>
+      ${tabs.length>1?`<div class="beheer-tabs manual-tabs">${tabs.map(t=>`<a class="beheer-tab ${t.key===tab?"active":""}" data-mtab="${t.key}">${t.label}</a>`).join("")}</div>`:""}
+      <div class="modes-body">${bodyFor(tab)}</div>
+      <div class="modes-foot"><button class="btn btn-primary btn-sm" id="bhOk">Sluit</button></div>
+    </div>`;
+    overlay.querySelector("#bhClose").onclick=close;
+    overlay.querySelector("#bhOk").onclick=close;
+    overlay.querySelectorAll("[data-mtab]").forEach(a=>a.onclick=()=>{ tab=a.dataset.mtab; render(); });
+  };
   const close=()=>{ overlay.remove(); window.removeEventListener("keydown",onKey); };
   const onKey=e=>{ if(e.key==="Escape") close(); };
-  overlay.querySelector("#bhClose").onclick=close;
-  overlay.querySelector("#bhOk").onclick=close;
+  document.body.appendChild(overlay);
+  render();
   overlay.addEventListener("click",e=>{ if(e.target===overlay) close(); });
   window.addEventListener("keydown",onKey);
 }
+// Back-compat: de beheer-knop opent de handleiding op de juiste tab.
+function openBeheerManual(){ openHandleiding(isEditor()?"beheer":"gebruiker"); }
 
 /* ============================================================
    MELDINGEN — nieuwe reacties bij vragen waar jij op reageerde
@@ -5965,6 +5995,58 @@ function shouldLogVisit(){
     return true;
   }catch(e){ return true; }
 }
+/* ============================================================
+   ENGAGEMENT-POPUP — 1× per dag aansporen om fouten te signaleren.
+   Verdwijnt zodra de gebruiker ≥5 reacties heeft geplaatst (die snapt het al).
+   ============================================================ */
+const ENGAGE_SEEN_KEY = () => `quiztet_engage_seen_${(ME&&ME.id)||""}`;
+function engageSeenToday(){
+  try{
+    const d=new Date();
+    const today=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    return { seen: localStorage.getItem(ENGAGE_SEEN_KEY())===today, mark:()=>{ try{ localStorage.setItem(ENGAGE_SEEN_KEY(), today); }catch(e){} } };
+  }catch(e){ return { seen:true, mark:()=>{} }; }
+}
+async function maybeShowEngagementPopup(){
+  if(!ME) return;
+  const day=engageSeenToday();
+  if(day.seen) return;                         // vandaag al getoond
+  // Aantal reacties van deze gebruiker — vanaf 5 tonen we het niet meer.
+  let count=0;
+  try{ const { count:c } = await sb.from("flags").select("*",{count:"exact",head:true}).eq("user_id",ME.id); count=c||0; }
+  catch(e){ /* bij twijfel niet blokkeren; toon gewoon */ }
+  day.mark();                                  // markeer sowieso: max 1 keer per dag
+  if(count>=5) return;                         // ervaren melder — niet meer tonen
+  showEngagementPopup();
+}
+function showEngagementPopup(){
+  const overlay=document.createElement("div");
+  overlay.className="modes-overlay";
+  overlay.innerHTML=`<div class="modes-modal engage-modal" role="dialog" aria-label="Help de quiz juist te houden">
+    <div class="modes-hd">
+      <div class="modes-title">${ICON.flag} Help de quiz juist te houden</div>
+      <button class="tetris-close" id="engClose" aria-label="Sluiten">×</button>
+    </div>
+    <div class="modes-body">
+      <p>De vragen en antwoorden worden nooit "af" — wetgeving verandert en soms sluipt er een fout in.</p>
+      <p><strong>Kom je een fout antwoord tegen, twijfel je, of wil je iets verduidelijken? Signaleer het.</strong> Onder elke vraag kan je na je antwoord een reactie geven: <span class="pill fout">fout</span>, <span class="pill twijfel">twijfel</span>, <span class="pill juist">juist</span> of <span class="pill commentaar">commentaar</span>.</p>
+      <p class="muted">Dat is de <strong>enige</strong> manier om de quiz up-to-date en betrouwbaar te houden — voor jezelf én voor iedereen die na jou oefent.</p>
+    </div>
+    <div class="modes-foot" style="display:flex;gap:.5rem;justify-content:flex-end">
+      <button class="btn btn-ghost btn-sm" id="engManual">${ICON.info} Lees de handleiding</button>
+      <button class="btn btn-primary btn-sm" id="engOk">Begrepen</button>
+    </div>
+  </div>`;
+  const close=()=>{ overlay.remove(); window.removeEventListener("keydown",onKey); };
+  const onKey=e=>{ if(e.key==="Escape") close(); };
+  document.body.appendChild(overlay);
+  overlay.querySelector("#engClose").onclick=close;
+  overlay.querySelector("#engOk").onclick=close;
+  overlay.querySelector("#engManual").onclick=()=>{ close(); openHandleiding("gebruiker"); };
+  overlay.addEventListener("click",e=>{ if(e.target===overlay) close(); });
+  window.addEventListener("keydown",onKey);
+}
+
 async function boot(){
   renderLastUpdate();
   if(!sb){ document.getElementById("appHeader").hidden=true; route(); return; }
@@ -5974,6 +6056,7 @@ async function boot(){
   if(ME) loadGamesConfig();
   route();
   if(ME) refreshNotifyBadge();
+  if(ME) maybeShowEngagementPopup();
 }
 if(sb){ sb.auth.onAuthStateChange((_e,_s)=>{ /* sessiewissels */ }); }
 boot();
