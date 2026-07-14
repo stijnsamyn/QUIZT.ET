@@ -224,6 +224,10 @@ const ICON = {
   check: `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg>`,
   cross: `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg>`,
   info: `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><circle cx="12" cy="7.7" r="0.6" fill="currentColor"/></svg>`,
+  list: `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>`,
+  question: `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.4 9.3a2.6 2.6 0 1 1 3.5 2.4c-.8.3-1.4.9-1.4 1.9"/><circle cx="12" cy="16.7" r="0.6" fill="currentColor"/></svg>`,
+  warn: `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5 21 19H3z"/><path d="M12 10v4"/><circle cx="12" cy="16.7" r="0.6" fill="currentColor"/></svg>`,
+  doc: `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>`,
 };
 // info-icoon met hover-tooltip
 function infoTip(text){ return `<span class="infotip" tabindex="0" data-tip="${esc(text)}">${ICON.info}</span>`; }
@@ -3129,11 +3133,19 @@ function overzichtTableUI(content, quizId, quiz, questions, flags){
     <div class="spread" style="margin-top:.6rem;align-items:center;gap:.6rem;flex-wrap:wrap">
       <div class="filterbar" style="margin:0">
         <span class="muted">Filter:</span>
-        ${[["alle","alle"],["geflagd","geflagd"],["fout","fout"],["twijfel","twijfel"],["juist","juist"],["open","open"],["nietgevalideerd","niet gevalideerd"]].map(([f,l])=>`<button class="chip-toggle" data-filter="${f}">${l}</button>`).join("")}
+        ${[
+          ["alle","Alle vragen",ICON.list],
+          ["geflagd","Geflagd — heeft reacties",ICON.flag],
+          ["fout","Als 'fout' gemeld",ICON.cross],
+          ["twijfel","Als 'twijfel' gemeld",ICON.question],
+          ["juist","Als 'juist' bevestigd",ICON.check],
+          ["open","Met open reacties",ICON.chat],
+          ["nietgevalideerd","Nog niet gevalideerd",ICON.warn],
+        ].map(([f,l,ic])=>`<button class="chip-toggle chip-icon" data-filter="${f}" title="${l}" aria-label="${l}">${ic}</button>`).join("")}
       </div>
       <div style="display:flex;align-items:center;gap:.5rem;margin-left:auto">
         <input id="ovSearch" type="search" class="ov-search" placeholder="Zoek in vragen en antwoorden…">
-        <button class="btn btn-ghost btn-sm" id="btnExportPdf">📄 Exporteer PDF</button>
+        <button class="btn btn-ghost btn-sm chip-icon" id="btnExportPdf" title="Exporteer als PDF" aria-label="Exporteer als PDF">${ICON.doc}</button>
       </div>
     </div>
     <div class="card" style="padding:.3rem .3rem;margin-top:.8rem">

@@ -570,6 +570,18 @@ details.fg-card>summary::-webkit-details-marker{display:none}
 .chip-i:hover{opacity:1}
 .chip-toggle.active .chip-i{opacity:.85}
 .chip-i .ico{width:12px;height:12px}
+/* Icoon-variant van chip-toggle (filters als iconen met tooltip) */
+.chip-icon{padding:.4rem;min-width:2.1rem;justify-content:center}
+.chip-icon .ico{width:1.15rem;height:1.15rem}
+.chip-icon:not(.active)[data-filter="fout"],
+.chip-icon:not(.active)[data-filter="nietgevalideerd"]{color:var(--wrong)}
+.chip-icon:not(.active)[data-filter="juist"]{color:var(--correct)}
+.chip-icon:not(.active)[data-filter="twijfel"]{color:var(--warn)}
+.chip-icon:not(.active)[data-filter="geflagd"],
+.chip-icon:not(.active)[data-filter="open"]{color:var(--accent-dark)}
+/* Export-icoonknop naast het zoekvak */
+button.chip-icon.btn{min-width:2.2rem;padding:.4rem}
+button.chip-icon.btn .ico{width:1.15rem;height:1.15rem}
 .empty{text-align:center;color:var(--text-muted);padding:2.5rem}
 .inline-edit{display:flex;flex-direction:column;gap:.3rem}
 
