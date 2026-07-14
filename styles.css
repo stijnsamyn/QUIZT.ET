@@ -538,6 +538,11 @@ details.fg-card>summary::-webkit-details-marker{display:none}
 .kpi-val{font-size:1.5rem;font-weight:800;color:var(--ink);line-height:1.1}
 .kpi-lab{font-size:.78rem;color:var(--text-muted);margin-top:.2rem}
 .kpi-sub{font-size:.7rem;color:var(--text-muted);margin-top:.15rem}
+.kpi-link{cursor:pointer;transition:border-color .12s,box-shadow .12s}
+.kpi-link:hover{border-color:var(--accent);box-shadow:var(--shadow-md)}
+.kpi-warn{border-color:var(--wrong-soft);background:linear-gradient(0deg,var(--wrong-soft),transparent 70%)}
+.kpi-warn .kpi-val{color:var(--wrong)}
+.kpis-beheer{margin-top:1rem}
 .chart{width:100%;height:auto;display:block}
 .two-col{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
 @media(max-width:640px){.two-col{grid-template-columns:1fr}}

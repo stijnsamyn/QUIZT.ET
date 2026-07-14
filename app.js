@@ -4509,19 +4509,42 @@ async function viewBeheer(tab){
 
   const content=document.getElementById("beheerContent");
   if(tab==="quizzen"){
+    // Open reacties per quiz (voor de badges op elke quizrij)
+    const flagsPerQuiz={};
+    (openFlags||[]).forEach(f=>{ const q=qmap[f.question_id]; if(q){ (flagsPerQuiz[q.quiz_id]=flagsPerQuiz[q.quiz_id]||new Set()).add(f.question_id); } });
+    const conceptCount=(quizzes||[]).filter(q=>q.status!=="gepubliceerd").length;
+    const pubCount=(quizzes||[]).filter(q=>q.status==="gepubliceerd").length;
+    const tiles=[
+      { val:impactedQuestionCount, lab:"Vragen met open reacties", sub:`${flagCount} reactie${flagCount===1?"":"s"} te bekijken`, nav:"#/beheer/flags", warn:impactedQuestionCount>0 },
+      { val:conceptCount, lab:"Concept-quizzen", sub:"nog niet gepubliceerd" },
+      { val:pubCount, lab:"Gepubliceerd", sub:"zichtbaar voor spelers" },
+      { val:USER_COUNT!=null?USER_COUNT:"…", lab:"Gebruikers", sub:"statistiek & rollen", nav:"#/beheer/gebruikers" },
+    ];
     content.innerHTML=`
-      <div class="stack" style="margin-top:1rem">${(quizzes||[]).map(q=>`
+      <div class="kpis kpis-beheer">${tiles.map(t=>`
+        <div class="kpi ${t.nav?"kpi-link":""} ${t.warn?"kpi-warn":""}" ${t.nav?`data-nav="${t.nav}"`:""}>
+          <div class="kpi-val">${t.val}</div>
+          <div class="kpi-lab">${t.lab}</div>
+          <div class="kpi-sub">${t.sub}</div>
+        </div>`).join("")}
+      </div>
+      <h2>Quizzen</h2>
+      <div class="stack">${(quizzes||[]).map(q=>{
+        const rf=flagsPerQuiz[q.id]?flagsPerQuiz[q.id].size:0;
+        return `
         <div class="card quiz-row"><div class="spread quiz-row-spread">
           <div class="quiz-row-info">
             <strong>${esc(q.title)}</strong> <span class="badge ${q.status==="gepubliceerd"?"pub":"concept"}">${q.status}</span>
+            ${rf?`<a class="count-chip" data-nav="#/beheer/quiz/${q.id}/reacties" title="${rf} vraag/vragen met open reacties" style="margin-left:.4rem;text-decoration:none">${ICON.flag} ${rf}</a>`:""}
             <div class="muted quiz-row-desc">${esc(q.description||"")}</div>
           </div>
           <div class="btnrow quiz-row-btns">
             <button class="btn btn-ghost btn-sm" data-edit="${q.id}">Bewerken</button>
             <button class="btn btn-ghost btn-sm" data-pub="${q.id}" data-status="${q.status}">${q.status==="gepubliceerd"?"Terug naar concept":"Publiceren"}</button>
             <button class="btn btn-danger btn-sm" data-del="${q.id}">Verwijderen</button>
-          </div></div></div>`).join("")||`<p class="muted">Nog geen quizzen.</p>`}
+          </div></div></div>`;}).join("")||`<p class="muted">Nog geen quizzen.</p>`}
       </div>`;
+    content.querySelectorAll("[data-nav]").forEach(a=>a.onclick=()=>go(a.dataset.nav));
     content.querySelectorAll("[data-edit]").forEach(b=>b.onclick=()=>go("#/beheer/quiz/"+b.dataset.edit));
     content.querySelectorAll("[data-pub]").forEach(b=>b.onclick=async()=>{
       const ns=b.dataset.status==="gepubliceerd"?"concept":"gepubliceerd";
