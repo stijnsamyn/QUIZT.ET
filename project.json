@@ -1,0 +1,8 @@
+{
+  "naam": "Quiztet",
+  "beschrijving": "Quiz-app met vragenbeheer. Statische pagina achter een lokaal servertje: via file:// is de herkomst 'null' en weigert Supabase de aanmelding.",
+  "type": "server",
+  "start": ["python3", "-m", "http.server", "8020", "--bind", "127.0.0.1"],
+  "poort": 8020,
+  "autostart": false
+}
