@@ -206,6 +206,8 @@ document.addEventListener("input", e=>{
 const CFG = window.CONFIG || {};
 const configOk = CFG.SUPABASE_URL && !CFG.SUPABASE_URL.startsWith("VUL_") &&
                  CFG.SUPABASE_ANON_KEY && !CFG.SUPABASE_ANON_KEY.startsWith("VUL_");
+// Komt de gebruiker binnen via een reset-link? Lees dat vóór de client de URL opruimt.
+let pwRecovery = /type=recovery/.test(location.hash);
 const sb = configOk ? window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY) : null;
 
 /* ---------- State ---------- */
@@ -535,7 +537,7 @@ async function viewLogin(){
   document.getElementById("forgotLink").onclick=async()=>{
     const email=document.getElementById("email").value.trim();
     if(!email) return toast("Vul eerst je e-mailadres in","err");
-    const { error }=await sb.auth.resetPasswordForEmail(email);
+    const { error }=await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin+location.pathname });
     if(error) return toast(error.message,"err");
     toast("Als e-mail is ingesteld, is er een reset-link verstuurd.","ok");
   };
@@ -6564,6 +6566,38 @@ function showEngagementPopup(){
   window.addEventListener("keydown",onKey);
 }
 
+function showRecoveryPopup(){
+  if(document.getElementById("recPw1")) return;
+  const overlay=document.createElement("div");
+  overlay.className="modes-overlay";
+  overlay.innerHTML=`<div class="modes-modal" role="dialog" aria-label="Nieuw wachtwoord instellen">
+    <div class="modes-hd">
+      <div class="modes-title">Nieuw wachtwoord instellen</div>
+      <button class="tetris-close" id="recClose" aria-label="Sluiten">×</button>
+    </div>
+    <div class="modes-body">
+      <p>Je bent ingelogd via de reset-link. Kies nu een nieuw wachtwoord.</p>
+      <label>Nieuw wachtwoord</label><input id="recPw1" type="password" autocomplete="new-password">
+      <label>Herhaal</label><input id="recPw2" type="password" autocomplete="new-password">
+    </div>
+    <div class="modes-foot" style="display:flex;gap:.5rem;justify-content:flex-end">
+      <button class="btn btn-primary btn-sm" id="recSave">Opslaan</button>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+  const close=()=>overlay.remove();
+  overlay.querySelector("#recClose").onclick=close;
+  overlay.querySelector("#recSave").onclick=async()=>{
+    const a=overlay.querySelector("#recPw1").value, b=overlay.querySelector("#recPw2").value;
+    if(a.length<6) return toast("Minstens 6 tekens","err");
+    if(a!==b) return toast("Wachtwoorden komen niet overeen","err");
+    const { error }=await sb.auth.updateUser({ password:a });
+    if(error) return toast(error.message,"err");
+    toast("Wachtwoord gewijzigd","ok"); close();
+  };
+  overlay.querySelector("#recPw1").focus();
+}
+
 async function boot(){
   renderLastUpdate();
   if(!sb){ document.getElementById("appHeader").hidden=true; route(); return; }
@@ -6573,7 +6607,8 @@ async function boot(){
   if(ME) loadGamesConfig();
   route();
   if(ME) refreshNotifyBadge();
-  if(ME) maybeShowEngagementPopup();
+  if(ME && pwRecovery){ pwRecovery=false; showRecoveryPopup(); }
+  else if(ME) maybeShowEngagementPopup();
 }
-if(sb){ sb.auth.onAuthStateChange((_e,_s)=>{ /* sessiewissels */ }); }
+if(sb){ sb.auth.onAuthStateChange((e,_s)=>{ if(e==="PASSWORD_RECOVERY" && ME) showRecoveryPopup(); }); }
 boot();
