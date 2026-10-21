@@ -30,3 +30,8 @@ CREATE POLICY "duprev_update" ON duplicate_reviews
 CREATE POLICY "duprev_delete" ON duplicate_reviews
   FOR DELETE TO authenticated
   USING (EXISTS (SELECT 1 FROM profiles p WHERE p.id = auth.uid() AND p.role IN ('beheerder','admin')));
+
+-- Expliciete grants: Supabase geeft nieuwe tabellen in public sinds 30-10-2026
+-- geen automatische Data API-toegang meer (ook niet bij db reset of branches).
+GRANT SELECT, INSERT, UPDATE, DELETE ON duplicate_reviews TO authenticated;
+GRANT ALL ON duplicate_reviews TO service_role;

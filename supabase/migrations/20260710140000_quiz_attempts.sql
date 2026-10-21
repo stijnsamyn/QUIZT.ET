@@ -32,3 +32,9 @@ CREATE POLICY "quiz_attempts_delete_own" ON quiz_attempts
 
 CREATE INDEX IF NOT EXISTS quiz_attempts_user_quiz_idx
   ON quiz_attempts (user_id, quiz_id, submitted_at DESC);
+
+-- Expliciete grants: Supabase geeft nieuwe tabellen in public sinds 30-10-2026
+-- geen automatische Data API-toegang meer (ook niet bij db reset of branches).
+GRANT SELECT, INSERT, UPDATE, DELETE ON quiz_attempts TO authenticated;
+GRANT ALL ON quiz_attempts TO service_role;
+GRANT USAGE, SELECT ON SEQUENCE quiz_attempts_id_seq TO authenticated, service_role;

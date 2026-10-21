@@ -21,3 +21,10 @@ CREATE POLICY "game_scores_insert_own" ON game_scores
 
 CREATE INDEX IF NOT EXISTS game_scores_game_score_idx
   ON game_scores (game, score DESC, created_at DESC);
+
+-- Expliciete grants: Supabase geeft nieuwe tabellen in public sinds 30-10-2026
+-- geen automatische Data API-toegang meer (ook niet bij db reset of branches).
+GRANT SELECT ON game_scores TO anon;
+GRANT SELECT, INSERT ON game_scores TO authenticated;
+GRANT ALL ON game_scores TO service_role;
+GRANT USAGE, SELECT ON SEQUENCE game_scores_id_seq TO authenticated, service_role;
