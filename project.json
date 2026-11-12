@@ -1,16 +1,6 @@
 {
   "naam": "Quiztet",
-  "beschrijving": "Quiz-app met vragenbeheer. Online op GitHub Pages (repo nog publiek, te beslissen); lokaal een servertje omdat Supabase file:// weigert.",
-  "type": "server",
-  "start": [
-    "python3",
-    "-m",
-    "http.server",
-    "8020",
-    "--bind",
-    "127.0.0.1"
-  ],
-  "poort": 8020,
-  "autostart": false,
+  "beschrijving": "Quiz-app met vragenbeheer. Alleen online op GitHub Pages (Supabase als achterkant); een push naar main staat binnen een minuut live.",
+  "type": "map",
   "online": "https://stijnsamyn.github.io/QUIZT.ET/"
 }
