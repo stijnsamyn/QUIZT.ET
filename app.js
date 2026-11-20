@@ -534,12 +534,23 @@ async function viewLogin(){
     document.getElementById("forgotRow").hidden = m!=="login";
     document.getElementById("submitBtn").textContent = m==="reg"?"Account aanmaken":"Inloggen";
   };
+  // Wachtwoord vergeten: Supabase mailt een herstelcode (geen link). Links in mails naar
+  // @police.belgium.eu worden door de mailscanner van Microsoft vooraf geopend, waardoor een
+  // eenmalige link al "opgebruikt" is voor de gebruiker erop klikt. Een code kan dat niet.
   document.getElementById("forgotLink").onclick=async()=>{
     const email=document.getElementById("email").value.trim();
     if(!email) return toast("Vul eerst je e-mailadres in","err");
-    const { error }=await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin+location.pathname });
-    if(error) return toast(error.message,"err");
-    toast("Als e-mail is ingesteld, is er een reset-link verstuurd.","ok");
+    const link=document.getElementById("forgotLink");
+    if(link.dataset.busy) return; link.dataset.busy="1";
+    try{
+      const { error }=await sb.auth.resetPasswordForEmail(email);
+      if(error){
+        if(error.code==="over_email_send_rate_limit" || error.status===429){
+          toast("Er is net al een code verstuurd. Gebruik die, of wacht even voor je een nieuwe vraagt.","err");
+        }else return toast(error.message,"err");
+      }else toast("Als dit adres een account heeft, is er een herstelcode gemaild.","ok");
+      showRecoveryCodeStep(email);
+    }finally{ delete link.dataset.busy; }
   };
   document.getElementById("cohort").onchange=e=>{
     document.getElementById("cohortOther").hidden = e.target.value!=="__ander";
@@ -6566,6 +6577,48 @@ function showEngagementPopup(){
   window.addEventListener("keydown",onKey);
 }
 
+/* Stap 2 van "wachtwoord vergeten": de gemailde herstelcode invullen. */
+function showRecoveryCodeStep(email){
+  const old=document.getElementById("recCodeOverlay"); if(old) old.remove();
+  const overlay=document.createElement("div");
+  overlay.className="modes-overlay"; overlay.id="recCodeOverlay";
+  overlay.innerHTML=`<div class="modes-modal" role="dialog" aria-label="Herstelcode invullen">
+    <div class="modes-hd">
+      <div class="modes-title">Herstelcode invullen</div>
+      <button class="tetris-close" id="rcClose" aria-label="Sluiten">×</button>
+    </div>
+    <div class="modes-body">
+      <p>We hebben een herstelcode gemaild naar <strong>${esc(email)}</strong>. Vul die hieronder in. Kijk ook in je spam als je niets ziet.</p>
+      <label>Herstelcode</label>
+      <input id="rcCode" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456" style="letter-spacing:.3em;font-size:1.2rem">
+    </div>
+    <div class="modes-foot" style="display:flex;gap:.5rem;justify-content:flex-end">
+      <button class="btn btn-sm" id="rcCancel">Annuleren</button>
+      <button class="btn btn-primary btn-sm" id="rcOk">Bevestigen</button>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+  const close=()=>overlay.remove();
+  overlay.querySelector("#rcClose").onclick=close;
+  overlay.querySelector("#rcCancel").onclick=close;
+  const input=overlay.querySelector("#rcCode"), ok=overlay.querySelector("#rcOk");
+  const submit=async()=>{
+    const token=input.value.replace(/\D/g,"");
+    if(token.length<6) return toast("Vul de volledige code in","err");
+    ok.disabled=true;
+    try{
+      const { error }=await sb.auth.verifyOtp({ email, token, type:"recovery" });
+      if(error) return toast(/expired|invalid/i.test(error.message)?"Deze code is ongeldig of verlopen. Vraag een nieuwe aan.":error.message,"err");
+      close();
+      pwRecovery=true;
+      await boot();
+    }finally{ ok.disabled=false; }
+  };
+  ok.onclick=submit;
+  input.addEventListener("keydown",e=>{ if(e.key==="Enter") submit(); });
+  input.focus();
+}
+
 function showRecoveryPopup(){
   if(document.getElementById("recPw1")) return;
   const overlay=document.createElement("div");
@@ -6576,7 +6629,7 @@ function showRecoveryPopup(){
       <button class="tetris-close" id="recClose" aria-label="Sluiten">×</button>
     </div>
     <div class="modes-body">
-      <p>Je bent ingelogd via de reset-link. Kies nu een nieuw wachtwoord.</p>
+      <p>Je bent ingelogd. Kies nu een nieuw wachtwoord.</p>
       <label>Nieuw wachtwoord</label><input id="recPw1" type="password" autocomplete="new-password">
       <label>Herhaal</label><input id="recPw2" type="password" autocomplete="new-password">
     </div>
